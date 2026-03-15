@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Neon-Glow Filter -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+    <filter id="glow-strong" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+    <!-- Gradient für den Cube -->
+    <linearGradient id="cube-face-top" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e;stop-opacity:0.9"/>
+      <stop offset="100%" style="stop-color:#0f0f1a;stop-opacity:0.95"/>
+    </linearGradient>
+    <linearGradient id="cube-face-left" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0d0d18;stop-opacity:0.95"/>
+      <stop offset="100%" style="stop-color:#060610;stop-opacity:1"/>
+    </linearGradient>
+    <linearGradient id="cube-face-right" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#12122a;stop-opacity:0.9"/>
+      <stop offset="100%" style="stop-color:#08081a;stop-opacity:1"/>
+    </linearGradient>
+    <!-- Neural-Glow Gradient -->
+    <radialGradient id="neural-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#00f0ff;stop-opacity:0.8"/>
+      <stop offset="40%" style="stop-color:#a855f7;stop-opacity:0.4"/>
+      <stop offset="100%" style="stop-color:#a855f7;stop-opacity:0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" fill="#0a0a0f" rx="64"/>
+
+  <!-- Outer Glow Ring -->
+  <circle cx="256" cy="240" r="160" fill="none" stroke="#00f0ff" stroke-width="0.5" opacity="0.3" filter="url(#glow-strong)"/>
+
+  <!-- Isometric Cube -->
+  <g transform="translate(256, 240)">
+    <!-- Top face -->
+    <polygon points="0,-100 120,-40 0,20 -120,-40" fill="url(#cube-face-top)" stroke="#00f0ff" stroke-width="1.5" filter="url(#glow)"/>
+    <!-- Left face -->
+    <polygon points="-120,-40 0,20 0,140 -120,80" fill="url(#cube-face-left)" stroke="#00f0ff" stroke-width="1.5" filter="url(#glow)"/>
+    <!-- Right face -->
+    <polygon points="120,-40 0,20 0,140 120,80" fill="url(#cube-face-right)" stroke="#00f0ff" stroke-width="1.5" filter="url(#glow)"/>
+
+    <!-- Neural Center Glow -->
+    <circle cx="0" cy="20" r="45" fill="url(#neural-glow)" filter="url(#glow-strong)"/>
+
+    <!-- Neural Network Nodes (inside cube) -->
+    <g opacity="0.9" filter="url(#glow)">
+      <!-- Center node -->
+      <circle cx="0" cy="20" r="6" fill="#00f0ff"/>
+      <!-- Top nodes -->
+      <circle cx="-25" cy="-15" r="3.5" fill="#a855f7"/>
+      <circle cx="25" cy="-15" r="3.5" fill="#a855f7"/>
+      <circle cx="0" cy="-35" r="3.5" fill="#a855f7"/>
+      <!-- Bottom nodes -->
+      <circle cx="-30" cy="45" r="3" fill="#a855f7" opacity="0.7"/>
+      <circle cx="30" cy="45" r="3" fill="#a855f7" opacity="0.7"/>
+      <circle cx="0" cy="60" r="3" fill="#a855f7" opacity="0.7"/>
+      <!-- Side nodes -->
+      <circle cx="-45" cy="15" r="2.5" fill="#00f0ff" opacity="0.5"/>
+      <circle cx="45" cy="15" r="2.5" fill="#00f0ff" opacity="0.5"/>
+
+      <!-- Connections -->
+      <line x1="0" y1="20" x2="-25" y2="-15" stroke="#00f0ff" stroke-width="1" opacity="0.6"/>
+      <line x1="0" y1="20" x2="25" y2="-15" stroke="#00f0ff" stroke-width="1" opacity="0.6"/>
+      <line x1="0" y1="20" x2="0" y2="-35" stroke="#00f0ff" stroke-width="1" opacity="0.6"/>
+      <line x1="0" y1="20" x2="-30" y2="45" stroke="#a855f7" stroke-width="0.8" opacity="0.4"/>
+      <line x1="0" y1="20" x2="30" y2="45" stroke="#a855f7" stroke-width="0.8" opacity="0.4"/>
+      <line x1="0" y1="20" x2="0" y2="60" stroke="#a855f7" stroke-width="0.8" opacity="0.4"/>
+      <line x1="0" y1="20" x2="-45" y2="15" stroke="#00f0ff" stroke-width="0.6" opacity="0.3"/>
+      <line x1="0" y1="20" x2="45" y2="15" stroke="#00f0ff" stroke-width="0.6" opacity="0.3"/>
+      <!-- Inter-node connections -->
+      <line x1="-25" y1="-15" x2="25" y2="-15" stroke="#a855f7" stroke-width="0.6" opacity="0.3"/>
+      <line x1="-25" y1="-15" x2="0" y2="-35" stroke="#a855f7" stroke-width="0.6" opacity="0.3"/>
+      <line x1="25" y1="-15" x2="0" y2="-35" stroke="#a855f7" stroke-width="0.6" opacity="0.3"/>
+      <line x1="-30" y1="45" x2="30" y2="45" stroke="#a855f7" stroke-width="0.5" opacity="0.2"/>
+    </g>
+
+    <!-- Data flow particles (decorative dots on edges) -->
+    <g opacity="0.6">
+      <circle cx="-60" cy="-20" r="1.5" fill="#00f0ff">
+        <animate attributeName="opacity" values="0;1;0" dur="2s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="60" cy="-20" r="1.5" fill="#00f0ff">
+        <animate attributeName="opacity" values="0;1;0" dur="2s" begin="0.7s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="0" cy="80" r="1.5" fill="#a855f7">
+        <animate attributeName="opacity" values="0;1;0" dur="2s" begin="1.3s" repeatCount="indefinite"/>
+      </circle>
+    </g>
+  </g>
+
+  <!-- Text: DBAI -->
+  <text x="256" y="420" text-anchor="middle" font-family="'JetBrains Mono', 'Fira Code', monospace" font-size="56" font-weight="700" fill="#00f0ff" filter="url(#glow)" letter-spacing="8">
+    DBAI
+  </text>
+
+  <!-- Subtext -->
+  <text x="256" y="455" text-anchor="middle" font-family="'Inter', sans-serif" font-size="14" fill="#8888aa" letter-spacing="4">
+    GHOST IN THE DATABASE
+  </text>
+</svg>

@@ -1,0 +1,86 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+.venv/
+venv/
+env/
+pip-wheel-metadata/
+
+# Pytest / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Node / Vite / React
+node_modules/
+frontend/dist/
+frontend/build/
+frontend/.vite/
+.npm/
+
+# Secrets & Credentials
+*.env
+.env
+.env.*
+!.env.example
+pass.md
+*.pem
+*.key
+*.crt
+*.p12
+
+# Backups
+*.bak
+*.backup
+*.orig
+
+# Uvicorn / Gunicorn
+*.pid
+*.sock
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+.directory
+
+# Editor
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# LanceDB / Vector DBs
+*.lance/
+lancedb/
+*.ldb
+
+# Large SQL dumps (optional)
+# schema/dump_*.sql
+
+# Logs
+*.log
+logs/
+
+# Kompilierte C-Binaries
+*.o
+*.so
+*.a
+*.out
+
+# Vite Build Cache
+frontend/.vite/
+
+# Python cache in subdirs
+bridge/__pycache__/
+web/__pycache__/
