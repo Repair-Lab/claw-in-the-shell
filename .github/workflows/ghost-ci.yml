@@ -52,8 +52,12 @@ jobs:
             xargs -0 python3 -m py_compile
           echo "✅ Alle Python-Dateien syntaktisch korrekt"
 
-      - name: Abhängigkeiten installieren
-        run: pip install -r requirements.txt 2>/dev/null || true
+      - name: Kritische Abhängigkeiten installieren
+        run: |
+          pip install psycopg2-binary psutil toml fastapi uvicorn PyJWT bcrypt websockets
+          # Optionale Pakete (GPU/LLM — können in CI fehlen)
+          pip install nvidia-ml-py3 || true
+          pip install llama-cpp-python || true
 
       - name: Import-Check (kritische Module)
         run: |
