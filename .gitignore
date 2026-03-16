@@ -84,3 +84,4 @@ frontend/.vite/
 # Python cache in subdirs
 bridge/__pycache__/
 web/__pycache__/
+dist/

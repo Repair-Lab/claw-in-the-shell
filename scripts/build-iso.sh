@@ -33,6 +33,10 @@ while [[ $# -gt 0 ]]; do
         --arch)       BASE="arch";       shift ;;
         --debian)     BASE="debian";     shift ;;
         --minimal)    INCLUDE_NVIDIA=false; shift ;;
+        --arm64|--rpi)
+            echo "→ Für ARM64/Raspberry Pi: verwende scripts/build-arm-image.sh"
+            echo "  sudo bash scripts/build-arm-image.sh $@"
+            exit 0 ;;
         --output)     OUTPUT_DIR="$2";   shift 2 ;;
         --name)       ISO_NAME="$2";     shift 2 ;;
         *)            echo "Unbekannte Option: $1"; exit 1 ;;
