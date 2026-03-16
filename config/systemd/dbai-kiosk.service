@@ -1,0 +1,64 @@
+# =============================================================================
+# DBAI — Kiosk Browser (Chromium Vollbild)
+# =============================================================================
+# Öffnet Chromium im Kiosk-Modus — DAS ist der "Desktop".
+# Kein Window-Manager, kein GNOME/KDE. Nur der Browser. Fullscreen.
+# Linux darunter bleibt komplett unsichtbar.
+# =============================================================================
+
+[Unit]
+Description=DBAI — Kiosk Browser (Der sichtbare Desktop)
+After=dbai-web.service
+Requires=dbai-web.service
+# Warte auf grafische Umgebung
+After=graphical.target
+
+[Service]
+Type=simple
+User=worker
+Group=worker
+WorkingDirectory=/home/worker
+
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/worker/.Xauthority
+
+# Warte kurz bis Web-Server bereit ist
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 30); do curl -sf http://localhost:3000/ > /dev/null && break || sleep 1; done'
+
+ExecStart=/usr/bin/chromium \
+    --kiosk \
+    --app=http://localhost:3000 \
+    --no-first-run \
+    --disable-translate \
+    --disable-infobars \
+    --disable-suggestions-service \
+    --disable-save-password-bubble \
+    --disable-session-crashed-bubble \
+    --disable-component-update \
+    --noerrdialogs \
+    --no-default-browser-check \
+    --autoplay-policy=no-user-gesture-required \
+    --enable-features=OverlayScrollbar \
+    --window-size=1920,1080 \
+    --window-position=0,0 \
+    --force-device-scale-factor=1 \
+    --disable-gpu-sandbox \
+    --enable-gpu-rasterization \
+    --enable-zero-copy \
+    --ignore-gpu-blocklist \
+    --user-data-dir=/home/worker/.dbai-browser
+
+Restart=always
+RestartSec=2
+
+# Sicherheit
+ProtectSystem=strict
+ReadWritePaths=/home/worker/.dbai-browser /tmp
+DeviceAllow=/dev/dri/* rwm
+PrivateTmp=false
+
+StandardOutput=null
+StandardError=append:/var/log/dbai/kiosk-error.log
+
+[Install]
+WantedBy=dbai.target

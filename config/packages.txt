@@ -1,0 +1,91 @@
+# =============================================================================
+# DBAI — Minimale Linux-Paketliste
+# =============================================================================
+# Basis-Pakete für ein Bare-Metal DBAI System.
+# Format: Ein Paket pro Zeile. Kommentare mit #.
+# Kompatibel mit: Arch (pacman) / Debian (apt) / Fedora (dnf)
+# =============================================================================
+
+# ─── Kernel & Boot ───────────────────────────────────────────────
+linux
+linux-firmware
+base
+systemd
+grub
+efibootmgr
+
+# ─── Dateisystem ─────────────────────────────────────────────────
+btrfs-progs
+e2fsprogs
+dosfstools
+
+# ─── Netzwerk ────────────────────────────────────────────────────
+networkmanager
+openssh
+curl
+wget
+iproute2
+nftables
+
+# ─── PostgreSQL (Kern des OS) ────────────────────────────────────
+postgresql
+postgresql-libs
+pgvector
+
+# ─── Python Runtime ──────────────────────────────────────────────
+python
+python-pip
+python-psycopg2
+python-fastapi
+python-uvicorn
+python-pydantic
+python-aiohttp
+python-websockets
+python-toml
+python-numpy
+
+# ─── Node.js (Frontend Build) ───────────────────────────────────
+nodejs
+npm
+
+# ─── NVIDIA GPU (optional) ───────────────────────────────────────
+nvidia-dkms
+nvidia-utils
+cuda
+nvidia-container-toolkit
+
+# ─── Display / Kiosk ────────────────────────────────────────────
+xorg-server
+xorg-xinit
+xorg-xset
+chromium
+openbox
+unclutter
+
+# ─── LLM Runtime (optional) ─────────────────────────────────────
+ollama
+
+# ─── Monitoring & Tools ─────────────────────────────────────────
+htop
+nvtop
+lm_sensors
+smartmontools
+lsof
+strace
+
+# ─── Compiler (für C-Bindings) ───────────────────────────────────
+gcc
+make
+linux-headers
+
+# ─── Sicherheit ─────────────────────────────────────────────────
+sudo
+audit
+apparmor
+
+# ─── Extras ──────────────────────────────────────────────────────
+git
+tmux
+nano
+less
+man-db

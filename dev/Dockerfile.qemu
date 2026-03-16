@@ -1,0 +1,29 @@
+# =============================================================================
+# DBAI QEMU Hardware-Simulator — Dockerfile
+# =============================================================================
+# Emuliert x86-Hardware-Schichten für sichere Tests der hardware_live Injektion.
+# =============================================================================
+
+FROM python:3.11-slim-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    qemu-system-x86 \
+    qemu-utils \
+    libvirt-daemon-system \
+    ovmf \
+    procps \
+    iproute2 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir psycopg2-binary psutil toml
+
+COPY bridge/ /app/bridge/
+COPY dev/qemu/ /app/qemu/
+
+EXPOSE 5900
+
+CMD ["python3", "/app/qemu/hw_simulator.py"]

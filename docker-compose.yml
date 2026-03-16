@@ -1,0 +1,157 @@
+# =============================================================================
+# DBAI GhostShell OS — Docker Compose (Entwicklungsumgebung)
+# =============================================================================
+# Orchestriert: PostgreSQL (pgvector), Ghost-API (FastAPI), Dashboard-UI (Vite)
+#
+# Verwendung:
+#   docker compose up -d              — Alles starten
+#   docker compose up -d --build      — Neu bauen + starten
+#   docker compose logs -f ghost-api  — Logs der API folgen
+#   docker compose down               — Alles stoppen
+#   docker compose down -v            — Stoppen + Volumes löschen
+# =============================================================================
+
+services:
+  # ─── PostgreSQL + pgvector ───
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: dbai-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: dbai
+      POSTGRES_USER: dbai_system
+      POSTGRES_PASSWORD: ${DBAI_DB_PASSWORD:-dbai_dev_2026}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C.UTF-8"
+    volumes:
+      - dbai_pgdata:/var/lib/postgresql/data
+      - ./schema:/docker-entrypoint-initdb.d/schema:ro
+      - ./dev/init-db.sh:/docker-entrypoint-initdb.d/00-init.sh:ro
+      - ./config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./config/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    ports:
+      - "${DBAI_DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dbai_system -d dbai"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - dbai-net
+    shm_size: "512mb"
+    command: >
+      postgres
+        -c shared_buffers=1GB
+        -c work_mem=128MB
+        -c maintenance_work_mem=512MB
+        -c max_connections=100
+        -c wal_level=replica
+        -c max_wal_size=2GB
+        -c listen_addresses='*'
+
+  # ─── Ghost-API (FastAPI + Bridge-Module) ───
+  ghost-api:
+    build:
+      context: .
+      dockerfile: dev/Dockerfile.api
+    container_name: dbai-ghost-api
+    restart: unless-stopped
+    environment:
+      DBAI_DB_HOST: postgres
+      DBAI_DB_PORT: 5432
+      DBAI_DB_NAME: dbai
+      DBAI_DB_USER: dbai_system
+      DBAI_DB_PASSWORD: ${DBAI_DB_PASSWORD:-dbai_dev_2026}
+      DBAI_DB_RUNTIME_USER: dbai_runtime
+      DBAI_DB_RUNTIME_PASSWORD: ${DBAI_DB_RUNTIME_PASSWORD:-dbai_runtime_2026}
+      DBAI_WEB_HOST: 0.0.0.0
+      DBAI_WEB_PORT: 3000
+      DBAI_HW_SIMULATE: "true"
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./bridge:/app/bridge
+      - ./web:/app/web
+      - ./llm:/app/llm
+      - ./recovery:/app/recovery
+      - ./config:/app/config
+      - ./schema:/app/schema
+      - ./scripts:/app/scripts
+      - ./tests:/app/tests
+      - ./frontend/dist:/app/frontend/dist:ro
+    ports:
+      - "${DBAI_WEB_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - dbai-net
+
+  # ─── Dashboard-UI (Vite Dev Server mit HMR) ───
+  dashboard-ui:
+    build:
+      context: .
+      dockerfile: dev/Dockerfile.ui
+    container_name: dbai-dashboard-ui
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: http://ghost-api:3000
+    volumes:
+      - ./frontend/src:/app/frontend/src
+      - ./frontend/public:/app/frontend/public
+      - ./frontend/index.html:/app/frontend/index.html
+      - ./frontend/vite.config.js:/app/frontend/vite.config.js
+      - ./frontend/package.json:/app/frontend/package.json
+    ports:
+      - "${DBAI_UI_PORT:-5173}:5173"
+    depends_on:
+      - ghost-api
+    networks:
+      - dbai-net
+
+  # ─── QEMU Hardware-Simulator (optional) ───
+  hw-simulator:
+    build:
+      context: .
+      dockerfile: dev/Dockerfile.qemu
+    container_name: dbai-hw-simulator
+    restart: unless-stopped
+    privileged: true
+    environment:
+      DBAI_DB_HOST: postgres
+      DBAI_DB_PORT: 5432
+      DBAI_DB_NAME: dbai
+      DBAI_DB_USER: dbai_system
+      DBAI_DB_PASSWORD: ${DBAI_DB_PASSWORD:-dbai_dev_2026}
+      QEMU_CORES: ${QEMU_CORES:-2}
+      QEMU_MEMORY: ${QEMU_MEMORY:-1024}
+      QEMU_DISKS: ${QEMU_DISKS:-2}
+      QEMU_NICS: ${QEMU_NICS:-1}
+    volumes:
+      - ./bridge:/app/bridge
+      - ./dev/qemu:/app/qemu
+      - dbai_qemu_images:/var/lib/qemu/images
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - dbai-net
+    profiles:
+      - hw-sim
+
+volumes:
+  dbai_pgdata:
+    driver: local
+  dbai_qemu_images:
+    driver: local
+
+networks:
+  dbai-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

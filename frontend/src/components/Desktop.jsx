@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react'
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { api } from '../api'
 import Window from './Window'
 import SystemMonitor from './apps/SystemMonitor'
@@ -16,6 +16,24 @@ import SoftwareStore from './apps/SoftwareStore'
 import OpenClawIntegrator from './apps/OpenClawIntegrator'
 import LLMManager from './apps/LLMManager'
 import SetupWizard from './apps/SetupWizard'
+import AIWorkshop from './apps/AIWorkshop'
+import SQLExplorer from './apps/SQLExplorer'
+import WebFrame from './apps/WebFrame'
+import NodeManager from './apps/NodeManager'
+import NetworkScanner from './apps/NetworkScanner'
+import Terminal from './apps/Terminal'
+import BrowserMigration from './apps/BrowserMigration'
+import ConfigImporter from './apps/ConfigImporter'
+import WorkspaceMapper from './apps/WorkspaceMapper'
+import SynapticViewer from './apps/SynapticViewer'
+import RAGManager from './apps/RAGManager'
+import USBInstaller from './apps/USBInstaller'
+import WLANHotspot from './apps/WLANHotspot'
+import ImmutableFS from './apps/ImmutableFS'
+import AnomalyDetector from './apps/AnomalyDetector'
+import AppSandbox from './apps/AppSandbox'
+import FirewallManager from './apps/FirewallManager'
+import GhostUpdater from './apps/GhostUpdater'
 
 // App-Komponenten Registry
 const APP_COMPONENTS = {
@@ -34,23 +52,197 @@ const APP_COMPONENTS = {
   OpenClawIntegrator,
   LLMManager,
   SetupWizard,
+  AIWorkshop,
+  SQLExplorer,
+  WebFrame,
+  NodeManager,
+  NetworkScanner,
+  Terminal,
+  BrowserMigration,
+  ConfigImporter,
+  WorkspaceMapper,
+  SynapticViewer,
+  RAGManager,
+  USBInstaller,
+  WLANHotspot,
+  ImmutableFS,
+  AnomalyDetector,
+  AppSandbox,
+  FirewallManager,
+  GhostUpdater,
 }
 
+// Icon-Mapping für Netzwerkknoten
+const NODE_ICON_MAP = {
+  circle: '⭕', play: '▶️', search: '🔍', nas: '💾', phone: '📱',
+  server: '🖥️', cloud: '☁️', printer: '🖨️', camera: '📷', iot: '📡',
+  chat: '💬', message: '✉️',
+}
+
+// Icons pro Seite (Grid ~10 Spalten x 6 Reihen)
+const ICONS_PER_PAGE = 60
+
 /**
- * Desktop — Window Manager, Taskbar, Icons
+ * Desktop — Icon-Desktop mit Drag & Drop, Ordnern, Seiten und Aktualisieren-Button
  */
 export default function Desktop({ user, desktopState, onLogout }) {
   const [windows, setWindows] = useState([])
-  const [apps] = useState(desktopState?.apps || [])
+  const [apps, setApps] = useState(desktopState?.apps || [])
   const [theme] = useState(desktopState?.theme || {})
   const [nextZ, setNextZ] = useState(10)
   const desktopRef = useRef(null)
   const [clock, setClock] = useState(new Date())
+  const [refreshing, setRefreshing] = useState(false)
+  const [nodes, setNodes] = useState([])
+  const [resetConfirm, setResetConfirm] = useState(null) // node zum Zurücksetzen
+  const longPressRef = useRef(null)
+
+  // Active ghosts for taskbar
+  const [activeGhosts, setActiveGhosts] = useState(desktopState?.ghosts || [])
+
+  // ── Live System-Metriken ──
+  const [metrics, setMetrics] = useState({ cpu: 0, ram: 0, gpu: 0, gpu_temp: 0 })
+  const metricsHistory = useRef({ cpu: [], ram: [], gpu: [] })
+  const HISTORY_LEN = 20
+
+  useEffect(() => {
+    let mounted = true
+    const poll = () => {
+      api.systemMetrics().then(d => {
+        if (!mounted) return
+        const cpu = d.cpu_percent ?? d.cpu ?? 0
+        const ram = d.memory_percent ?? d.ram ?? 0
+        const gpu = d.gpu_percent ?? d.gpu_utilization ?? d.gpu ?? 0
+        const gpu_temp = d.gpu_temp ?? d.gpu_temperature ?? 0
+        setMetrics({ cpu, ram, gpu, gpu_temp })
+        const h = metricsHistory.current
+        h.cpu = [...h.cpu.slice(-(HISTORY_LEN - 1)), cpu]
+        h.ram = [...h.ram.slice(-(HISTORY_LEN - 1)), ram]
+        h.gpu = [...h.gpu.slice(-(HISTORY_LEN - 1)), gpu]
+      }).catch(() => {})
+    }
+    poll()
+    const interval = setInterval(poll, 3000)
+    return () => { mounted = false; clearInterval(interval) }
+  }, [])
+
+  // ── Desktop-Seiten (Pagination) ──
+  const [currentPage, setCurrentPage] = useState(0)
+
+  // ── Ordner-System ──
+  // folders: { [folderId]: { name, icon, items: [appId, ...] } }
+  const [folders, setFolders] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('dbai_folders') || '{}') } catch { return {} }
+  })
+  const [openFolder, setOpenFolder] = useState(null) // welcher Ordner ist offen
+
+  // ── Icon-Reihenfolge (appIds + folderIds, ohne die in Ordnern) ──
+  const [iconOrder, setIconOrder] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('dbai_icon_order') || 'null') } catch { return null }
+  })
+
+  // ── Drag & Drop ──
+  const [dragItem, setDragItem] = useState(null)      // { type: 'app'|'folder', id }
+  const [dragOverItem, setDragOverItem] = useState(null)
+  const [dropIndicator, setDropIndicator] = useState(null) // index wo eingefügt wird
+
+  // Persistenz
+  useEffect(() => {
+    localStorage.setItem('dbai_folders', JSON.stringify(folders))
+  }, [folders])
+  useEffect(() => {
+    if (iconOrder) localStorage.setItem('dbai_icon_order', JSON.stringify(iconOrder))
+  }, [iconOrder])
+
+  // Icon-Order initialisieren / synchronisieren wenn Apps + Knoten sich ändern
+  useEffect(() => {
+    const appsInFolders = new Set(Object.values(folders).flatMap(f => f.items))
+    const freeApps = apps.filter(a => !appsInFolders.has(a.app_id)).map(a => a.app_id)
+    const folderIds = Object.keys(folders).map(id => `folder:${id}`)
+    const nodeIds = nodes.map(n => `node:${n.node_key}`)
+
+    if (!iconOrder) {
+      setIconOrder([...freeApps, ...folderIds, ...nodeIds])
+    } else {
+      // Neue Apps/Knoten hinzufügen, entfernte entfernen
+      const currentIds = new Set(iconOrder)
+      const validApps = new Set(freeApps)
+      const validFolders = new Set(folderIds)
+      const validNodes = new Set(nodeIds)
+      const allValid = new Set([...validApps, ...validFolders, ...validNodes])
+
+      let updated = iconOrder.filter(id => allValid.has(id))
+      // Neue hinzufügen
+      for (const id of freeApps) {
+        if (!currentIds.has(id)) updated.push(id)
+      }
+      for (const id of folderIds) {
+        if (!currentIds.has(id)) updated.push(id)
+      }
+      for (const id of nodeIds) {
+        if (!currentIds.has(id)) updated.push(id)
+      }
+      if (updated.length !== iconOrder.length || updated.some((v, i) => v !== iconOrder[i])) {
+        setIconOrder(updated)
+      }
+    }
+  }, [apps, folders, nodes])
+
+  // Berechnete Icon-Liste für aktuelle Seite
+  const displayItems = useMemo(() => {
+    if (!iconOrder) return []
+    return iconOrder.map(id => {
+      if (id.startsWith('folder:')) {
+        const fid = id.replace('folder:', '')
+        const folder = folders[fid]
+        if (!folder) return null
+        return { type: 'folder', id: fid, name: folder.name, icon: folder.icon || '📁', items: folder.items }
+      }
+      if (id.startsWith('node:')) {
+        const nkey = id.replace('node:', '')
+        const node = nodes.find(n => n.node_key === nkey)
+        if (!node) return null
+        return { type: 'node', id: node.node_key, name: node.label, icon: NODE_ICON_MAP[node.icon_type] || '⭕', node }
+      }
+      const app = apps.find(a => a.app_id === id)
+      if (!app) return null
+      return { type: 'app', id: app.app_id, name: app.name, icon: app.icon, app }
+    }).filter(Boolean)
+  }, [iconOrder, folders, apps, nodes])
+
+  const totalPages = Math.max(1, Math.ceil(displayItems.length / ICONS_PER_PAGE))
+  const pageItems = displayItems.slice(currentPage * ICONS_PER_PAGE, (currentPage + 1) * ICONS_PER_PAGE)
+
+  // ── Aktualisieren-Funktion ──
+  const refreshDesktop = useCallback(() => {
+    setRefreshing(true)
+    Promise.all([
+      api.desktop().then(data => { if (data.apps) setApps(data.apps) }),
+      api.desktopNodes().then(data => { if (data.nodes) setNodes(data.nodes) })
+    ]).catch(() => {}).finally(() => {
+      setTimeout(() => setRefreshing(false), 400)
+    })
+  }, [])
+
+  // ── Netzwerkknoten initial laden ──
+  useEffect(() => {
+    api.desktopNodes().then(data => setNodes(data.nodes || [])).catch(() => {})
+  }, [])
 
   // Uhr
   useEffect(() => {
     const timer = setInterval(() => setClock(new Date()), 1000)
     return () => clearInterval(timer)
+  }, [])
+
+  // Ghost-Swap Events
+  useEffect(() => {
+    const handler = () => {
+      api.ghosts().then(data => setActiveGhosts(data.active_ghosts || []))
+        .catch(() => {})
+    }
+    window.addEventListener('dbai:ghost_swap', handler)
+    return () => window.removeEventListener('dbai:ghost_swap', handler)
   }, [])
 
   // Apply theme CSS variables
@@ -64,34 +256,36 @@ export default function Desktop({ user, desktopState, onLogout }) {
   }, [theme])
 
   // ── Window Management ──
-  const openApp = useCallback((appId) => {
-    // Check if already open
-    const existing = windows.find(w => w.appId === appId)
-    if (existing) {
-      focusWindow(existing.id)
-      return
+  const openApp = useCallback((appId, extra) => {
+    if (!extra) {
+      const existing = windows.find(w => w.appId === appId)
+      if (existing) {
+        focusWindow(existing.id)
+        return
+      }
     }
 
     const app = apps.find(a => a.app_id === appId)
-    if (!app) return
+    const appInfo = app || { app_id: appId, name: extra?.title || appId, icon: '🌐', source_type: 'component', source_target: extra?.component || appId }
 
     const z = nextZ + 1
     setNextZ(z)
 
     const newWindow = {
-      id: `win-${Date.now()}`,
-      appId: app.app_id,
-      appName: app.name,
-      appIcon: app.icon,
-      sourceType: app.source_type,
-      sourceTarget: app.source_target || '',
-      component: app.source_target || '',
+      id: `win-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      appId: appInfo.app_id,
+      appName: extra?.title || appInfo.name,
+      appIcon: appInfo.icon,
+      sourceType: appInfo.source_type,
+      sourceTarget: appInfo.source_target || '',
+      component: extra?.component || appInfo.source_target || '',
       x: 80 + (windows.length % 5) * 40,
       y: 60 + (windows.length % 5) * 40,
-      width: app.default_width || 800,
-      height: app.default_height || 600,
-      state: 'normal', // normal, minimized, maximized
+      width: appInfo.default_width || 800,
+      height: appInfo.default_height || 600,
+      state: 'normal',
       focused: true,
+      extra: extra || null,
       z,
     }
 
@@ -138,39 +332,293 @@ export default function Desktop({ user, desktopState, onLogout }) {
     ))
   }, [])
 
-  // Desktop Icons from config
-  const desktopIcons = desktopState?.desktop?.icons || []
+  // ── Hilfsfunktion: orderId für Icon-Order ──
+  const getOrderId = (item) => item.type === 'folder' ? `folder:${item.id}` : item.type === 'node' ? `node:${item.id}` : item.id
 
-  // Active ghosts for taskbar
-  const [activeGhosts, setActiveGhosts] = useState(desktopState?.ghosts || [])
-  useEffect(() => {
-    const handler = () => {
-      api.ghosts().then(data => setActiveGhosts(data.active_ghosts || []))
-        .catch(() => {})
-    }
-    window.addEventListener('dbai:ghost_swap', handler)
-    return () => window.removeEventListener('dbai:ghost_swap', handler)
+  // ── Drag & Drop Handlers ──
+  const handleDragStart = useCallback((e, item) => {
+    const orderId = getOrderId(item)
+    setDragItem({ type: item.type, id: item.id, orderId })
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', orderId)
   }, [])
+
+  const handleDragOver = useCallback((e, item, index) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    const orderId = getOrderId(item)
+    setDragOverItem(orderId)
+    setDropIndicator(currentPage * ICONS_PER_PAGE + index)
+  }, [currentPage])
+
+  const handleDragLeave = useCallback(() => {
+    setDragOverItem(null)
+    setDropIndicator(null)
+  }, [])
+
+  const handleDrop = useCallback((e, targetItem) => {
+    e.preventDefault()
+    if (!dragItem) return
+
+    const targetOrderId = getOrderId(targetItem)
+
+    // Nicht auf sich selbst
+    if (dragItem.orderId === targetOrderId) {
+      setDragItem(null)
+      setDragOverItem(null)
+      setDropIndicator(null)
+      return
+    }
+
+    // Fall 1: App auf App → Ordner erstellen
+    if (dragItem.type === 'app' && targetItem.type === 'app') {
+      const folderId = `f${Date.now()}`
+      const folderName = 'Neuer Ordner'
+      setFolders(prev => ({
+        ...prev,
+        [folderId]: { name: folderName, icon: '📁', items: [targetItem.id, dragItem.id] }
+      }))
+      setIconOrder(prev => {
+        let updated = prev.filter(id => id !== dragItem.orderId && id !== targetOrderId)
+        const targetIdx = prev.indexOf(targetOrderId)
+        const insertAt = updated.length >= targetIdx ? targetIdx : updated.length
+        updated.splice(insertAt, 0, `folder:${folderId}`)
+        return updated
+      })
+    }
+    // Fall 2: App auf Ordner → App in den Ordner
+    else if (dragItem.type === 'app' && targetItem.type === 'folder') {
+      setFolders(prev => ({
+        ...prev,
+        [targetItem.id]: { ...prev[targetItem.id], items: [...(prev[targetItem.id]?.items || []), dragItem.id] }
+      }))
+      setIconOrder(prev => prev.filter(id => id !== dragItem.orderId))
+    }
+    // Fall 3: Ordner/App verschieben (Reihenfolge)
+    else {
+      setIconOrder(prev => {
+        const updated = prev.filter(id => id !== dragItem.orderId)
+        const targetIdx = updated.indexOf(targetOrderId)
+        if (targetIdx >= 0) {
+          updated.splice(targetIdx, 0, dragItem.orderId)
+        } else {
+          updated.push(dragItem.orderId)
+        }
+        return updated
+      })
+    }
+
+    setDragItem(null)
+    setDragOverItem(null)
+    setDropIndicator(null)
+  }, [dragItem])
+
+  const handleDragEnd = useCallback(() => {
+    setDragItem(null)
+    setDragOverItem(null)
+    setDropIndicator(null)
+  }, [])
+
+  // ── Ordner öffnen / schließen ──
+  const handleFolderOpen = useCallback((folderId) => {
+    setOpenFolder(folderId)
+  }, [])
+
+  const handleFolderClose = useCallback(() => {
+    setOpenFolder(null)
+  }, [])
+
+  // App aus Ordner entfernen (zurück auf Desktop)
+  const handleRemoveFromFolder = useCallback((folderId, appId) => {
+    setFolders(prev => {
+      const folder = prev[folderId]
+      if (!folder) return prev
+      const newItems = folder.items.filter(id => id !== appId)
+      if (newItems.length === 0) {
+        // Leerer Ordner → entfernen
+        const { [folderId]: _, ...rest } = prev
+        setIconOrder(o => o.filter(id => id !== `folder:${folderId}`).concat(appId))
+        return rest
+      }
+      return { ...prev, [folderId]: { ...folder, items: newItems } }
+    })
+    if (!iconOrder.includes(appId)) {
+      setIconOrder(prev => [...prev, appId])
+    }
+  }, [iconOrder])
+
+  // Ordner umbenennen
+  const handleRenameFolder = useCallback((folderId, newName) => {
+    setFolders(prev => ({
+      ...prev,
+      [folderId]: { ...prev[folderId], name: newName }
+    }))
+  }, [])
+
+  // ── Long-Press (3s) zum Zurücksetzen von Netzwerkknoten ──
+  const handleLongPressStart = useCallback((item) => {
+    if (item.type !== 'node' || !item.node) return
+    longPressRef.current = setTimeout(() => {
+      setResetConfirm(item.node)
+    }, 3000)
+  }, [])
+
+  const handleLongPressEnd = useCallback(() => {
+    if (longPressRef.current) {
+      clearTimeout(longPressRef.current)
+      longPressRef.current = null
+    }
+  }, [])
+
+  const handleResetNode = useCallback(async (node) => {
+    try {
+      await api.desktopNodeDelete(node.id)
+      setResetConfirm(null)
+      refreshDesktop()
+    } catch (e) {
+      console.error('Knoten-Reset fehlgeschlagen:', e)
+    }
+  }, [refreshDesktop])
 
   return (
     <div className="desktop">
-      {/* Desktop Area */}
       <div className="desktop-area" ref={desktopRef}>
         {/* Desktop Icons */}
         <div className="desktop-icons">
-          {desktopIcons.map((icon, i) => (
-            <div
-              key={i}
-              className="desktop-icon"
-              onDoubleClick={() => openApp(icon.app_id)}
-            >
-              <span className="icon">
-                {apps.find(a => a.app_id === icon.app_id)?.icon || '📦'}
-              </span>
-              <span className="label">{icon.label}</span>
-            </div>
-          ))}
+          {pageItems.map((item, index) => {
+            const orderId = getOrderId(item)
+            const isDragOver = dragOverItem === orderId
+            const isNode = item.type === 'node'
+            return (
+              <div
+                key={orderId}
+                className={`desktop-icon${isDragOver ? ' drag-over' : ''}${dragItem?.orderId === orderId ? ' dragging' : ''}${isNode ? ' node-icon' : ''}`}
+                draggable
+                onDragStart={(e) => handleDragStart(e, item)}
+                onDragOver={(e) => handleDragOver(e, item, index)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, item)}
+                onDragEnd={handleDragEnd}
+                onMouseDown={() => handleLongPressStart(item)}
+                onMouseUp={handleLongPressEnd}
+                onMouseLeave={handleLongPressEnd}
+                onTouchStart={() => handleLongPressStart(item)}
+                onTouchEnd={handleLongPressEnd}
+                onDoubleClick={() => {
+                  if (item.type === 'folder') {
+                    handleFolderOpen(item.id)
+                  } else if (item.type === 'node' && item.node) {
+                    if (item.node.url) {
+                      openApp(item.node.app_id || 'web-frame', {
+                        component: 'WebFrame',
+                        title: item.node.label,
+                        url: item.node.url,
+                      })
+                    } else if (item.node.app_id) {
+                      openApp(item.node.app_id)
+                    }
+                  } else {
+                    openApp(item.id)
+                  }
+                }}
+              >
+                <span className="icon" style={isNode ? {
+                  background: `radial-gradient(circle, ${item.node?.color || '#00f5ff'}44, transparent)`,
+                  borderRadius: '50%',
+                  textShadow: `0 0 10px ${item.node?.color || '#00f5ff'}`,
+                  boxShadow: `0 0 12px ${item.node?.color || '#00f5ff'}33`,
+                } : undefined}>
+                  {item.icon}
+                  {item.type === 'folder' && item.items.length > 0 && (
+                    <span className="folder-badge">{item.items.length}</span>
+                  )}
+                </span>
+                <span className="label">{item.name}</span>
+              </div>
+            )
+          })}
         </div>
+
+        {/* Reset-Bestätigung für Netzwerkknoten */}
+        {resetConfirm && (
+          <div className="folder-overlay" onClick={() => setResetConfirm(null)}>
+            <div className="node-reset-popup" onClick={e => e.stopPropagation()}>
+              <div className="node-reset-header">
+                <span style={{ fontSize: 28 }}>{NODE_ICON_MAP[resetConfirm.icon_type] || '⭕'}</span>
+                <span style={{ fontWeight: 700, fontSize: 16 }}>{resetConfirm.label}</span>
+              </div>
+              <p style={{ color: '#b0b8c0', fontSize: 13, margin: '8px 0 16px', textAlign: 'center' }}>
+                Diesen Netzwerkknoten zurücksetzen?<br/>
+                <span style={{ fontSize: 11, color: '#6688aa' }}>Der Knoten wird entfernt und kann über die Schnellvorlagen neu erstellt werden.</span>
+              </p>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                <button className="node-reset-btn cancel" onClick={() => setResetConfirm(null)}>Abbrechen</button>
+                <button className="node-reset-btn confirm" onClick={() => handleResetNode(resetConfirm)}>🔄 Zurücksetzen</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Seiten-Navigation */}
+        {totalPages > 1 && (
+          <div className="desktop-pages">
+            {Array.from({ length: totalPages }).map((_, i) => (
+              <button
+                key={i}
+                className={`desktop-page-dot${i === currentPage ? ' active' : ''}`}
+                onClick={() => setCurrentPage(i)}
+                title={`Seite ${i + 1}`}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Aktualisieren-Button */}
+        <button
+          className={`desktop-refresh-btn${refreshing ? ' spinning' : ''}`}
+          onClick={refreshDesktop}
+          title="Desktop aktualisieren"
+        >
+          🔄
+        </button>
+
+        {/* Ordner-Popup */}
+        {openFolder && folders[openFolder] && (
+          <div className="folder-overlay" onClick={handleFolderClose}>
+            <div className="folder-popup" onClick={(e) => e.stopPropagation()}>
+              <div className="folder-popup-header">
+                <input
+                  className="folder-name-input"
+                  value={folders[openFolder].name}
+                  onChange={(e) => handleRenameFolder(openFolder, e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+                />
+                <button className="folder-close-btn" onClick={handleFolderClose}>✕</button>
+              </div>
+              <div className="folder-popup-grid">
+                {folders[openFolder].items.map(appId => {
+                  const app = apps.find(a => a.app_id === appId)
+                  if (!app) return null
+                  return (
+                    <div
+                      key={appId}
+                      className="desktop-icon"
+                      onDoubleClick={() => { openApp(appId); handleFolderClose() }}
+                    >
+                      <span className="icon">{app.icon}</span>
+                      <span className="label">{app.name}</span>
+                      <button
+                        className="folder-remove-btn"
+                        onClick={(e) => { e.stopPropagation(); handleRemoveFromFolder(openFolder, appId) }}
+                        title="Aus Ordner entfernen"
+                      >✕</button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Windows */}
         {windows.filter(w => w.state !== 'minimized').map(win => (
@@ -184,19 +632,17 @@ export default function Desktop({ user, desktopState, onLogout }) {
             onMove={(x, y) => updateWindowPosition(win.id, x, y)}
             onResize={(w, h) => updateWindowSize(win.id, w, h)}
           >
-            {renderAppContent(win)}
+            {renderAppContent(win, openApp, refreshDesktop)}
           </Window>
         ))}
       </div>
 
       {/* Taskbar */}
       <div className="taskbar">
-        {/* Start Button */}
         <div className="taskbar-start" onClick={() => openApp('ghost-chat')}>
           👻 DBAI
         </div>
 
-        {/* Open Windows */}
         <div className="taskbar-apps">
           {windows.map(win => (
             <div
@@ -210,25 +656,22 @@ export default function Desktop({ user, desktopState, onLogout }) {
           ))}
         </div>
 
-        {/* Status Area */}
         <div className="taskbar-status">
-          {/* Active Ghost */}
+          {/* Live-Stats Mini-Graphen */}
+          <div className="taskbar-metrics" onClick={() => openApp('system-monitor')} title="System Monitor öffnen">
+            <TaskbarMiniGraph label="CPU" value={metrics.cpu} history={metricsHistory.current.cpu} color="#00f5ff" />
+            <TaskbarMiniGraph label="RAM" value={metrics.ram} history={metricsHistory.current.ram} color="#a855f7" />
+            <TaskbarMiniGraph label="GPU" value={metrics.gpu} history={metricsHistory.current.gpu} color="#22c55e" suffix={metrics.gpu_temp > 0 ? `${Math.round(metrics.gpu_temp)}°` : null} />
+          </div>
+
           {activeGhosts.length > 0 && (
             <div className="taskbar-ghost" onClick={() => openApp('ghost-manager')}>
               👻 {activeGhosts[0]?.model_display || 'No Ghost'}
             </div>
           )}
-
-          {/* User */}
-          <span
-            style={{ cursor: 'pointer' }}
-            onClick={onLogout}
-            title="Abmelden"
-          >
+          <span style={{ cursor: 'pointer' }} onClick={onLogout} title="Abmelden">
             {user?.display_name || user?.username}
           </span>
-
-          {/* Clock */}
           <span>
             {clock.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
           </span>
@@ -239,10 +682,12 @@ export default function Desktop({ user, desktopState, onLogout }) {
 }
 
 // ── Render App Content ──
-function renderAppContent(win) {
+function renderAppContent(win, openApp, refreshDesktop) {
   const Component = APP_COMPONENTS[win.component]
   if (Component) {
-    return <Component windowId={win.id} />
+    // NodeManager bekommt onRefreshNodes, um den Desktop nach Änderungen zu aktualisieren
+    const extraProps = win.component === 'NodeManager' ? { onRefreshNodes: refreshDesktop } : {}
+    return <Component windowId={win.id} extra={win.extra} {...extraProps} onOpenWindow={(opts) => openApp(opts.app_id || opts.component, opts)} />
   }
 
   // SQL-View Apps
@@ -314,6 +759,55 @@ function SQLViewApp({ viewName }) {
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+// ── Taskbar Mini-Graph (SVG Sparkline + Zahl) ──
+function TaskbarMiniGraph({ label, value, history, color, suffix }) {
+  const w = 48, h = 20
+  const points = history.length > 1
+    ? history.map((v, i) => {
+        const x = (i / (history.length - 1)) * w
+        const y = h - (Math.min(v, 100) / 100) * h
+        return `${x},${y}`
+      }).join(' ')
+    : null
+
+  const pct = Math.round(value)
+  const isHigh = pct > 85
+  const isMed = pct > 60
+
+  return (
+    <div className="taskbar-mini-stat">
+      <span className="taskbar-mini-label">{label}</span>
+      <svg width={w} height={h} className="taskbar-mini-svg">
+        {/* Hintergrund-Linie */}
+        <line x1="0" y1={h} x2={w} y2={h} stroke={color} strokeOpacity="0.15" strokeWidth="1" />
+        {/* Füllung unter der Kurve */}
+        {points && (
+          <polygon
+            points={`0,${h} ${points} ${w},${h}`}
+            fill={color}
+            fillOpacity="0.12"
+          />
+        )}
+        {/* Sparkline */}
+        {points && (
+          <polyline
+            points={points}
+            fill="none"
+            stroke={color}
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        )}
+      </svg>
+      <span className="taskbar-mini-value" style={{ color: isHigh ? '#ef4444' : isMed ? '#f59e0b' : color }}>
+        {pct}%
+      </span>
+      {suffix && <span className="taskbar-mini-suffix">{suffix}</span>}
     </div>
   )
 }

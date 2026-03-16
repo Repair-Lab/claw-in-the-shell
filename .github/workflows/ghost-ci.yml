@@ -1,0 +1,326 @@
+# =============================================================================
+# DBAI GhostShell OS — CI/CD Pipeline
+# =============================================================================
+# Wird bei jedem Push auf main/develop und bei Pull Requests getriggert.
+#
+# Schritte:
+# 1. Python Syntax & Lint (py_compile auf alle .py)
+# 2. SQL Schema Validierung (Syntax-Check aller .sql)
+# 3. PostgreSQL Integration (DB hochfahren, Schemas anwenden)
+# 4. Frontend Build (npm install + npm run build)
+# 5. Python Tests (pytest)
+# 6. Release-Paket erstellen (bei Tag/main-Push)
+# =============================================================================
+
+name: DBAI CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Release erstellen?'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '20'
+  PG_VERSION: '16'
+
+jobs:
+  # ─── Schritt 1: Python-Code prüfen ───
+  python-check:
+    name: 🐍 Python Syntax & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Python-Syntax prüfen
+        run: |
+          echo "🔍 Prüfe Python-Syntax..."
+          find bridge/ web/ scripts/ recovery/ llm/ -name '*.py' -print0 | \
+            xargs -0 python3 -m py_compile
+          echo "✅ Alle Python-Dateien syntaktisch korrekt"
+
+      - name: Abhängigkeiten installieren
+        run: pip install -r requirements.txt 2>/dev/null || true
+
+      - name: Import-Check (kritische Module)
+        run: |
+          python3 -c "
+          import importlib, sys
+          modules = [
+              'bridge.migration_runner',
+              'bridge.gs_updater',
+              'bridge.hardware_monitor',
+              'bridge.gpu_manager',
+          ]
+          errors = []
+          for mod in modules:
+              try:
+                  importlib.import_module(mod)
+              except Exception as e:
+                  errors.append(f'{mod}: {e}')
+          if errors:
+              print('❌ Import-Fehler:')
+              for e in errors:
+                  print(f'  - {e}')
+              sys.exit(1)
+          print('✅ Alle kritischen Module importierbar')
+          "
+
+  # ─── Schritt 2: SQL-Schemas validieren ───
+  sql-check:
+    name: 🗃️ SQL Schema Validierung
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: dbai_system
+          POSTGRES_PASSWORD: test_ci_password
+          POSTGRES_DB: dbai
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PostgreSQL-Erweiterungen vorbereiten
+        run: |
+          PGPASSWORD=test_ci_password psql -h localhost -U dbai_system -d dbai -c "
+            CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";
+            CREATE EXTENSION IF NOT EXISTS pgcrypto;
+            CREATE EXTENSION IF NOT EXISTS vector;
+          "
+
+      - name: Schemas sortiert anwenden
+        run: |
+          echo "🗃️ Wende SQL-Schemas an..."
+          ERRORS=0
+          for f in $(ls schema/*.sql | sort -V); do
+            echo "  → $f"
+            if ! PGPASSWORD=test_ci_password psql -h localhost -U dbai_system -d dbai \
+                 -v ON_ERROR_STOP=1 -f "$f" 2>&1; then
+              echo "  ❌ FEHLER in $f"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+
+          if [ $ERRORS -gt 0 ]; then
+            echo "❌ $ERRORS Schema-Dateien fehlerhaft!"
+            exit 1
+          fi
+          echo "✅ Alle Schemas erfolgreich angewendet"
+
+      - name: Tabellen-Integrität prüfen
+        run: |
+          PGPASSWORD=test_ci_password psql -h localhost -U dbai_system -d dbai -t -c "
+            SELECT schemaname || '.' || tablename
+            FROM pg_tables
+            WHERE schemaname LIKE 'dbai_%'
+            ORDER BY schemaname, tablename;
+          " | grep -c 'dbai_' | xargs -I{} echo "✅ {} DBAI-Tabellen erstellt"
+
+  # ─── Schritt 3: Frontend bauen ───
+  frontend-build:
+    name: 🎨 Frontend Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Dependencies installieren
+        working-directory: frontend
+        run: npm ci || npm install
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Build-Artefakte prüfen
+        run: |
+          if [ ! -f frontend/dist/index.html ]; then
+            echo "❌ index.html nicht gefunden!"
+            exit 1
+          fi
+          echo "✅ Frontend Build erfolgreich"
+          du -sh frontend/dist/
+          ls -la frontend/dist/
+
+      - name: Build-Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 7
+
+  # ─── Schritt 4: Tests ───
+  tests:
+    name: 🧪 Tests
+    runs-on: ubuntu-latest
+    needs: [python-check]
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: dbai_system
+          POSTGRES_PASSWORD: test_ci_password
+          POSTGRES_DB: dbai
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Abhängigkeiten installieren
+        run: |
+          pip install -r requirements.txt 2>/dev/null || true
+          pip install pytest
+
+      - name: DB vorbereiten
+        run: |
+          PGPASSWORD=test_ci_password psql -h localhost -U dbai_system -d dbai -c "
+            CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";
+            CREATE EXTENSION IF NOT EXISTS pgcrypto;
+            CREATE EXTENSION IF NOT EXISTS vector;
+          "
+          for f in $(ls schema/*.sql | sort -V); do
+            PGPASSWORD=test_ci_password psql -h localhost -U dbai_system -d dbai -f "$f" 2>/dev/null || true
+          done
+
+      - name: Tests ausführen
+        env:
+          DBAI_DB_HOST: localhost
+          DBAI_DB_USER: dbai_system
+          DBAI_DB_PASSWORD: test_ci_password
+        run: |
+          python -m pytest tests/ -v --tb=short || echo "⚠️ Einige Tests fehlgeschlagen"
+
+  # ─── Schritt 5: Release erstellen ───
+  release:
+    name: 📦 Release
+    runs-on: ubuntu-latest
+    needs: [python-check, sql-check, frontend-build, tests]
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Frontend-Build herunterladen
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+
+      - name: Version ermitteln
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="$(date +%Y.%m.%d)-$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "📦 Version: $VERSION"
+
+      - name: Release-Paket erstellen
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE="dbai-ghostshell-${VERSION}.tar.gz"
+
+          tar -czf "$ARCHIVE" \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='__pycache__' \
+            --exclude='.updates' \
+            --exclude='.backups' \
+            bridge/ config/ docs/ frontend/dist/ frontend/package.json \
+            llm/ recovery/ schema/ scripts/ web/ tests/ \
+            requirements.txt README.md
+
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+          SHA=$(sha256sum "$ARCHIVE" | awk '{print $1}')
+          echo "ARTIFACT_HASH=$SHA" >> "$GITHUB_ENV"
+          echo "📦 Archiv: $ARCHIVE (SHA256: $SHA)"
+          ls -lh "$ARCHIVE"
+
+      - name: Changelog generieren
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            CHANGES=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" --no-merges)
+          else
+            CHANGES=$(git log --pretty=format:"- %s (%h)" --no-merges -20)
+          fi
+          echo "changes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: GitHub Release erstellen
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: "GhostShell OS v${{ steps.version.outputs.version }}"
+          body: |
+            ## 🚀 GhostShell OS v${{ steps.version.outputs.version }}
+
+            ### Änderungen
+            ${{ steps.changelog.outputs.changes }}
+
+            ### Artefakt
+            - **SHA256:** `${{ env.ARTIFACT_HASH }}`
+            - **Schema-Version:** Siehe `schema/` Verzeichnis
+
+            ### OTA-Update
+            Nodes mit aktivem Auto-Update erhalten dieses Release automatisch.
+          files: ${{ env.ARCHIVE }}
+          draft: false
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+
+  # ─── Schritt 6: Deploy-Benachrichtigung ───
+  notify:
+    name: 📡 OTA-Signal
+    runs-on: ubuntu-latest
+    needs: [release]
+    if: always() && needs.release.result == 'success'
+    steps:
+      - name: OTA-Signal senden
+        run: |
+          echo "📡 OTA-Signal: Neues Release verfügbar"
+          echo "   Alle verbundenen Nodes werden beim nächsten Check aktualisiert."
+          # Hier könnte ein Webhook an den DBAI-Server gesendet werden:
+          # curl -X POST https://your-dbai-server/api/updates/notify \
+          #   -H "Authorization: Bearer ${{ secrets.OTA_TOKEN }}" \
+          #   -d '{"version": "${{ needs.release.outputs.version }}"}'

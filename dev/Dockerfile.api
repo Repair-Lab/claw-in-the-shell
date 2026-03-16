@@ -1,0 +1,56 @@
+# =============================================================================
+# DBAI Ghost-API — Dockerfile
+# =============================================================================
+# FastAPI + Bridge-Module + C-Bindings
+# Für docker compose: ghost-api Service
+# =============================================================================
+
+FROM python:3.11-slim-bookworm AS base
+
+# System-Pakete für C-Bindings, psutil, psycopg2
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    make \
+    libc6-dev \
+    libpq-dev \
+    curl \
+    lm-sensors \
+    pciutils \
+    usbutils \
+    smartmontools \
+    iproute2 \
+    net-tools \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Python-Abhängigkeiten
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# C-Bindings kompilieren
+COPY bridge/c_bindings/ /app/bridge/c_bindings/
+RUN cd /app/bridge/c_bindings && make clean && make
+
+# Anwendungscode (wird via Volume auch live gemountet)
+COPY bridge/ /app/bridge/
+COPY web/ /app/web/
+COPY llm/ /app/llm/
+COPY recovery/ /app/recovery/
+COPY config/ /app/config/
+COPY schema/ /app/schema/
+COPY scripts/ /app/scripts/
+COPY tests/ /app/tests/
+
+# Frontend-Build (falls vorhanden)
+COPY frontend/dist/ /app/frontend/dist/ 2>/dev/null || true
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=15s \
+    CMD curl -sf http://localhost:3000/api/health || exit 1
+
+CMD ["python3", "-m", "uvicorn", "web.server:app", \
+     "--host", "0.0.0.0", "--port", "3000", \
+     "--reload", "--reload-dir", "/app/web", "--reload-dir", "/app/bridge"]

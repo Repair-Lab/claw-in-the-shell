@@ -29,7 +29,7 @@ mkdir -p "$LOG_DIR" "$PID_DIR"
 # Konfiguration
 # =============================================================================
 WEB_HOST="${DBAI_WEB_HOST:-0.0.0.0}"
-WEB_PORT="${DBAI_WEB_PORT:-8420}"
+WEB_PORT="${DBAI_WEB_PORT:-3000}"
 DB_NAME="${DBAI_DB_NAME:-dbai}"
 DB_HOST="${DBAI_DB_HOST:-127.0.0.1}"
 DB_PORT="${DBAI_DB_PORT:-5432}"

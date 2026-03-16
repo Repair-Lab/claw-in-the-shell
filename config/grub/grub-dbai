@@ -1,0 +1,39 @@
+# =============================================================================
+# DBAI — GRUB Bootloader Konfiguration
+# =============================================================================
+# Silent-Boot: Kein GRUB-Menü, kein Verbose-Output, direkt in DBAI.
+# Der User sieht nur einen schwarzen Screen → dann den DBAI BootScreen.
+# =============================================================================
+# Installation:
+#   sudo cp config/grub/grub-dbai /etc/default/grub
+#   sudo update-grub
+# =============================================================================
+
+# Kein GRUB-Menü anzeigen (0 Sekunden Timeout)
+GRUB_TIMEOUT=0
+GRUB_TIMEOUT_STYLE=hidden
+
+# Kein Recovery-Eintrag im Menü
+GRUB_DISABLE_RECOVERY="true"
+
+# Silent Boot — minimal Kernel-Output
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash loglevel=0 rd.systemd.show_status=false rd.udev.log_level=3 vt.global_cursor_default=0"
+
+# Plymouth Splash-Theme (optional, für Bare-Metal-Logo vor Browser)
+# GRUB_CMDLINE_LINUX_DEFAULT="quiet splash plymouth.enable=1"
+
+# Standard-Eintrag
+GRUB_DEFAULT=0
+
+# Kein OS-Prober (nur DBAI booten)
+GRUB_DISABLE_OS_PROBER=true
+
+# Grafik-Auflösung für den Splash
+GRUB_GFXMODE=1920x1080
+GRUB_GFXPAYLOAD_LINUX=keep
+
+# Hintergrund (optional)
+# GRUB_BACKGROUND="/boot/grub/dbai-splash.png"
+
+# Terminal-Output deaktivieren
+GRUB_TERMINAL_OUTPUT="gfxterm"

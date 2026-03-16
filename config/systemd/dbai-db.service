@@ -1,0 +1,46 @@
+# =============================================================================
+# DBAI — PostgreSQL Kernel Service
+# =============================================================================
+# Der Datenbank-Kernel: Startet PostgreSQL als erstes Subsystem.
+# Wird von dbai.target als Abhängigkeit benötigt.
+# =============================================================================
+# Installation:
+#   sudo cp config/systemd/dbai-db.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable dbai-db
+# =============================================================================
+
+[Unit]
+Description=DBAI — PostgreSQL Kernel (The Relational Backbone)
+Documentation=https://github.com/dbai-project/dbai
+After=network.target
+Before=dbai-web.service dbai-ghost.service
+
+[Service]
+Type=forking
+User=postgres
+Group=postgres
+
+Environment=PGDATA=/var/lib/postgresql/17/main
+Environment=PGPORT=5432
+
+# PostgreSQL starten
+ExecStartPre=/usr/bin/install -d -m 0700 -o postgres -g postgres /run/postgresql
+ExecStart=/usr/lib/postgresql/17/bin/pg_ctl start -D ${PGDATA} -l /var/log/dbai/postgresql.log -o "-c config_file=/home/worker/DBAI/config/postgresql.conf"
+ExecStop=/usr/lib/postgresql/17/bin/pg_ctl stop -D ${PGDATA} -m fast
+ExecReload=/usr/lib/postgresql/17/bin/pg_ctl reload -D ${PGDATA}
+
+PIDFile=/run/postgresql/17-main.pid
+TimeoutStartSec=60
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+# Sicherheit
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/postgresql /var/log/dbai /run/postgresql
+PrivateTmp=true
+NoNewPrivileges=false
+
+[Install]
+WantedBy=dbai.target

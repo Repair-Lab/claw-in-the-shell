@@ -2,263 +2,421 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
 
 /**
- * OpenClaw Integrator — Skills migrieren, Memories importieren, Status prüfen
- * Quelle: dbai_core.openclaw_skills, dbai_vector.openclaw_memories, dbai_core.migration_jobs
+ * OpenClaw Integrator — Verbindung zum OpenClaw-System
+ * Liest live aus ~/.openclaw/ und zeigt Agenten, Cron-Jobs,
+ * Addons, Integrationen, Gateway-Status und Skills.
  */
-export default function OpenClawIntegrator() {
-  const [tab, setTab] = useState('skills') // skills, memories, migrations
-  const [skills, setSkills] = useState([])
-  const [memories, setMemories] = useState([])
-  const [migrations, setMigrations] = useState([])
-  const [stats, setStats] = useState({})
-  const [loading, setLoading] = useState(true)
-  const [importing, setImporting] = useState(false)
 
-  const refresh = useCallback(async () => {
+const AGENT_ICONS = {
+  main: '🦞', worker: '⚡', brain: '🧠', content: '🎨', researcher: '📚', coder: '💻',
+}
+
+const ADDON_ICONS = {
+  'n8n': '🔗', 'comfyui': '🎨', 'video-factory': '🎬', 'openhands': '🤖',
+  'harbor': '⚓', 'grafana': '📊', 'minio': '💾', 'qdrant': '🔷',
+  'qdrant-ui': '🔷', 'vllm-brain': '🧠', 'crewai': '👥', 'kling-video': '📹',
+  'argocd': '🔄', 'gitea': '🐙', 'woodpecker': '🪵', 'prometheus': '📈',
+  'longhorn': '🦬', 'k8s-dashboard': '☸️', 'llm-router': '🛤️',
+  'system-library': '📚', 'alertmanager': '🔔',
+}
+
+const TAB_ITEMS = [
+  { id: 'overview', label: '🦞 Übersicht' },
+  { id: 'agents', label: '👥 Agenten' },
+  { id: 'cron', label: '⏰ Cron-Jobs' },
+  { id: 'addons', label: '🧩 Addons' },
+  { id: 'integrations', label: '🔗 Verbindungen' },
+  { id: 'skills', label: '⚡ Skills' },
+  { id: 'memory', label: '🧠 Memory' },
+]
+
+export default function OpenClawIntegrator() {
+  const [tab, setTab] = useState('overview')
+  const [live, setLive] = useState(null)
+  const [dbStatus, setDbStatus] = useState(null)
+  const [gateway, setGateway] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [migrating, setMigrating] = useState(false)
+
+  const loadAll = useCallback(async () => {
+    setLoading(true)
     try {
-      const data = await api.openclawStatus()
-      setSkills(data.skills || [])
-      setMemories(data.memories || [])
-      setMigrations(data.migrations || [])
-      setStats(data.stats || {})
-    } catch (err) {
-      console.error('OpenClaw-Daten laden fehlgeschlagen:', err)
+      const [liveData, statusData, gw] = await Promise.all([
+        api.openclawLive().catch(() => null),
+        api.openclawStatus().catch(() => null),
+        api.openclawGatewayStatus().catch(() => ({ online: false })),
+      ])
+      setLive(liveData)
+      setDbStatus(statusData)
+      setGateway(gw)
+    } catch (e) {
+      console.error('OpenClaw laden fehlgeschlagen:', e)
     } finally {
       setLoading(false)
     }
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => { loadAll() }, [loadAll])
 
-  const handleActivateSkill = async (skillName) => {
-    try {
-      await api.openclawActivateSkill(skillName)
-      setTimeout(refresh, 500)
-    } catch (err) {
-      alert('Aktivierung fehlgeschlagen: ' + err.message)
-    }
-  }
-
-  const handleStartMigration = async () => {
-    setImporting(true)
+  const handleMigration = async () => {
+    setMigrating(true)
     try {
       await api.openclawStartMigration()
-      setTimeout(refresh, 1000)
-    } catch (err) {
-      alert('Migration fehlgeschlagen: ' + err.message)
+      setTimeout(loadAll, 2000)
+    } catch (e) {
+      alert('Migration fehlgeschlagen: ' + e.message)
     }
-    setImporting(false)
+    setMigrating(false)
   }
 
-  const stateColors = {
-    imported: 'var(--info)',
-    translating: 'var(--warning)',
-    active: 'var(--success)',
-    deprecated: 'var(--text-secondary)',
-    incompatible: 'var(--danger)',
-    testing: 'var(--accent)',
+  const handleActivateSkill = async (name) => {
+    try {
+      await api.openclawActivateSkill(name)
+      loadAll()
+    } catch (e) {
+      alert('Aktivierung fehlgeschlagen: ' + e.message)
+    }
   }
 
-  if (loading) return <div style={{ padding: 20, color: 'var(--text-secondary)' }}>Lade OpenClaw-Daten…</div>
+  if (loading) return <div style={sx.loadingState}>⏳ Lade OpenClaw-Konfiguration…</div>
+  if (!live?.installed) return (
+    <div style={sx.loadingState}>
+      <div style={{ fontSize: 48 }}>🦞</div>
+      <div style={{ fontSize: 16, fontWeight: 600, marginTop: 12 }}>OpenClaw nicht gefunden</div>
+      <div style={{ color: '#6688aa', fontSize: 13, marginTop: 6 }}>
+        Kein <code>~/.openclaw/</code> Verzeichnis auf diesem System.
+      </div>
+    </div>
+  )
+
+  const agents = live.agents || []
+  const agentsMeta = live.agents_meta || {}
+  const cronJobs = live.cron_jobs || []
+  const addons = live.addons || []
+  const integrations = live.integrations || {}
+  const k8s = live.kubernetes || {}
+  const memCfg = live.memory || {}
+  const stats = dbStatus?.stats || {}
+  const skills = dbStatus?.skills || []
+  const memories = dbStatus?.memories || []
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', fontFamily: 'var(--font-sans)', fontSize: '13px' }}>
-      {/* Stats Bar */}
-      <div style={{
-        display: 'flex', gap: '16px', padding: '12px 16px',
-        borderBottom: '1px solid var(--border)', alignItems: 'center',
-      }}>
-        <div style={{ display: 'flex', gap: '24px' }}>
-          <StatBadge label="Skills" value={stats.total_skills || 0} icon="⚡" color="var(--accent)" />
-          <StatBadge label="Aktiv" value={stats.active_skills || 0} icon="✅" color="var(--success)" />
-          <StatBadge label="Memories" value={stats.total_memories || 0} icon="🧠" color="var(--info)" />
-          <StatBadge label="Integriert" value={stats.integrated_memories || 0} icon="🔗" color="var(--success)" />
-          <StatBadge label="Migrationen" value={stats.total_migrations || 0} icon="📦" color="var(--warning)" />
-        </div>
-
-        <div style={{ flex: 1 }} />
-
-        {/* Tabs */}
-        {['skills', 'memories', 'migrations'].map(t => (
-          <button key={t} onClick={() => setTab(t)} style={{
-            padding: '6px 14px', borderRadius: 'var(--radius)',
-            border: `1px solid ${tab === t ? 'var(--accent)' : 'var(--border)'}`,
-            background: tab === t ? 'rgba(0,255,204,0.1)' : 'transparent',
-            color: tab === t ? 'var(--accent)' : 'var(--text-secondary)',
-            cursor: 'pointer', fontSize: '12px',
-          }}>
-            {t === 'skills' ? '⚡ Skills' : t === 'memories' ? '🧠 Memories' : '📦 Migrationen'}
-          </button>
+    <div style={sx.container}>
+      {/* Tab-Leiste */}
+      <div style={sx.tabBar}>
+        {TAB_ITEMS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            ...sx.tab, ...(tab === t.id ? sx.tabActive : {}),
+          }}>{t.label}</button>
         ))}
+        <div style={{ flex: 1 }} />
+        <button onClick={loadAll} style={sx.refreshBtn}>🔄</button>
       </div>
 
-      {/* Content */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
-        {/* Skills Tab */}
-        {tab === 'skills' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <h3 style={{ color: 'var(--accent)', margin: 0 }}>OpenClaw Skills → SQL-Aktionen</h3>
+      <div style={sx.content}>
+        {/* ── ÜBERSICHT ── */}
+        {tab === 'overview' && (
+          <div style={sx.overviewGrid}>
+            <div style={sx.card}>
+              <div style={sx.cardTitle}>🌐 Gateway</div>
+              <div style={sx.statusRow}>
+                <span style={{ ...sx.statusDot, background: gateway?.online ? '#00ff88' : '#ff4444' }} />
+                <span style={{ color: gateway?.online ? '#00ff88' : '#ff6666' }}>
+                  {gateway?.online ? 'Online' : 'Offline'}
+                </span>
+                <span style={sx.metaText}>Port {live.gateway?.port || '18788'}</span>
+              </div>
+              <div style={sx.metaText}>Auth: {live.gateway?.auth_mode || '-'}</div>
             </div>
-            {skills.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
-                Keine Skills importiert. Starte eine Migration um OpenClaw-Skills zu übernehmen.
-              </div>
-            ) : skills.map(skill => (
-              <div key={skill.id} style={{
-                display: 'flex', alignItems: 'center', gap: '12px',
-                padding: '12px 14px', background: 'var(--bg-surface)',
-                border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-                borderLeft: `3px solid ${stateColors[skill.state] || 'var(--border)'}`,
-              }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontWeight: 600, fontSize: '13px' }}>{skill.display_name || skill.skill_name}</span>
-                    <span style={{
-                      fontSize: '10px', padding: '1px 6px', borderRadius: '10px',
-                      background: `${stateColors[skill.state]}22`,
-                      color: stateColors[skill.state],
-                    }}>{skill.state}</span>
-                    <span style={{
-                      fontSize: '10px', padding: '1px 6px', borderRadius: '10px',
-                      background: 'var(--bg-elevated)', color: 'var(--text-secondary)',
-                    }}>{skill.original_lang}</span>
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                    {skill.action_type} → {skill.sql_action || 'Noch nicht übersetzt'}
-                  </div>
-                  {skill.compatibility_score != null && (
-                    <div style={{ marginTop: '4px' }}>
-                      <div style={{
-                        width: '120px', height: '4px', background: 'var(--bg-elevated)',
-                        borderRadius: '2px', overflow: 'hidden',
-                      }}>
-                        <div style={{
-                          width: `${skill.compatibility_score * 100}%`, height: '100%',
-                          background: skill.compatibility_score > 0.7 ? 'var(--success)' :
-                                     skill.compatibility_score > 0.4 ? 'var(--warning)' : 'var(--danger)',
-                        }} />
-                      </div>
-                      <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
-                        Kompatibilität: {Math.round(skill.compatibility_score * 100)}%
-                      </span>
-                    </div>
-                  )}
-                </div>
-                {skill.state === 'imported' && (
-                  <button onClick={() => handleActivateSkill(skill.skill_name)} style={{
-                    padding: '6px 14px', borderRadius: 'var(--radius)',
-                    background: 'rgba(0,255,204,0.1)', border: '1px solid var(--accent)',
-                    color: 'var(--accent)', cursor: 'pointer', fontSize: '12px',
-                  }}>
-                    ⚡ Aktivieren
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
 
-        {/* Memories Tab */}
-        {tab === 'memories' && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ color: 'var(--accent)', margin: 0 }}>Migrierte Memories (JSON → pgvector)</h3>
-              <button onClick={handleStartMigration} disabled={importing} style={{
-                padding: '8px 18px', borderRadius: 'var(--radius)',
-                background: importing ? 'var(--bg-elevated)' : 'rgba(0,255,204,0.1)',
-                border: '1px solid var(--accent)', color: 'var(--accent)',
-                cursor: importing ? 'wait' : 'pointer', fontSize: '12px',
-              }}>
-                {importing ? '⏳ Migriere…' : '🚀 Memory-Migration starten'}
-              </button>
+            <div style={sx.card}>
+              <div style={sx.cardTitle}>👥 Agenten</div>
+              <div style={sx.bigNum}>{agents.length}</div>
+              <div style={sx.agentMini}>
+                {agents.map(a => (
+                  <span key={a.id} title={`${a.name} (${a.role})`} style={{ fontSize: 18 }}>
+                    {AGENT_ICONS[a.role] || '🤖'}
+                  </span>
+                ))}
+              </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {memories.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
-                  Keine migrierten Memories vorhanden.
-                </div>
-              ) : memories.map(mem => (
-                <div key={mem.id} style={{
-                  display: 'flex', alignItems: 'center', gap: '12px',
-                  padding: '10px 14px', background: 'var(--bg-surface)',
-                  border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-                }}>
-                  <span style={{ fontSize: '16px' }}>
-                    {mem.content_type === 'conversation' ? '💬' :
-                     mem.content_type === 'fact' ? '📌' :
-                     mem.content_type === 'preference' ? '⭐' :
-                     mem.content_type === 'skill_memory' ? '⚡' : '🧠'}
-                  </span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{
-                      fontSize: '12px', maxHeight: '36px', overflow: 'hidden',
-                      lineHeight: '1.4', color: 'var(--text-primary)',
-                    }}>
-                      {(mem.content || '').substring(0, 150)}…
-                    </div>
-                    <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                      {mem.content_type} • {mem.openclaw_file || '—'} •
-                      Wichtigkeit: {Math.round((mem.importance || 0) * 100)}%
-                    </div>
-                  </div>
-                  <span style={{
-                    fontSize: '10px', padding: '2px 8px', borderRadius: '10px',
-                    background: mem.is_integrated ? 'rgba(0,255,136,0.1)' : 'rgba(255,170,0,0.1)',
-                    color: mem.is_integrated ? 'var(--success)' : 'var(--warning)',
-                    border: `1px solid ${mem.is_integrated ? 'var(--success)' : 'var(--warning)'}44`,
-                  }}>
-                    {mem.is_integrated ? '✅ Integriert' : '⏳ Pending'}
-                  </span>
+
+            <div style={sx.card}>
+              <div style={sx.cardTitle}>⏰ Cron-Jobs</div>
+              <div style={sx.bigNum}>{cronJobs.length}</div>
+              <div style={sx.metaText}>{cronJobs.filter(j => j.enabled).length} aktiv</div>
+            </div>
+
+            <div style={sx.card}>
+              <div style={sx.cardTitle}>🧩 Addons</div>
+              <div style={sx.bigNum}>{addons.length}</div>
+              <div style={sx.metaText}>{addons.filter(a => !a.disabled).length} aktiviert</div>
+            </div>
+
+            <div style={sx.card}>
+              <div style={sx.cardTitle}>☸️ Kubernetes</div>
+              <div style={sx.metaText}>Namespace: {k8s.namespace || '-'}</div>
+              {k8s.nodes && Object.entries(k8s.nodes).map(([name, node]) => (
+                <div key={name} style={sx.k8sNode}>
+                  <span style={{ fontWeight: 600, color: '#e0e0e0' }}>{name}</span>
+                  <span style={sx.metaText}>{node.ip}</span>
+                  <span style={{ color: '#00f5ff', fontSize: 11 }}>{node.gpu}</span>
                 </div>
               ))}
             </div>
+
+            <div style={sx.card}>
+              <div style={sx.cardTitle}>🧠 Memory</div>
+              <div style={sx.metaText}>LanceDB: {memCfg.lancedb ? '✅' : '❌'}</div>
+              <div style={sx.metaText}>Auto-Capture: {memCfg.auto_capture ? '✅' : '❌'}</div>
+              <div style={sx.metaText}>Auto-Recall: {memCfg.auto_recall ? '✅' : '❌'}</div>
+              <div style={sx.metaText}>Embedding: {memCfg.embedding_model || '-'}</div>
+              <div style={sx.metaText}>Dimensionen: {memCfg.dimensions || '-'}</div>
+            </div>
+
+            {live.storage?.nvme && (
+              <div style={sx.card}>
+                <div style={sx.cardTitle}>💾 Storage</div>
+                <div style={sx.metaText}>NVMe: {live.storage.nvme.mount}</div>
+                <div style={sx.metaText}>
+                  {live.storage.nvme.used} / {live.storage.nvme.total}
+                  {live.storage.nvme.free && <span> ({live.storage.nvme.free} frei)</span>}
+                </div>
+              </div>
+            )}
+
+            <div style={sx.card}>
+              <div style={sx.cardTitle}>📊 DBAI-Bridge</div>
+              <div style={sx.metaText}>Skills: {stats.total_skills || 0} ({stats.active_skills || 0} aktiv)</div>
+              <div style={sx.metaText}>Memories: {stats.total_memories || 0} ({stats.integrated_memories || 0} integriert)</div>
+              <div style={sx.metaText}>Migrationen: {stats.total_migrations || 0}</div>
+            </div>
           </div>
         )}
 
-        {/* Migrations Tab */}
-        {tab === 'migrations' && (
-          <div>
-            <h3 style={{ color: 'var(--accent)', marginTop: 0, marginBottom: '16px' }}>Migrations-Journal</h3>
-            {migrations.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
-                Keine Migrationen durchgeführt.
+        {/* ── AGENTEN ── */}
+        {tab === 'agents' && (
+          <div style={sx.agentGrid}>
+            {agents.map(agent => {
+              const meta = agentsMeta[agent.id] || {}
+              return (
+                <div key={agent.id} style={sx.agentCard}>
+                  <div style={sx.agentHeader}>
+                    <span style={{ fontSize: 32 }}>{AGENT_ICONS[agent.role] || '🤖'}</span>
+                    <div>
+                      <div style={sx.agentName}>{agent.name}</div>
+                      <div style={sx.agentRole}>{agent.role}</div>
+                    </div>
+                  </div>
+                  <div style={sx.agentModel}>{agent.model}</div>
+                  {meta.node && (
+                    <div style={sx.metaText}>
+                      Node: <span style={{ color: '#00f5ff' }}>{meta.node}</span>
+                      {meta.gpu && <span> • {meta.gpu}</span>}
+                    </div>
+                  )}
+                  {agent.personality && (
+                    <div style={{ fontSize: 12, color: '#6688aa', marginTop: 6, lineHeight: 1.4 }}>
+                      {agent.personality.substring(0, 120)}…
+                    </div>
+                  )}
+                  <div style={sx.agentTags}>
+                    {(agent.skills || []).slice(0, 5).map(s => (
+                      <span key={s} style={sx.skillTag}>{s}</span>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ── CRON-JOBS ── */}
+        {tab === 'cron' && (
+          <div style={sx.listContainer}>
+            <div style={sx.sectionHeader}>
+              ⏰ Automatische Tasks ({cronJobs.length})
+              <span style={{ fontSize: 11, color: '#6688aa', marginLeft: 8 }}>
+                Cron: {live.cron_enabled ? '✅ aktiv' : '❌ deaktiviert'}
+              </span>
+            </div>
+            {cronJobs.map(job => (
+              <div key={job.id} style={sx.cronCard}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ ...sx.statusDot, background: job.enabled ? '#00ff88' : '#555' }} />
+                  <div>
+                    <div style={{ fontWeight: 600, color: '#e0e0e0', fontSize: 13 }}>{job.name}</div>
+                    <div style={{ fontSize: 11, color: '#6688aa' }}>{job.description}</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap' }}>
+                  <span style={sx.cronMeta}>📅 {job.schedule}</span>
+                  <span style={sx.cronMeta}>🤖 {job.agent_id}</span>
+                  {job.last_status && (
+                    <span style={{
+                      ...sx.cronMeta,
+                      color: job.last_status === 'success' ? '#00ff88' : '#ff6666',
+                    }}>
+                      {job.last_status === 'success' ? '✅' : '❌'} {job.last_status}
+                    </span>
+                  )}
+                  {job.last_duration_ms && (
+                    <span style={sx.cronMeta}>⏱ {(job.last_duration_ms / 1000).toFixed(1)}s</span>
+                  )}
+                </div>
               </div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                    <th style={{ textAlign: 'left', padding: '8px', color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>Typ</th>
-                    <th style={{ textAlign: 'left', padding: '8px', color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>Status</th>
-                    <th style={{ textAlign: 'left', padding: '8px', color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>Quelle</th>
-                    <th style={{ textAlign: 'right', padding: '8px', color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>Items</th>
-                    <th style={{ textAlign: 'left', padding: '8px', color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>Gestartet</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {migrations.map(m => (
-                    <tr key={m.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '8px', fontFamily: 'var(--font-mono)' }}>{m.migration_type}</td>
-                      <td style={{ padding: '8px' }}>
-                        <span style={{
-                          padding: '2px 8px', borderRadius: '10px', fontSize: '11px',
-                          background: m.state === 'completed' ? 'rgba(0,255,136,0.1)' :
-                                     m.state === 'running' ? 'rgba(255,170,0,0.1)' : 'rgba(255,68,68,0.1)',
-                          color: m.state === 'completed' ? 'var(--success)' :
-                                m.state === 'running' ? 'var(--warning)' : 'var(--danger)',
-                        }}>{m.state}</span>
-                      </td>
-                      <td style={{ padding: '8px', fontSize: '11px', color: 'var(--text-secondary)' }}>{m.source_path || '—'}</td>
-                      <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
-                        {m.items_processed || 0}/{m.items_total || '?'}
-                      </td>
-                      <td style={{ padding: '8px', fontSize: '11px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-                        {m.started_at ? new Date(m.started_at).toLocaleString('de-DE') : '—'}
-                      </td>
-                    </tr>
+            ))}
+            {cronJobs.length === 0 && (
+              <div style={sx.emptyState}>Keine Cron-Jobs konfiguriert.</div>
+            )}
+          </div>
+        )}
+
+        {/* ── ADDONS ── */}
+        {tab === 'addons' && (
+          <div style={sx.addonGrid}>
+            {addons.map((addon, i) => {
+              const name = typeof addon === 'string' ? addon : addon.name || addon.id || `addon-${i}`
+              const slug = name.toLowerCase().replace(/\s+/g, '-')
+              const disabled = typeof addon === 'object' && addon.disabled
+              const url = typeof addon === 'object' ? addon.url : null
+              return (
+                <div key={i} style={{
+                  ...sx.addonCard,
+                  opacity: disabled ? 0.4 : 1,
+                  borderColor: disabled ? '#1a1a2e' : '#2a2a40',
+                }}>
+                  <span style={{ fontSize: 24 }}>{ADDON_ICONS[slug] || '🧩'}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, color: '#e0e0e0', fontSize: 13 }}>{name}</div>
+                    {url && <div style={{ fontSize: 11, color: '#6688aa' }}>{url}</div>}
+                  </div>
+                  <span style={{
+                    fontSize: 10, padding: '2px 8px', borderRadius: 10,
+                    background: disabled ? '#1a1a2e' : 'rgba(0,255,136,0.08)',
+                    color: disabled ? '#555' : '#00ff88',
+                  }}>
+                    {disabled ? 'Aus' : 'Aktiv'}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ── INTEGRATIONEN ── */}
+        {tab === 'integrations' && (
+          <div style={sx.listContainer}>
+            <div style={sx.sectionHeader}>🔗 Verbundene Dienste</div>
+            {Object.entries(integrations).map(([key, val]) => {
+              const isObj = typeof val === 'object' && val !== null
+              const fields = isObj ? Object.entries(val) : []
+              const icons = { telegram: '📱', huggingface: '🤗', n8n: '🔗', chrome: '🌐' }
+              return (
+                <div key={key} style={sx.integrationCard}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                    <span style={{ fontSize: 22 }}>{icons[key] || '🔗'}</span>
+                    <span style={{ fontWeight: 700, color: '#e0e0e0', fontSize: 14, textTransform: 'capitalize' }}>
+                      {key}
+                    </span>
+                    <span style={{
+                      fontSize: 10, padding: '2px 8px', borderRadius: 10,
+                      background: 'rgba(0,255,136,0.08)', color: '#00ff88',
+                    }}>Verbunden</span>
+                  </div>
+                  {fields.map(([fk, fv]) => (
+                    <div key={fk} style={{ fontSize: 12, color: '#6688aa', padding: '2px 0' }}>
+                      <span style={{ color: '#8899aa' }}>{fk}:</span>{' '}
+                      <span style={{ color: '#b0c8e0' }}>
+                        {typeof fv === 'boolean' ? (fv ? '✅' : '❌') :
+                         typeof fv === 'object' ? JSON.stringify(fv).substring(0, 60) :
+                         String(fv).substring(0, 80)}
+                      </span>
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                </div>
+              )
+            })}
+            {Object.keys(integrations).length === 0 && (
+              <div style={sx.emptyState}>Keine Integrationen konfiguriert.</div>
+            )}
+          </div>
+        )}
+
+        {/* ── SKILLS ── */}
+        {tab === 'skills' && (
+          <div style={sx.listContainer}>
+            <div style={sx.sectionHeader}>
+              ⚡ Skills ({skills.length})
+              {live.skills_dir?.length > 0 && (
+                <span style={{ fontSize: 11, color: '#6688aa', marginLeft: 8 }}>
+                  Auf Disk: {live.skills_dir.join(', ')}
+                </span>
+              )}
+            </div>
+            {skills.map(skill => (
+              <div key={skill.id} style={sx.skillCard}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>
+                    {skill.state === 'active' ? '✅' : skill.state === 'imported' ? '📥' : '🧪'}
+                  </span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, color: '#e0e0e0' }}>
+                      {skill.display_name || skill.skill_name}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#6688aa' }}>
+                      {skill.action_type} • {skill.original_lang || '-'}
+                      {skill.compatibility_score != null && (
+                        <span> • Kompatibilität: {Math.round(skill.compatibility_score * 100)}%</span>
+                      )}
+                    </div>
+                  </div>
+                  {skill.state !== 'active' && (
+                    <button onClick={() => handleActivateSkill(skill.skill_name)} style={sx.activateBtn}>
+                      Aktivieren
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+            {skills.length === 0 && (
+              <div style={sx.emptyState}>Noch keine Skills importiert. Starte eine Migration.</div>
+            )}
+          </div>
+        )}
+
+        {/* ── MEMORY ── */}
+        {tab === 'memory' && (
+          <div style={sx.listContainer}>
+            <div style={sx.sectionHeader}>
+              🧠 Memories ({memories.length})
+              <button onClick={handleMigration} disabled={migrating} style={{
+                ...sx.activateBtn, marginLeft: 12,
+              }}>
+                {migrating ? '⏳ Migriere…' : '📥 Neue Migration'}
+              </button>
+            </div>
+            {memories.slice(0, 50).map(m => (
+              <div key={m.id} style={sx.memoryCard}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ fontSize: 14 }}>{m.is_integrated ? '✅' : '⏳'}</span>
+                  <span style={{ fontSize: 12, color: '#b0c8e0', fontWeight: 500 }}>
+                    {m.content_type || 'text'}
+                  </span>
+                  <span style={{ fontSize: 11, color: '#556677' }}>
+                    {m.openclaw_file || m.openclaw_id}
+                  </span>
+                </div>
+                <div style={{
+                  fontSize: 12, color: '#6688aa', marginTop: 4,
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                  {(m.content || '').substring(0, 120)}
+                </div>
+              </div>
+            ))}
+            {memories.length === 0 && (
+              <div style={sx.emptyState}>Noch keine Memories migriert.</div>
             )}
           </div>
         )}
@@ -267,15 +425,102 @@ export default function OpenClawIntegrator() {
   )
 }
 
-// Kleine Stat-Badge Komponente
-function StatBadge({ label, value, icon, color }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-      <span style={{ fontSize: '14px' }}>{icon}</span>
-      <div>
-        <div style={{ fontSize: '16px', fontWeight: 700, color, fontFamily: 'var(--font-mono)' }}>{value}</div>
-        <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{label}</div>
-      </div>
-    </div>
-  )
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const sx = {
+  container: {
+    display: 'flex', flexDirection: 'column', height: '100%',
+    fontFamily: "'Inter', -apple-system, sans-serif", fontSize: 13, color: '#e0e0e0',
+    background: '#0a0a14',
+  },
+  loadingState: {
+    display: 'flex', flexDirection: 'column', alignItems: 'center',
+    justifyContent: 'center', height: '100%', color: '#6688aa', gap: 8,
+  },
+  tabBar: {
+    display: 'flex', gap: 2, padding: '8px 12px', borderBottom: '1px solid #1a1a2e',
+    background: '#0e0e1a', overflowX: 'auto', flexShrink: 0,
+  },
+  tab: {
+    padding: '6px 12px', borderRadius: 8, border: '1px solid transparent',
+    background: 'transparent', color: '#6688aa', cursor: 'pointer',
+    fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', transition: 'all 0.2s',
+  },
+  tabActive: {
+    background: 'rgba(255,100,50,0.1)', color: '#ff8844',
+    border: '1px solid rgba(255,100,50,0.25)',
+  },
+  refreshBtn: {
+    padding: '6px 10px', borderRadius: 8, border: '1px solid #1a1a2e',
+    background: 'transparent', color: '#6688aa', cursor: 'pointer', fontSize: 14,
+  },
+  content: { flex: 1, overflow: 'auto', padding: 16 },
+  overviewGrid: {
+    display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+    gap: 12, alignContent: 'start',
+  },
+  card: {
+    background: '#12121e', border: '1px solid #1a1a2e', borderRadius: 12, padding: 16,
+  },
+  cardTitle: { fontSize: 13, fontWeight: 600, color: '#8899aa', marginBottom: 10 },
+  statusRow: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 },
+  statusDot: { width: 8, height: 8, borderRadius: '50%', flexShrink: 0 },
+  bigNum: { fontSize: 28, fontWeight: 700, color: '#e0e0e0' },
+  metaText: { fontSize: 11, color: '#556677', marginTop: 2 },
+  agentMini: { display: 'flex', gap: 6, marginTop: 8 },
+  k8sNode: {
+    display: 'flex', gap: 8, fontSize: 12, padding: '4px 0', borderBottom: '1px solid #1a1a2e',
+  },
+  agentGrid: {
+    display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+    gap: 12, alignContent: 'start',
+  },
+  agentCard: {
+    background: '#12121e', border: '1px solid #1a1a2e', borderRadius: 12, padding: 16,
+  },
+  agentHeader: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 },
+  agentName: { fontSize: 16, fontWeight: 700, color: '#e0e0e0' },
+  agentRole: { fontSize: 12, color: '#ff8844', textTransform: 'uppercase', fontWeight: 600 },
+  agentModel: {
+    fontSize: 12, color: '#00f5ff', fontFamily: "'JetBrains Mono', monospace",
+    padding: '4px 8px', background: 'rgba(0,245,255,0.05)', borderRadius: 6, display: 'inline-block',
+  },
+  agentTags: { display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 8 },
+  skillTag: {
+    fontSize: 10, padding: '2px 8px', borderRadius: 10,
+    background: 'rgba(255,136,68,0.08)', color: '#ff8844', border: '1px solid rgba(255,136,68,0.15)',
+  },
+  listContainer: { display: 'flex', flexDirection: 'column', gap: 8 },
+  sectionHeader: {
+    fontSize: 14, fontWeight: 600, color: '#8899aa', padding: '4px 0',
+    marginBottom: 4, display: 'flex', alignItems: 'center',
+  },
+  cronCard: {
+    background: '#12121e', border: '1px solid #1a1a2e', borderRadius: 10, padding: 14,
+  },
+  cronMeta: { fontSize: 11, color: '#6688aa' },
+  addonGrid: {
+    display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+    gap: 8, alignContent: 'start',
+  },
+  addonCard: {
+    display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
+    background: '#12121e', border: '1px solid #2a2a40', borderRadius: 10,
+  },
+  integrationCard: {
+    background: '#12121e', border: '1px solid #1a1a2e', borderRadius: 10, padding: 14,
+  },
+  skillCard: {
+    background: '#12121e', border: '1px solid #1a1a2e', borderRadius: 10, padding: 12,
+  },
+  activateBtn: {
+    padding: '5px 14px', borderRadius: 8, border: '1px solid rgba(255,136,68,0.3)',
+    background: 'rgba(255,136,68,0.08)', color: '#ff8844',
+    fontSize: 12, cursor: 'pointer', fontWeight: 500,
+  },
+  memoryCard: {
+    background: '#12121e', border: '1px solid #1a1a2e', borderRadius: 8, padding: 10,
+  },
+  emptyState: {
+    textAlign: 'center', padding: 40, color: '#556677', fontSize: 13,
+  },
 }

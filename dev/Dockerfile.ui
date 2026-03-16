@@ -1,0 +1,25 @@
+# =============================================================================
+# DBAI Dashboard-UI — Dockerfile
+# =============================================================================
+# Vite Dev Server mit Hot Module Replacement (HMR)
+# =============================================================================
+
+FROM node:20-slim
+
+WORKDIR /app/frontend
+
+# Package-Dateien zuerst (Layer-Cache)
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm install
+
+# Vite-Konfiguration
+COPY frontend/vite.config.js ./
+COPY frontend/index.html ./
+
+# Source-Code (wird via Volume live gemountet)
+COPY frontend/src/ ./src/
+COPY frontend/public/ ./public/
+
+EXPOSE 5173
+
+CMD ["npx", "vite", "--host", "0.0.0.0", "--port", "5173"]

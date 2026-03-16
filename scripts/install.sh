@@ -128,7 +128,44 @@ pip install --quiet -r "$DBAI_ROOT/requirements.txt"
 log_ok "Python-Abhängigkeiten installiert"
 
 # ------------------------------------------------------------------
-# 4. C-Bindings kompilieren
+# 4. Node.js & Frontend
+# ------------------------------------------------------------------
+log_info "Prüfe Node.js Installation..."
+
+if ! command -v node &>/dev/null; then
+    log_warn "Node.js nicht gefunden — installiere..."
+    if command -v apt-get &>/dev/null; then
+        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+        sudo apt-get install -y -qq nodejs
+    elif command -v dnf &>/dev/null; then
+        sudo dnf install -y nodejs
+    elif command -v pacman &>/dev/null; then
+        sudo pacman -Sy --noconfirm nodejs npm
+    fi
+fi
+
+if command -v node &>/dev/null; then
+    NODE_VERSION=$(node --version)
+    log_ok "Node.js $NODE_VERSION gefunden"
+else
+    log_warn "Node.js nicht verfügbar — Frontend wird nicht gebaut (Start-Web im Dev-Modus)"
+fi
+
+log_info "Installiere Frontend-Abhängigkeiten..."
+cd "$DBAI_ROOT/frontend"
+if command -v npm &>/dev/null; then
+    npm install --silent 2>/dev/null
+    log_ok "Frontend-Abhängigkeiten installiert"
+    log_info "Baue Frontend..."
+    npx vite build 2>/dev/null
+    log_ok "Frontend gebaut"
+else
+    log_warn "npm nicht verfügbar — überspringe Frontend-Build"
+fi
+cd "$DBAI_ROOT"
+
+# ------------------------------------------------------------------
+# 5. C-Bindings kompilieren
 # ------------------------------------------------------------------
 log_info "Kompiliere C-Bindings..."
 
@@ -141,7 +178,7 @@ fi
 cd "$DBAI_ROOT"
 
 # ------------------------------------------------------------------
-# 5. Verzeichnisse erstellen
+# 6. Verzeichnisse erstellen
 # ------------------------------------------------------------------
 log_info "Erstelle Verzeichnisse..."
 
@@ -152,7 +189,7 @@ mkdir -p /tmp/dbai_mirror_2
 log_ok "Verzeichnisse erstellt (temporär unter /tmp)"
 
 # ------------------------------------------------------------------
-# 6. PostgreSQL Konfiguration
+# 7. PostgreSQL Konfiguration
 # ------------------------------------------------------------------
 log_info "PostgreSQL wird konfiguriert..."
 
@@ -175,6 +212,15 @@ echo ""
 echo "============================================================"
 echo "  Installation abgeschlossen!"
 echo ""
-echo "  Nächster Schritt:"
-echo "    bash $DBAI_ROOT/scripts/bootstrap.sh"
+echo "  Nächste Schritte:"
+echo "    1. Datenbank initialisieren:"
+echo "       bash $DBAI_ROOT/scripts/bootstrap.sh"
+echo ""
+echo "    2. Server starten:"
+echo "       bash $DBAI_ROOT/scripts/start_web.sh"
+echo ""
+echo "    3. Im Browser öffnen:"
+echo "       http://localhost:3000"
+echo ""
+echo "  Login: root / dbai2026"
 echo "============================================================"

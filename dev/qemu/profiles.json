@@ -1,0 +1,201 @@
+{
+  "profiles": {
+    "minimal": {
+      "name": "DBAI Minimal VM",
+      "cpu_model": "Intel Celeron N5095 (Emulated)",
+      "cpu_cores": 2,
+      "cpu_threads": 2,
+      "cpu_base_freq": 2000,
+      "cpu_boost_freq": 2900,
+      "ram_total_mb": 1024,
+      "ram_type": "DDR4-2400",
+      "disks": [
+        {
+          "device": "/dev/vda",
+          "model": "QEMU HARDDISK 0",
+          "size_gb": 32,
+          "type": "SSD",
+          "mount": "/",
+          "fs": "ext4"
+        }
+      ],
+      "nics": [
+        {
+          "interface": "eth0",
+          "mac": "52:54:00:aa:00:01",
+          "driver": "virtio-net",
+          "speed": 100
+        }
+      ],
+      "sensors": [
+        {"name": "cpu_package", "type": "cpu", "base_temp": 50.0, "max_temp": 90.0},
+        {"name": "cpu_core0", "type": "cpu", "base_temp": 48.0, "max_temp": 90.0},
+        {"name": "disk_vda", "type": "disk", "base_temp": 35.0, "max_temp": 65.0}
+      ]
+    },
+    "desktop": {
+      "name": "DBAI Desktop VM",
+      "cpu_model": "Intel Core i7-13700K (Emulated)",
+      "cpu_cores": 8,
+      "cpu_threads": 16,
+      "cpu_base_freq": 3400,
+      "cpu_boost_freq": 5400,
+      "ram_total_mb": 16384,
+      "ram_type": "DDR5-5600",
+      "disks": [
+        {
+          "device": "/dev/vda",
+          "model": "Samsung 990 Pro (Emulated)",
+          "size_gb": 512,
+          "type": "NVMe",
+          "mount": "/",
+          "fs": "btrfs"
+        },
+        {
+          "device": "/dev/vdb",
+          "model": "Seagate Barracuda (Emulated)",
+          "size_gb": 2048,
+          "type": "HDD",
+          "mount": "/data",
+          "fs": "xfs"
+        }
+      ],
+      "nics": [
+        {
+          "interface": "eth0",
+          "mac": "52:54:00:bb:00:01",
+          "driver": "virtio-net",
+          "speed": 2500
+        },
+        {
+          "interface": "wlan0",
+          "mac": "52:54:00:bb:00:02",
+          "driver": "virtio-net",
+          "speed": 1200
+        }
+      ],
+      "gpu": {
+        "name": "NVIDIA RTX 4070 (Emulated)",
+        "vram_mb": 12288,
+        "driver": "virtio-gpu",
+        "cuda_cores": 5888
+      },
+      "sensors": [
+        {"name": "cpu_package", "type": "cpu", "base_temp": 40.0, "max_temp": 100.0},
+        {"name": "cpu_core0", "type": "cpu", "base_temp": 38.0, "max_temp": 100.0},
+        {"name": "cpu_core1", "type": "cpu", "base_temp": 39.0, "max_temp": 100.0},
+        {"name": "cpu_core2", "type": "cpu", "base_temp": 37.0, "max_temp": 100.0},
+        {"name": "cpu_core3", "type": "cpu", "base_temp": 38.0, "max_temp": 100.0},
+        {"name": "gpu_core", "type": "gpu", "base_temp": 35.0, "max_temp": 90.0},
+        {"name": "mobo_vrm", "type": "mobo", "base_temp": 35.0, "max_temp": 85.0},
+        {"name": "disk_vda", "type": "disk", "base_temp": 30.0, "max_temp": 70.0},
+        {"name": "disk_vdb", "type": "disk", "base_temp": 28.0, "max_temp": 60.0}
+      ]
+    },
+    "server": {
+      "name": "DBAI Server VM",
+      "cpu_model": "AMD EPYC 9654 (Emulated)",
+      "cpu_cores": 16,
+      "cpu_threads": 32,
+      "cpu_base_freq": 2400,
+      "cpu_boost_freq": 3700,
+      "ram_total_mb": 65536,
+      "ram_type": "DDR5-4800 ECC",
+      "disks": [
+        {
+          "device": "/dev/vda",
+          "model": "Intel P5800X (Emulated)",
+          "size_gb": 256,
+          "type": "NVMe",
+          "mount": "/",
+          "fs": "ext4"
+        },
+        {
+          "device": "/dev/vdb",
+          "model": "Samsung PM9A3 (Emulated)",
+          "size_gb": 2048,
+          "type": "NVMe",
+          "mount": "/data",
+          "fs": "xfs"
+        },
+        {
+          "device": "/dev/vdc",
+          "model": "Samsung PM9A3 (Emulated)",
+          "size_gb": 2048,
+          "type": "NVMe",
+          "mount": "/backup",
+          "fs": "xfs"
+        },
+        {
+          "device": "/dev/vdd",
+          "model": "Seagate Exos X20 (Emulated)",
+          "size_gb": 8192,
+          "type": "HDD",
+          "mount": "/archive",
+          "fs": "zfs"
+        }
+      ],
+      "nics": [
+        {
+          "interface": "eth0",
+          "mac": "52:54:00:cc:00:01",
+          "driver": "virtio-net",
+          "speed": 10000
+        },
+        {
+          "interface": "eth1",
+          "mac": "52:54:00:cc:00:02",
+          "driver": "virtio-net",
+          "speed": 10000
+        }
+      ],
+      "sensors": [
+        {"name": "cpu_package", "type": "cpu", "base_temp": 45.0, "max_temp": 95.0},
+        {"name": "cpu_core0", "type": "cpu", "base_temp": 42.0, "max_temp": 95.0},
+        {"name": "cpu_core1", "type": "cpu", "base_temp": 43.0, "max_temp": 95.0},
+        {"name": "cpu_core2", "type": "cpu", "base_temp": 41.0, "max_temp": 95.0},
+        {"name": "cpu_core3", "type": "cpu", "base_temp": 44.0, "max_temp": 95.0},
+        {"name": "mobo_vrm", "type": "mobo", "base_temp": 40.0, "max_temp": 85.0},
+        {"name": "psu_main", "type": "psu", "base_temp": 35.0, "max_temp": 80.0},
+        {"name": "disk_vda", "type": "disk", "base_temp": 32.0, "max_temp": 70.0},
+        {"name": "disk_vdb", "type": "disk", "base_temp": 33.0, "max_temp": 70.0},
+        {"name": "ambient", "type": "ambient", "base_temp": 22.0, "max_temp": 45.0}
+      ]
+    },
+    "stress": {
+      "name": "DBAI Stress-Test VM",
+      "cpu_model": "Stress Test Profile",
+      "cpu_cores": 4,
+      "cpu_threads": 8,
+      "cpu_base_freq": 3000,
+      "cpu_boost_freq": 4500,
+      "ram_total_mb": 4096,
+      "ram_type": "DDR4-3200",
+      "disks": [
+        {
+          "device": "/dev/vda",
+          "model": "QEMU Stress Disk",
+          "size_gb": 64,
+          "type": "SSD",
+          "mount": "/",
+          "fs": "ext4"
+        }
+      ],
+      "nics": [
+        {
+          "interface": "eth0",
+          "mac": "52:54:00:dd:00:01",
+          "driver": "virtio-net",
+          "speed": 1000
+        }
+      ],
+      "sensors": [
+        {"name": "cpu_package", "type": "cpu", "base_temp": 65.0, "max_temp": 100.0},
+        {"name": "cpu_core0", "type": "cpu", "base_temp": 63.0, "max_temp": 100.0},
+        {"name": "cpu_core1", "type": "cpu", "base_temp": 64.0, "max_temp": 100.0},
+        {"name": "mobo_vrm", "type": "mobo", "base_temp": 55.0, "max_temp": 85.0},
+        {"name": "disk_vda", "type": "disk", "base_temp": 40.0, "max_temp": 70.0}
+      ]
+    }
+  }
+}

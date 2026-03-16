@@ -3,12 +3,14 @@ import { api, createWebSocket } from './api'
 import BootScreen from './components/BootScreen'
 import LoginScreen from './components/LoginScreen'
 import Desktop from './components/Desktop'
+import SetupWizard from './components/apps/SetupWizard'
 
 // ═══════════════════════════════════════════════════════════════
-// App States: BOOT → LOGIN → DESKTOP
+// App States: BOOT → LOGIN → SETUP (if needed) → DESKTOP
 // ═══════════════════════════════════════════════════════════════
 const PHASE_BOOT   = 'boot'
 const PHASE_LOGIN  = 'login'
+const PHASE_SETUP  = 'setup'
 const PHASE_DESKTOP = 'desktop'
 
 export default function App() {
@@ -27,8 +29,16 @@ export default function App() {
         .then(userData => {
           setUser(userData)
           setToken(savedToken)
-          // Skip boot, go to desktop
-          setPhase(PHASE_DESKTOP)
+          // Prüfe ob Setup abgeschlossen
+          api.setupStatus()
+            .then(status => {
+              if (!status.setup_completed) {
+                setPhase(PHASE_SETUP)
+              } else {
+                setPhase(PHASE_DESKTOP)
+              }
+            })
+            .catch(() => setPhase(PHASE_DESKTOP))
         })
         .catch(() => {
           localStorage.removeItem('dbai_token')
@@ -49,10 +59,23 @@ export default function App() {
       localStorage.setItem('dbai_token', result.token)
       setToken(result.token)
       setUser(result.user)
+      // Prüfe ob Setup abgeschlossen
+      try {
+        const status = await api.setupStatus()
+        if (!status.setup_completed) {
+          setPhase(PHASE_SETUP)
+          return { success: true }
+        }
+      } catch {}
       setPhase(PHASE_DESKTOP)
       return { success: true }
     }
     return { success: false, error: result.error || 'Login fehlgeschlagen' }
+  }, [])
+
+  // ── Setup Complete ──
+  const handleSetupComplete = useCallback(() => {
+    setPhase(PHASE_DESKTOP)
   }, [])
 
   // ── Logout ──
@@ -163,6 +186,28 @@ export default function App() {
 
       {phase === PHASE_LOGIN && (
         <LoginScreen onLogin={handleLogin} />
+      )}
+
+      {phase === PHASE_SETUP && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'var(--bg-primary, #0a0e14)',
+          display: 'flex', flexDirection: 'column',
+        }}>
+          <div style={{
+            padding: '8px 16px', borderBottom: '1px solid var(--border, #1a1f2e)',
+            display: 'flex', alignItems: 'center', gap: 8,
+            background: 'var(--bg-surface, #111622)',
+          }}>
+            <span style={{ fontSize: 18 }}>👻</span>
+            <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--accent, #00ffcc)' }}>
+              DBAI — Ersteinrichtung
+            </span>
+          </div>
+          <div style={{ flex: 1 }}>
+            <SetupWizard onComplete={handleSetupComplete} />
+          </div>
+        </div>
       )}
 
       {phase === PHASE_DESKTOP && desktopState && (
