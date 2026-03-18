@@ -111,8 +111,22 @@ function StateDot({ state }) {
 export default function GhostLLMManager({ windowId, onOpenWindow }) {
   const { settings: appSettings, schema: appSchema, update: updateAppSetting, reset: resetAppSettings } = useAppSettings('ghost-llm-manager')
   const [showAppSettings, setShowAppSettings] = useState(false)
-  // ─── Tab-State ────────────────────
-  const [tab, setTab] = useState(appSettings?.default_tab || 'agents')
+
+  // ─── Persistenz-Keys (localStorage) ─────────
+  const PERSIST_KEY = 'dbai_llm_manager_state'
+  const loadPersisted = () => {
+    try { return JSON.parse(localStorage.getItem(PERSIST_KEY)) || {} } catch { return {} }
+  }
+  const savePersisted = (patch) => {
+    try {
+      const current = loadPersisted()
+      localStorage.setItem(PERSIST_KEY, JSON.stringify({ ...current, ...patch }))
+    } catch {}
+  }
+  const persisted = loadPersisted()
+
+  // ─── Tab-State (persistiert) ────────────────────
+  const [tab, setTab] = useState(persisted.tab || appSettings?.default_tab || 'agents')
 
   // ─── Agents ───────────────────────
   const [instances, setInstances] = useState([])
@@ -176,8 +190,16 @@ export default function GhostLLMManager({ windowId, onOpenWindow }) {
   const [ghostData, setGhostData] = useState({ active_ghosts: [], models: [], roles: [], compatibility: [] })
   const [ghostSwapping, setGhostSwapping] = useState(false)
   const [selectedGhostRole, setSelectedGhostRole] = useState(null)
-  const [ghostTab, setGhostTab] = useState('roles')
+  const [ghostTab, setGhostTab] = useState(persisted.ghostTab || 'roles')
   const [ghostHistory, setGhostHistory] = useState([])
+
+  // ─── Rollen-Edit ──────────────────
+  const [editingRole, setEditingRole] = useState(null)
+  const [roleForm, setRoleForm] = useState({})
+  const [roleSaving, setRoleSaving] = useState(false)
+
+  // ─── Instanz-Erstellung ───────────
+  const [instanceCreating, setInstanceCreating] = useState(false)
 
   // ─── Global ───────────────────────
   const [loading, setLoading] = useState(true)
@@ -313,6 +335,24 @@ export default function GhostLLMManager({ windowId, onOpenWindow }) {
     })
   }, [])
 
+  // ─── Persistenz: Tab-Wechsel speichern ─────────
+  useEffect(() => { savePersisted({ tab }) }, [tab])
+  useEffect(() => { savePersisted({ ghostTab }) }, [ghostTab])
+  useEffect(() => {
+    if (selectedInstance) savePersisted({ selectedInstance })
+  }, [selectedInstance])
+
+  // ─── Persistenz: Gespeicherten selectedInstance wiederherstellen ───
+  useEffect(() => {
+    if (persisted.selectedInstance && instances.length > 0) {
+      const exists = instances.find(i => i.id === persisted.selectedInstance)
+      if (exists && !selectedInstance) {
+        setSelectedInstance(persisted.selectedInstance)
+        loadTasks(persisted.selectedInstance)
+      }
+    }
+  }, [instances])
+
   // Auto-refresh GPU + instances + ghosts every 10s
   useEffect(() => {
     refreshRef.current = setInterval(() => {
@@ -337,12 +377,29 @@ export default function GhostLLMManager({ windowId, onOpenWindow }) {
   }
 
   const handleCreateInstance = async () => {
+    setInstanceCreating(true)
+    // VRAM-Live-Polling starten
+    if (vramPollRef.current) clearInterval(vramPollRef.current)
+    vramPollRef.current = setInterval(async () => {
+      try { const v = await api.vramLive(); setVramLive(v) } catch(e) {}
+    }, 1000)
     try {
-      await api.agentsCreateInstance(newInst)
-      setShowCreate(false)
-      setNewInst({ model_id: '', role_id: '', gpu_index: 0, backend: 'ollama', context_size: 4096, n_gpu_layers: 99, threads: 8, batch_size: 512 })
-      await loadInstances()
+      const result = await api.agentsCreateInstance({ ...newInst, auto_start: true })
+      if (result?.ok) {
+        // Warte kurz damit VRAM-Polling den Ladevorgang zeigt
+        await new Promise(r => setTimeout(r, 2000))
+        setShowCreate(false)
+        setNewInst({ model_id: '', role_id: '', gpu_index: 0, backend: 'llama.cpp', context_size: 4096, n_gpu_layers: 99, threads: 8, batch_size: 512 })
+        await Promise.all([loadInstances(), loadGpu(), loadGhostModels(), loadModels()])
+      } else {
+        console.error('Instanz erstellen Ergebnis:', result)
+      }
     } catch (e) { console.error('Instanz erstellen:', e) }
+    // VRAM-Polling stoppen nach 5s
+    setTimeout(() => {
+      if (vramPollRef.current) { clearInterval(vramPollRef.current); vramPollRef.current = null }
+    }, 5000)
+    setInstanceCreating(false)
   }
 
   const handleStartInstance = (inst) => {
@@ -366,13 +423,56 @@ export default function GhostLLMManager({ windowId, onOpenWindow }) {
   }
 
   const handleDeleteInstance = (inst) => {
-    confirmAndDo('Agent löschen', `Instanz "${inst.model_name || inst.model_id}" endgültig löschen?\nAlle zugehörigen Tasks werden ebenfalls entfernt.`, '🗑️', async () => {
+    confirmAndDo('Agent löschen', `Instanz "${inst.model_name || inst.model_id}" endgültig löschen?\nModell wird von GPU entladen und VRAM freigegeben.`, '🗑️', async () => {
       try {
         await api.agentsDeleteInstance(inst.id)
         if (selectedInstance === inst.id) { setSelectedInstance(null); setTasks([]) }
-        await loadInstances()
+        // GPU + Modelle neu laden da VRAM jetzt frei ist
+        await Promise.all([loadInstances(), loadGpu(), loadGhostModels(), loadModels()])
+        setVramLive(null)
       } catch (e) { console.error('Löschen fehlgeschlagen:', e) }
     })
+  }
+
+  // ─── Rollen-Edit Handlers ───────────
+  const handleEditRole = (role) => {
+    setEditingRole(role.id || role.role_id)
+    setRoleForm({
+      display_name: role.display_name || role.role_name || role.name || '',
+      description: role.description || '',
+      icon: role.icon || '🎭',
+      system_prompt: role.system_prompt || '',
+      priority: role.priority || 5,
+      is_critical: role.is_critical || false,
+      accessible_schemas: Array.isArray(role.accessible_schemas) ? role.accessible_schemas.join(', ') : (role.accessible_schemas || ''),
+      accessible_tables: Array.isArray(role.accessible_tables) ? role.accessible_tables.join(', ') : (role.accessible_tables || ''),
+    })
+  }
+
+  const handleSaveRole = async (roleId) => {
+    setRoleSaving(true)
+    try {
+      const payload = {
+        display_name: roleForm.display_name,
+        description: roleForm.description,
+        icon: roleForm.icon,
+        system_prompt: roleForm.system_prompt,
+        priority: parseInt(roleForm.priority) || 5,
+        is_critical: roleForm.is_critical,
+        accessible_schemas: roleForm.accessible_schemas ? roleForm.accessible_schemas.split(',').map(s => s.trim()).filter(Boolean) : [],
+        accessible_tables: roleForm.accessible_tables ? roleForm.accessible_tables.split(',').map(s => s.trim()).filter(Boolean) : [],
+      }
+      await api.agentsUpdateRole(roleId, payload)
+      setEditingRole(null)
+      setRoleForm({})
+      await loadRoles()
+    } catch (e) { console.error('Rolle speichern:', e) }
+    setRoleSaving(false)
+  }
+
+  const handleCancelEditRole = () => {
+    setEditingRole(null)
+    setRoleForm({})
   }
 
   const handleAssignRole = async (instId, roleId) => {
@@ -867,7 +967,7 @@ export default function GhostLLMManager({ windowId, onOpenWindow }) {
                       loadTasks(inst.id)
                       setShowCreateTask(false)
                     }}>📋 Tasks</button>
-                    <button style={S.btnDanger} onClick={() => handleDeleteInstance(inst)}>🗑️</button>
+                    <button style={S.btnDanger} onClick={() => handleDeleteInstance(inst)} title="Instanz löschen & GPU freigeben">🗑️ Entladen</button>
                   </div>
                 </div>
               ))}
@@ -1030,11 +1130,18 @@ export default function GhostLLMManager({ windowId, onOpenWindow }) {
                 )
               })()}
 
+              {/* VRAM Live-Feedback während Instanz-Erstellung */}
+              {instanceCreating && vramLive && (
+                <div style={{ marginTop: '12px' }}>
+                  <VramBar used={vramLive.used_mb || 0} total={vramLive.total_mb || 1} label="⏳ GPU wird geladen…" height={22} />
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '16px' }}>
-                <button style={S.btnPrimary} onClick={handleCreateInstance} disabled={!newInst.model_id}>
-                  🚀 Instanz erstellen
+                <button style={S.btnPrimary} onClick={handleCreateInstance} disabled={!newInst.model_id || instanceCreating}>
+                  {instanceCreating ? '⏳ Modell wird auf GPU geladen…' : '🚀 Instanz erstellen + GPU laden'}
                 </button>
-                <button style={S.btnSmall} onClick={() => setShowCreate(false)}>Abbrechen</button>
+                <button style={S.btnSmall} onClick={() => setShowCreate(false)} disabled={instanceCreating}>Abbrechen</button>
               </div>
             </div>
           </div>
@@ -1672,53 +1779,105 @@ export default function GhostLLMManager({ windowId, onOpenWindow }) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {roles.map(r => {
-              const assignedInstances = instances.filter(i => i.role_id === (r.id || r.role_id))
+              const roleId = r.id || r.role_id
+              const isEditing = editingRole === roleId
+              const assignedInstances = instances.filter(i => i.role_id === roleId)
               return (
-                <div key={r.id || r.role_id} style={S.roleCard}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <span style={{ fontSize: '24px' }}>{r.icon || '🎭'}</span>
+                <div key={roleId} style={{ ...S.roleCard, borderLeft: isEditing ? '3px solid var(--accent)' : undefined }}>
+                  {isEditing ? (
+                    /* ─── EDIT MODE ─── */
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--accent)' }}>✏️ Rolle bearbeiten</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', gap: '8px', alignItems: 'center' }}>
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Icon</label>
+                        <input style={S.input} value={roleForm.icon || ''} onChange={e => setRoleForm(p => ({ ...p, icon: e.target.value }))} placeholder="🎭" />
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Name</label>
+                        <input style={S.input} value={roleForm.display_name || ''} onChange={e => setRoleForm(p => ({ ...p, display_name: e.target.value }))} placeholder="Anzeigename" />
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Beschreibung</label>
+                        <input style={S.input} value={roleForm.description || ''} onChange={e => setRoleForm(p => ({ ...p, description: e.target.value }))} placeholder="Rollenbeschreibung" />
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Priorität</label>
+                        <input style={S.input} type="number" min={1} max={100} value={roleForm.priority || 5} onChange={e => setRoleForm(p => ({ ...p, priority: +e.target.value }))} />
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Kritisch</label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={roleForm.is_critical || false} onChange={e => setRoleForm(p => ({ ...p, is_critical: e.target.checked }))} />
+                          {roleForm.is_critical ? '🔴 Ja' : '🟢 Nein'}
+                        </label>
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Schemas</label>
+                        <input style={S.input} value={roleForm.accessible_schemas || ''} onChange={e => setRoleForm(p => ({ ...p, accessible_schemas: e.target.value }))} placeholder="dbai_core, dbai_llm, …" />
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Tabellen</label>
+                        <input style={S.input} value={roleForm.accessible_tables || ''} onChange={e => setRoleForm(p => ({ ...p, accessible_tables: e.target.value }))} placeholder="ghost_models, agents, …" />
+                      </div>
                       <div>
-                        <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>
-                          {r.display_name || r.role_name || r.name}
-                        </div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                          Priorität: {r.priority || '—'} · {r.is_critical ? '🔴 Kritisch' : '🟢 Normal'}
-                        </div>
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>System-Prompt</label>
+                        <textarea
+                          style={{ ...S.input, minHeight: '80px', resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: '11px' }}
+                          value={roleForm.system_prompt || ''}
+                          onChange={e => setRoleForm(p => ({ ...p, system_prompt: e.target.value }))}
+                          placeholder="System-Prompt für diese Rolle…"
+                        />
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button style={S.btnPrimary} onClick={() => handleSaveRole(roleId)} disabled={roleSaving}>
+                          {roleSaving ? '⏳ Speichert…' : '💾 Speichern'}
+                        </button>
+                        <button style={S.btnSmall} onClick={handleCancelEditRole}>Abbrechen</button>
                       </div>
                     </div>
-                    <div>
-                      {assignedInstances.length > 0 ? (
-                        <span style={S.badgeGreen}>{assignedInstances.length} Agent{assignedInstances.length > 1 ? 'en' : ''}</span>
-                      ) : (
-                        <span style={S.badgeGray}>Kein Agent</span>
+                  ) : (
+                    /* ─── READ MODE ─── */
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '24px' }}>{r.icon || '🎭'}</span>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>
+                              {r.display_name || r.role_name || r.name}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                              Priorität: {r.priority || '—'} · {r.is_critical ? '🔴 Kritisch' : '🟢 Normal'}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          {assignedInstances.length > 0 ? (
+                            <span style={S.badgeGreen}>{assignedInstances.length} Agent{assignedInstances.length > 1 ? 'en' : ''}</span>
+                          ) : (
+                            <span style={S.badgeGray}>Kein Agent</span>
+                          )}
+                          <button style={{ ...S.btnSmall, padding: '4px 10px' }} onClick={() => handleEditRole(r)} title="Rolle bearbeiten">
+                            ✏️ Bearbeiten
+                          </button>
+                        </div>
+                      </div>
+                      {r.description && (
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px' }}>{r.description}</div>
                       )}
-                    </div>
-                  </div>
-                  {r.system_prompt && (
-                    <div style={S.promptBox}>
-                      <div style={{ fontSize: '10px', color: 'var(--accent)', marginBottom: '4px' }}>System-Prompt:</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', maxHeight: '80px', overflow: 'auto' }}>
-                        {r.system_prompt}
-                      </div>
-                    </div>
-                  )}
-                  {(r.accessible_schemas || r.accessible_tables) && (
-                    <div style={{ marginTop: '6px', fontSize: '10px', color: 'var(--text-secondary)' }}>
-                      {r.accessible_schemas && <span>Schemas: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>{Array.isArray(r.accessible_schemas) ? r.accessible_schemas.join(', ') : r.accessible_schemas}</span> · </span>}
-                      {r.accessible_tables && <span>Tabellen: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>{Array.isArray(r.accessible_tables) ? r.accessible_tables.join(', ') : r.accessible_tables}</span></span>}
-                    </div>
-                  )}
-                  {assignedInstances.length > 0 && (
-                    <div style={{ marginTop: '6px' }}>
-                      {assignedInstances.map(inst => (
-                        <div key={inst.id} style={{ fontSize: '11px', display: 'flex', gap: '6px', alignItems: 'center', padding: '3px 0' }}>
-                          <StateDot state={inst.state} />
-                          <span style={{ color: 'var(--text-primary)' }}>{inst.model_name || 'Modell'}</span>
-                          <span style={{ color: 'var(--text-secondary)' }}>GPU {inst.gpu_index}</span>
+                      {r.system_prompt && (
+                        <div style={S.promptBox}>
+                          <div style={{ fontSize: '10px', color: 'var(--accent)', marginBottom: '4px' }}>System-Prompt:</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', maxHeight: '80px', overflow: 'auto' }}>
+                            {r.system_prompt}
+                          </div>
                         </div>
-                      ))}
-                    </div>
+                      )}
+                      {(r.accessible_schemas || r.accessible_tables) && (
+                        <div style={{ marginTop: '6px', fontSize: '10px', color: 'var(--text-secondary)' }}>
+                          {r.accessible_schemas && <span>Schemas: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>{Array.isArray(r.accessible_schemas) ? r.accessible_schemas.join(', ') : r.accessible_schemas}</span> · </span>}
+                          {r.accessible_tables && <span>Tabellen: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>{Array.isArray(r.accessible_tables) ? r.accessible_tables.join(', ') : r.accessible_tables}</span></span>}
+                        </div>
+                      )}
+                      {assignedInstances.length > 0 && (
+                        <div style={{ marginTop: '6px' }}>
+                          {assignedInstances.map(inst => (
+                            <div key={inst.id} style={{ fontSize: '11px', display: 'flex', gap: '6px', alignItems: 'center', padding: '3px 0' }}>
+                              <StateDot state={inst.state} />
+                              <span style={{ color: 'var(--text-primary)' }}>{inst.model_name || 'Modell'}</span>
+                              <span style={{ color: 'var(--text-secondary)' }}>GPU {inst.gpu_index}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )

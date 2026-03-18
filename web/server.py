@@ -66,7 +66,7 @@ DB_CONFIG = {
     "port": int(os.getenv("DBAI_DB_PORT", "5432")),
     "dbname": os.getenv("DBAI_DB_NAME", "dbai"),
     "user": os.getenv("DBAI_DB_USER", "dbai_system"),
-    "password": os.getenv("DBAI_DB_PASSWORD", ""),
+    "password": os.getenv("DBAI_DB_PASSWORD", "dbai2026"),
 }
 
 # Runtime-Pool: dbai_runtime — Für alle normalen API-Operationen (KEIN Superuser)
@@ -463,10 +463,65 @@ metrics_streamer = MetricsStreamer(ws_manager)
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Start/Stop Lifecycle."""
+    """Start/Stop Lifecycle mit Auto-Recovery."""
     logger.info("═══ DBAI Web Server startet ═══")
     await notify_bridge.start()
     await metrics_streamer.start()
+
+    # ── AUTO-RECOVERY: Instanzen die als 'running' gespeichert waren wiederherstellen ──
+    try:
+        running_instances = db_query_rt("""
+            SELECT ai.id, ai.model_id, ai.gpu_index, ai.n_gpu_layers, ai.context_size,
+                   ai.threads, ai.batch_size, ai.backend,
+                   gm.name AS model_name, gm.model_path, gm.required_vram_mb, gm.quantization
+            FROM dbai_llm.agent_instances ai
+            JOIN dbai_llm.ghost_models gm ON ai.model_id = gm.id
+            WHERE ai.state = 'running'
+            ORDER BY ai.started_at ASC
+            LIMIT 1
+        """)
+        if running_instances:
+            inst = running_instances[0]
+            model_path = inst.get("model_path", "")
+            if model_path and not model_path.startswith("/"):
+                for base in ["/mnt/nvme/models", "/home/worker/DBAI"]:
+                    candidate = os.path.join(base, model_path)
+                    if os.path.exists(candidate):
+                        model_path = candidate
+                        break
+            if model_path and os.path.exists(model_path):
+                logger.info(f"[RECOVERY] Stelle Instanz wieder her: {inst['model_name']} auf GPU {inst['gpu_index']}")
+                started = _llm_server_start(
+                    device="gpu" if (inst.get("n_gpu_layers") or 99) > 0 else "cpu",
+                    n_gpu_layers=inst.get("n_gpu_layers") or 99,
+                    ctx_size=inst.get("context_size") or 8192,
+                    threads=inst.get("threads") or 8,
+                    model_path=model_path,
+                    model_name=inst.get("model_name", "unknown"),
+                )
+                if started:
+                    logger.info(f"[RECOVERY] ✅ {inst['model_name']} erfolgreich wiederhergestellt")
+                    db_execute_rt("""
+                        UPDATE dbai_llm.agent_instances SET started_at = NOW(), updated_at = NOW()
+                        WHERE id = %s::UUID
+                    """, (str(inst["id"]),))
+                    db_execute_rt("""
+                        UPDATE dbai_llm.ghost_models SET state = 'loaded', is_loaded = TRUE, updated_at = NOW()
+                        WHERE id = %s::UUID
+                    """, (str(inst["model_id"]),))
+                else:
+                    logger.error(f"[RECOVERY] ❌ {inst['model_name']} konnte nicht wiederhergestellt werden")
+                    db_execute_rt("""
+                        UPDATE dbai_llm.agent_instances SET state = 'error', updated_at = NOW()
+                        WHERE id = %s::UUID
+                    """, (str(inst["id"]),))
+            else:
+                logger.warning(f"[RECOVERY] Modell-Pfad nicht gefunden: {model_path}")
+        else:
+            logger.info("[RECOVERY] Keine laufenden Instanzen zu recovern")
+    except Exception as e:
+        logger.error(f"[RECOVERY] Fehler bei Auto-Recovery: {e}")
+
     yield
     logger.info("═══ DBAI Web Server stoppt ═══")
     await notify_bridge.stop()
@@ -3434,7 +3489,7 @@ async def agents_list_instances(session: dict = Depends(get_current_session)):
 
 @app.post("/api/agents/instances")
 async def agents_create_instance(request: Request, session: dict = Depends(get_current_session)):
-    """Neue Agent-Instanz erstellen (Modell + GPU + Rolle zuweisen)."""
+    """Neue Agent-Instanz erstellen UND Modell automatisch auf GPU laden."""
     body = await request.json()
     model_id = body.get("model_id")
     role_id = body.get("role_id")
@@ -3442,32 +3497,46 @@ async def agents_create_instance(request: Request, session: dict = Depends(get_c
     backend = body.get("backend", "llama.cpp")
     context_size = body.get("context_size", 4096)
     max_tokens = body.get("max_tokens", 2048)
-    n_gpu_layers = body.get("n_gpu_layers", -1)
-    threads = body.get("threads", 4)
+    n_gpu_layers = body.get("n_gpu_layers", 99)
+    threads = body.get("threads", 8)
     batch_size = body.get("batch_size", 512)
     api_port = body.get("api_port")
+    auto_start = body.get("auto_start", True)
 
     if not model_id:
         raise HTTPException(status_code=400, detail="model_id fehlt")
 
-    # GPU-Name ermitteln
+    # GPU-Name + VRAM ermitteln
     gpu_name = None
+    gpu_free = 0
+    gpu_total = 0
     try:
         import subprocess
         r = subprocess.run(
-            ["nvidia-smi", "--query-gpu=index,name", "--format=csv,noheader"],
+            ["nvidia-smi", "--query-gpu=index,name,memory.total,memory.free",
+             "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=5
         )
         for line in r.stdout.strip().split("\n"):
             parts = [p.strip() for p in line.split(",")]
-            if len(parts) >= 2 and int(parts[0]) == gpu_index:
+            if len(parts) >= 4 and int(parts[0]) == gpu_index:
                 gpu_name = parts[1]
+                gpu_total = int(float(parts[2]))
+                gpu_free = int(float(parts[3]))
     except Exception:
         pass
 
-    # Modell VRAM ermitteln
-    model = db_query_rt("SELECT required_vram_mb FROM dbai_llm.ghost_models WHERE id = %s::UUID", (model_id,))
-    vram_alloc = model[0]["required_vram_mb"] if model and model[0].get("required_vram_mb") else 0
+    # Modell-Info ermitteln
+    model_rows = db_query_rt(
+        "SELECT id, name, model_path, required_vram_mb, context_size, quantization FROM dbai_llm.ghost_models WHERE id = %s::UUID",
+        (model_id,)
+    )
+    if not model_rows:
+        raise HTTPException(status_code=404, detail="Modell nicht gefunden")
+    model = model_rows[0]
+    vram_alloc = model.get("required_vram_mb") or 0
+    model_path = model.get("model_path") or ""
+    model_name = model.get("name") or "unknown"
 
     # Nächsten freien Port finden falls nicht angegeben
     if not api_port:
@@ -3477,15 +3546,81 @@ async def agents_create_instance(request: Request, session: dict = Depends(get_c
         while api_port in used:
             api_port += 1
 
+    # Instanz erstellen
     result = db_query_rt("""
         INSERT INTO dbai_llm.agent_instances
             (model_id, role_id, gpu_index, gpu_name, vram_allocated_mb, backend,
-             api_port, context_size, max_tokens, n_gpu_layers, threads, batch_size)
-        VALUES (%s::UUID, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             api_port, context_size, max_tokens, n_gpu_layers, threads, batch_size, state)
+        VALUES (%s::UUID, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'starting')
         RETURNING id
     """, (model_id, role_id if role_id else None, gpu_index, gpu_name, vram_alloc,
           backend, api_port, context_size, max_tokens, n_gpu_layers, threads, batch_size))
-    return {"ok": bool(result), "id": str(result[0]["id"]) if result else None, "api_port": api_port}
+
+    if not result:
+        return {"ok": False, "error": "Instanz konnte nicht erstellt werden"}
+
+    inst_id = str(result[0]["id"])
+    server_started = False
+
+    # ── AUTO-START: Modell auf GPU laden ──
+    if auto_start and model_path:
+        # Pfad auflösen
+        resolved_path = model_path
+        if not model_path.startswith("/"):
+            for base in ["/mnt/nvme/models", "/home/worker/DBAI"]:
+                candidate = os.path.join(base, model_path)
+                if os.path.exists(candidate):
+                    resolved_path = candidate
+                    break
+
+        if os.path.exists(resolved_path):
+            # GPU-Empfehlung berechnen
+            quant = model.get("quantization") or "Q4_K_M"
+            recommended = _calc_gpu_optimal(vram_alloc, context_size, gpu_free, gpu_total, quant)
+            final_ngl = n_gpu_layers if n_gpu_layers != 99 else recommended.get("n_gpu_layers", 99)
+            final_ctx = context_size or recommended.get("context_size", 8192)
+            final_batch = batch_size or recommended.get("batch_size", 512)
+            final_threads = threads or recommended.get("threads", 8)
+
+            loop = asyncio.get_event_loop()
+            server_started = await loop.run_in_executor(
+                None,
+                lambda: _llm_server_start(
+                    device="gpu" if n_gpu_layers > 0 else "cpu",
+                    n_gpu_layers=final_ngl,
+                    ctx_size=final_ctx,
+                    threads=final_threads,
+                    model_path=resolved_path,
+                    model_name=model_name,
+                )
+            )
+
+            # Instanz + Modell-Status aktualisieren
+            new_state = 'running' if server_started else 'error'
+            db_execute_rt("""
+                UPDATE dbai_llm.agent_instances
+                SET state = %s, started_at = CASE WHEN %s THEN NOW() ELSE started_at END,
+                    api_endpoint = %s, updated_at = NOW()
+                WHERE id = %s::UUID
+            """, (new_state, server_started, f"http://localhost:{_llm_server_port}" if server_started else None, inst_id))
+
+            db_execute_rt("""
+                UPDATE dbai_llm.ghost_models SET state = %s, is_loaded = %s, updated_at = NOW()
+                WHERE id = %s::UUID
+            """, ('loaded' if server_started else 'available', server_started, model_id))
+        else:
+            logger.warning(f"[AGENT] Modell-Datei nicht gefunden: {resolved_path} — Instanz im Standby")
+            db_execute_rt("UPDATE dbai_llm.agent_instances SET state = 'stopped' WHERE id = %s::UUID", (inst_id,))
+    elif not auto_start:
+        db_execute_rt("UPDATE dbai_llm.agent_instances SET state = 'stopped' WHERE id = %s::UUID", (inst_id,))
+
+    return {
+        "ok": True,
+        "id": inst_id,
+        "api_port": api_port,
+        "server_started": server_started,
+        "model_name": model_name,
+    }
 
 
 @app.patch("/api/agents/instances/{instance_id}")
@@ -3515,9 +3650,53 @@ async def agents_update_instance(instance_id: str, request: Request, session: di
 
 @app.delete("/api/agents/instances/{instance_id}")
 async def agents_delete_instance(instance_id: str, session: dict = Depends(get_current_session)):
-    """Agent-Instanz löschen."""
+    """Agent-Instanz löschen UND Modell von GPU entladen."""
+    global _llm_model_name, _llm_model_path
+
+    # Instanz-Daten holen
+    rows = db_query_rt("""
+        SELECT ai.model_id, ai.state, ai.pid, gm.name AS model_name
+        FROM dbai_llm.agent_instances ai
+        LEFT JOIN dbai_llm.ghost_models gm ON ai.model_id = gm.id
+        WHERE ai.id = %s::UUID
+    """, (instance_id,))
+
+    if rows:
+        inst = rows[0]
+        model_name = inst.get("model_name", "")
+
+        # Wenn laufend: llama-server stoppen + GPU freigeben
+        if inst.get("state") in ('running', 'starting'):
+            # PID-basiertes Stoppen
+            if inst.get("pid"):
+                try:
+                    import signal
+                    os.kill(inst["pid"], signal.SIGTERM)
+                except (ProcessLookupError, PermissionError):
+                    pass
+
+            # Aktiven llama-server stoppen wenn dieses Modell geladen ist
+            if model_name and model_name == _llm_model_name:
+                _llm_server_stop()
+                _llm_model_name = ""
+                _llm_model_path = ""
+                logger.info(f"[AGENT] llama-server gestoppt beim Löschen von Instanz (Modell: {model_name})")
+
+        # Modell-Status zurücksetzen
+        if inst.get("model_id"):
+            # Prüfen ob noch andere Instanzen dieses Modell nutzen
+            other_inst = db_query_rt("""
+                SELECT COUNT(*) AS cnt FROM dbai_llm.agent_instances
+                WHERE model_id = %s::UUID AND id != %s::UUID AND state = 'running'
+            """, (str(inst["model_id"]), instance_id))
+            if not other_inst or other_inst[0]["cnt"] == 0:
+                db_execute_rt("""
+                    UPDATE dbai_llm.ghost_models SET state = 'available', is_loaded = FALSE, updated_at = NOW()
+                    WHERE id = %s::UUID
+                """, (str(inst["model_id"]),))
+
     db_execute_rt("DELETE FROM dbai_llm.agent_instances WHERE id = %s::UUID", (instance_id,))
-    return {"ok": True}
+    return {"ok": True, "gpu_freed": True}
 
 
 @app.post("/api/agents/instances/{instance_id}/start")
@@ -3930,6 +4109,40 @@ async def agents_delete_job(job_id: str, session: dict = Depends(get_current_ses
 async def agents_roles(session: dict = Depends(get_current_session)):
     """Alle Ghost-Rollen auflisten."""
     return db_query_rt("SELECT * FROM dbai_llm.ghost_roles ORDER BY priority, name")
+
+
+@app.put("/api/agents/roles/{role_id}")
+async def agents_update_role(role_id: str, request: Request, session: dict = Depends(get_current_session)):
+    """Ghost-Rolle bearbeiten (Name, Prompt, Priorität, Schemas etc.)."""
+    body = await request.json()
+    sets = []
+    params = []
+    allowed_fields = {
+        "display_name": "display_name = %s",
+        "description": "description = %s",
+        "icon": "icon = %s",
+        "color": "color = %s",
+        "system_prompt": "system_prompt = %s",
+        "priority": "priority = %s",
+        "is_critical": "is_critical = %s",
+        "accessible_schemas": "accessible_schemas = %s::text[]",
+        "accessible_tables": "accessible_tables = %s::text[]",
+    }
+    for field, sql_expr in allowed_fields.items():
+        if field in body:
+            sets.append(sql_expr)
+            params.append(body[field])
+    if not sets:
+        return {"ok": False, "error": "Keine Felder angegeben"}
+    sets.append("updated_at = NOW()")
+    params.append(role_id)
+    db_execute(
+        f"UPDATE dbai_llm.ghost_roles SET {', '.join(sets)} WHERE id = %s::UUID",
+        tuple(params)
+    )
+    # Aktualisierte Rolle zurückgeben
+    updated = db_query("SELECT * FROM dbai_llm.ghost_roles WHERE id = %s::UUID", (role_id,))
+    return {"ok": True, "role": updated[0] if updated else None}
 
 
 @app.post("/api/agents/assign-role")

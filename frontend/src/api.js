@@ -159,6 +159,8 @@ export const api = {
   agentsDeleteJob: (id) =>
     request(`/agents/scheduled-jobs/${id}`, { method: 'DELETE' }),
   agentsRoles: () => request('/agents/roles'),
+  agentsUpdateRole: (roleId, data) =>
+    request(`/agents/roles/${roleId}`, { method: 'PUT', body: JSON.stringify(data) }),
   agentsAssignRole: (instanceId, roleId) =>
     request('/agents/assign-role', { method: 'POST', body: JSON.stringify({ instance_id: instanceId, role_id: roleId }) }),
 
