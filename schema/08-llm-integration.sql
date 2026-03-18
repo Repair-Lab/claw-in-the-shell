@@ -5,7 +5,7 @@
 -- =============================================================================
 
 -- LLM-Modell-Registry
-CREATE TABLE dbai_llm.models (
+CREATE TABLE IF NOT EXISTS dbai_llm.models (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name            TEXT NOT NULL UNIQUE,
     -- Objekt-ID des GGUF-Modells (kein Dateipfad!)
@@ -24,7 +24,7 @@ CREATE TABLE dbai_llm.models (
 );
 
 -- LLM-Konversations-History
-CREATE TABLE dbai_llm.conversations (
+CREATE TABLE IF NOT EXISTS dbai_llm.conversations (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     session_id      UUID NOT NULL,
     role            TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool')),
@@ -38,12 +38,12 @@ CREATE TABLE dbai_llm.conversations (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_conversations_session ON dbai_llm.conversations(session_id, created_at);
-CREATE INDEX idx_conversations_embedding ON dbai_llm.conversations
+CREATE INDEX IF NOT EXISTS idx_conversations_session ON dbai_llm.conversations(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_conversations_embedding ON dbai_llm.conversations
     USING hnsw (embedding vector_cosine_ops) WHERE embedding IS NOT NULL;
 
 -- LLM-Aufgaben-Queue: Tasks die das LLM abarbeiten soll
-CREATE TABLE dbai_llm.task_queue (
+CREATE TABLE IF NOT EXISTS dbai_llm.task_queue (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     task_type       TEXT NOT NULL CHECK (task_type IN (
                         'query', 'analysis', 'generation', 'classification',
@@ -69,8 +69,8 @@ CREATE TABLE dbai_llm.task_queue (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_task_queue_state ON dbai_llm.task_queue(state, priority);
-CREATE INDEX idx_task_queue_pending ON dbai_llm.task_queue(priority, created_at)
+CREATE INDEX IF NOT EXISTS idx_task_queue_state ON dbai_llm.task_queue(state, priority);
+CREATE INDEX IF NOT EXISTS idx_task_queue_pending ON dbai_llm.task_queue(priority, created_at)
     WHERE state = 'pending';
 
 -- =============================================================================

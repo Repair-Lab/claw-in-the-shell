@@ -2,6 +2,7 @@
 # DBAI GhostShell OS — Docker Compose (Entwicklungsumgebung)
 # =============================================================================
 # Orchestriert: PostgreSQL (pgvector), Ghost-API (FastAPI), Dashboard-UI (Vite)
+# Multi-Arch: Unterstützt x86_64 (AMD/Intel) und ARM64 (Raspberry Pi, Apple M)
 #
 # Verwendung:
 #   docker compose up -d              — Alles starten
@@ -9,6 +10,10 @@
 #   docker compose logs -f ghost-api  — Logs der API folgen
 #   docker compose down               — Alles stoppen
 #   docker compose down -v            — Stoppen + Volumes löschen
+#
+# Multi-Arch Build (für Registry-Push):
+#   docker buildx create --name ghostbuilder --use
+#   docker buildx bake --push          — Alle Services bauen + pushen
 # =============================================================================
 
 services:
@@ -67,6 +72,11 @@ services:
       DBAI_WEB_PORT: 3000
       DBAI_HW_SIMULATE: "true"
       PYTHONUNBUFFERED: 1
+      # NVIDIA GPU
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      # Host-IP für Remote Access (Mobile Connect)
+      HOST_IP: ${HOST_IP:-10.42.1.1}
     volumes:
       - ./bridge:/app/bridge
       - ./web:/app/web
@@ -77,17 +87,30 @@ services:
       - ./scripts:/app/scripts
       - ./tests:/app/tests
       - ./frontend/dist:/app/frontend/dist:ro
+      - dbai_browser_screenshots:/tmp/dbai_browser_screenshots
+      - dbai_browser_results:/tmp/dbai_browser_results
+      # LLM-Modelle Zugriff (Host → Container)
+      - /mnt/nvme/models:/mnt/nvme/models:rw
+      - /mnt:/mnt/host:ro
     ports:
       - "${DBAI_WEB_PORT:-3000}:3000"
     depends_on:
       postgres:
         condition: service_healthy
+    # NVIDIA GPU Pass-through (nvidia-container-toolkit erforderlich)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
-      interval: 10s
+      interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 15s
+      start_period: 20s
     networks:
       - dbai-net
 
@@ -147,6 +170,10 @@ volumes:
   dbai_pgdata:
     driver: local
   dbai_qemu_images:
+    driver: local
+  dbai_browser_screenshots:
+    driver: local
+  dbai_browser_results:
     driver: local
 
 networks:

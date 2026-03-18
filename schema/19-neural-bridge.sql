@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS dbai_core.boot_config (
     updated_at              TIMESTAMPTZ DEFAULT now()
 );
 
+DROP TRIGGER IF EXISTS trg_boot_config_updated ON dbai_core.boot_config;
 CREATE TRIGGER trg_boot_config_updated
     BEFORE UPDATE ON dbai_core.boot_config
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
@@ -91,6 +92,7 @@ CREATE TABLE IF NOT EXISTS dbai_core.neural_bridge_config (
     updated_at      TIMESTAMPTZ DEFAULT now()
 );
 
+DROP TRIGGER IF EXISTS trg_neural_bridge_config_updated ON dbai_core.neural_bridge_config;
 CREATE TRIGGER trg_neural_bridge_config_updated
     BEFORE UPDATE ON dbai_core.neural_bridge_config
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
@@ -139,6 +141,7 @@ CREATE TABLE IF NOT EXISTS dbai_core.driver_registry (
     updated_at      TIMESTAMPTZ DEFAULT now()
 );
 
+DROP TRIGGER IF EXISTS trg_driver_registry_updated ON dbai_core.driver_registry;
 CREATE TRIGGER trg_driver_registry_updated
     BEFORE UPDATE ON dbai_core.driver_registry
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
@@ -323,6 +326,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_gpu_availability_change ON dbai_system.gpu_devices;
 CREATE TRIGGER trg_gpu_availability_change
     AFTER UPDATE OF is_available ON dbai_system.gpu_devices
     FOR EACH ROW EXECUTE FUNCTION dbai_llm.auto_swap_on_gpu_change();
@@ -371,20 +375,33 @@ ALTER TABLE dbai_core.driver_registry ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dbai_core.system_capabilities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dbai_llm.ghost_benchmarks ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS boot_system_all ON dbai_core.boot_config;
 CREATE POLICY boot_system_all ON dbai_core.boot_config FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS neural_system_all ON dbai_core.neural_bridge_config;
 CREATE POLICY neural_system_all ON dbai_core.neural_bridge_config FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS driver_system_all ON dbai_core.driver_registry;
 CREATE POLICY driver_system_all ON dbai_core.driver_registry FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS caps_system_all ON dbai_core.system_capabilities;
 CREATE POLICY caps_system_all ON dbai_core.system_capabilities FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS bench_system_all ON dbai_llm.ghost_benchmarks;
 CREATE POLICY bench_system_all ON dbai_llm.ghost_benchmarks FOR ALL TO dbai_system USING (TRUE);
 
+DROP POLICY IF EXISTS boot_monitor_read ON dbai_core.boot_config;
 CREATE POLICY boot_monitor_read ON dbai_core.boot_config FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS neural_monitor_read ON dbai_core.neural_bridge_config;
 CREATE POLICY neural_monitor_read ON dbai_core.neural_bridge_config FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS driver_monitor_read ON dbai_core.driver_registry;
 CREATE POLICY driver_monitor_read ON dbai_core.driver_registry FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS caps_monitor_read ON dbai_core.system_capabilities;
 CREATE POLICY caps_monitor_read ON dbai_core.system_capabilities FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS bench_monitor_read ON dbai_llm.ghost_benchmarks;
 CREATE POLICY bench_monitor_read ON dbai_llm.ghost_benchmarks FOR SELECT TO dbai_monitor USING (TRUE);
 
+DROP POLICY IF EXISTS boot_llm_read ON dbai_core.boot_config;
 CREATE POLICY boot_llm_read ON dbai_core.boot_config FOR SELECT TO dbai_llm USING (TRUE);
+DROP POLICY IF EXISTS caps_llm_read ON dbai_core.system_capabilities;
 CREATE POLICY caps_llm_read ON dbai_core.system_capabilities FOR SELECT TO dbai_llm USING (TRUE);
+DROP POLICY IF EXISTS bench_llm_all ON dbai_llm.ghost_benchmarks;
 CREATE POLICY bench_llm_all ON dbai_llm.ghost_benchmarks FOR ALL TO dbai_llm USING (TRUE);
 
 -- =============================================================================

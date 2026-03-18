@@ -1,14 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 /**
  * Ghost Manager — KI-Modelle verwalten, Hot-Swap, Kompatibilität
  */
 export default function GhostManager() {
+  const { settings, schema, update: updateSetting, reset: resetSettings } = useAppSettings('ghost-manager')
+  const [showSettings, setShowSettings] = useState(false)
   const [data, setData] = useState({ active_ghosts: [], models: [], roles: [], compatibility: [] })
   const [swapping, setSwapping] = useState(false)
   const [selectedRole, setSelectedRole] = useState(null)
-  const [tab, setTab] = useState('roles') // roles, models, history
+  const [tab, setTab] = useState(settings?.default_tab || 'roles')
+
+  const refreshInterval = settings?.refresh_interval ?? 30000
+  const showFitnessScore = settings?.show_fitness_score !== false
 
   const refresh = useCallback(() => {
     api.ghosts().then(setData).catch(console.error)
@@ -18,8 +25,15 @@ export default function GhostManager() {
     refresh()
     const handler = () => refresh()
     window.addEventListener('dbai:ghost_swap', handler)
-    return () => window.removeEventListener('dbai:ghost_swap', handler)
-  }, [refresh])
+    let interval
+    if (settings?.auto_refresh !== false) {
+      interval = setInterval(refresh, refreshInterval)
+    }
+    return () => {
+      window.removeEventListener('dbai:ghost_swap', handler)
+      if (interval) clearInterval(interval)
+    }
+  }, [refresh, refreshInterval, settings?.auto_refresh])
 
   const handleSwap = async (roleName, modelName) => {
     setSwapping(true)
@@ -44,6 +58,13 @@ export default function GhostManager() {
 
   return (
     <div>
+      {showSettings ? (
+        <div style={{ padding: '16px' }}>
+          <button onClick={() => setShowSettings(false)} style={{ marginBottom: '12px', padding: '4px 12px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '11px' }}>← Zurück</button>
+          <AppSettingsPanel schema={schema} settings={settings} onUpdate={updateSetting} onReset={resetSettings} title="Ghost Manager" />
+        </div>
+      ) : (
+      <>
       {/* Tabs */}
       <div className="flex gap-2" style={{ marginBottom: '16px' }}>
         {['roles', 'models', 'history'].map(t => (
@@ -61,6 +82,8 @@ export default function GhostManager() {
             {t === 'roles' ? '🎭 Rollen' : t === 'models' ? '🧠 Modelle' : '📜 History'}
           </button>
         ))}
+        <div style={{ flex: 1 }} />
+        <button onClick={() => setShowSettings(true)} style={{ padding: '6px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '12px' }}>⚙️</button>
       </div>
 
       {/* Roles View */}
@@ -122,6 +145,7 @@ export default function GhostManager() {
                         }}
                       >
                         <span>{c.model_name}</span>
+                        {showFitnessScore && (
                         <span style={{
                           color: c.fitness_score > 0.8 ? 'var(--success)' :
                                  c.fitness_score > 0.5 ? 'var(--warning)' : 'var(--danger)',
@@ -129,6 +153,7 @@ export default function GhostManager() {
                         }}>
                           {(c.fitness_score * 100).toFixed(0)}%
                         </span>
+                        )}
                       </div>
                     ))}
                     {compat.length === 0 && (
@@ -183,6 +208,8 @@ export default function GhostManager() {
 
       {/* History View */}
       {tab === 'history' && <GhostHistory />}
+      </>
+      )}
     </div>
   )
 }

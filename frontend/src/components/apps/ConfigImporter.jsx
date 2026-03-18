@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 export default function ConfigImporter() {
+  const { settings, schema, update, reset } = useAppSettings('config_importer')
+  const [showSettings, setShowSettings] = useState(false)
   const [scanResult, setScanResult] = useState(null)
   const [importResult, setImportResult] = useState(null)
   const [scanning, setScanning] = useState(false)
@@ -34,6 +38,14 @@ export default function ConfigImporter() {
     finally { setImporting(false) }
   }
 
+  const importCategory = async (cat) => {
+    try {
+      const result = await api.configImportSelective([cat])
+      setImportResult(prev => ({ ...prev, ...result.selective_import }))
+      loadStatus()
+    } catch { /* */ }
+  }
+
   const categoryIcons = {
     wifi: '📶', keyboard: '⌨️', locale: '🌍', timezone: '🕐', display: '🖥️',
     audio: '🔊', shell: '💻', users: '👥', network: '🌐', ssh: '🔐',
@@ -51,7 +63,11 @@ export default function ConfigImporter() {
 
   return (
     <div style={S.container}>
-      <div style={S.h}><span>⚙️</span> System Config Import</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={S.h}>⚙️ System Config Import</div>
+        <button style={{ ...S.btn, padding: '4px 10px' }} onClick={() => setShowSettings(!showSettings)}>🔧</button>
+      </div>
+      {showSettings && <AppSettingsPanel settings={settings} schema={schema} onUpdate={update} onReset={reset} />}
       <p style={{ color: '#556', fontSize: '13px', marginBottom: '16px' }}>
         Scannt /etc/ und ~/.config/ — WLAN, Tastatur, User-Rechte, Shell-Config, Systemd-Services.
       </p>
@@ -93,7 +109,10 @@ export default function ConfigImporter() {
                 <strong style={{ color: '#d4d4d4' }}>{cat}</strong>
                 <span style={{ color: '#445', marginLeft: '8px', fontSize: '12px' }}>({arr.length})</span>
               </div>
-              <span style={{ color: '#445' }}>{expanded === cat ? '▼' : '▶'}</span>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <button style={{ padding: '2px 8px', border: '1px solid #4488ff', background: 'transparent', color: '#4488ff', borderRadius: '4px', cursor: 'pointer', fontSize: '10px' }} onClick={(e) => { e.stopPropagation(); importCategory(cat) }}>📥</button>
+                <span style={{ color: '#445' }}>{expanded === cat ? '▼' : '▶'}</span>
+              </div>
             </div>
             {expanded === cat && (
               <div style={{ marginTop: '8px', fontSize: '12px' }}>

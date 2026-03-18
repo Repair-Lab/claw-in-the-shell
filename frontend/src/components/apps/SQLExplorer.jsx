@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 /**
  * SQLExplorer — Datenbank als Dateisystem-Browser
@@ -8,6 +10,8 @@ import { api } from '../../api'
  * Ermöglicht inline Editing, Erstellen, Löschen mit Admin-Bestätigung.
  */
 export default function SQLExplorer({ windowId }) {
+  const { settings, schema: appSchema, update: updateSetting, reset: resetSettings } = useAppSettings('sql-explorer')
+  const [showAppSettings, setShowAppSettings] = useState(false)
   const [schemas, setSchemas] = useState([])
   const [currentPath, setCurrentPath] = useState([]) // ["schema", "table", "row_id"]
   const [items, setItems] = useState([])
@@ -214,8 +218,16 @@ export default function SQLExplorer({ windowId }) {
         <button onClick={() => level === 0 ? loadSchemas() : level === 1 ? loadTables(currentPath[0]) : loadRows(currentPath[0], currentPath[1])} style={sx.btnSecondary}>
           🔄
         </button>
+        <button onClick={() => setShowAppSettings(true)} style={sx.btnSecondary}>⚙️</button>
       </div>
 
+      {showAppSettings ? (
+        <div style={{ padding: '16px', overflow: 'auto' }}>
+          <button onClick={() => setShowAppSettings(false)} style={{ marginBottom: '12px', padding: '4px 12px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '11px' }}>← Zurück</button>
+          <AppSettingsPanel schema={appSchema} settings={settings} onUpdate={updateSetting} onReset={resetSettings} title="SQL Explorer" />
+        </div>
+      ) : (
+      <>
       {/* Table Stats */}
       {level === 2 && tableStats && (
         <div style={sx.statsBar}>
@@ -396,6 +408,8 @@ export default function SQLExplorer({ windowId }) {
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   )

@@ -13,6 +13,10 @@
 #   sudo bash scripts/build-arm-image.sh --size 16G     # Andere Größe
 #   sudo bash scripts/build-arm-image.sh --write /dev/sdX  # Direkt auf SD
 #
+# TIPP: Für ein schlankes 4GB-Image mit First-Boot-Setup:
+#   sudo bash scripts/build-arm-image-slim.sh
+#   (Thin Provisioning, ~4GB → expandiert beim First-Boot)
+#
 # Ergebnis:
 #   dist/ghostshell-rpi3-arm64-YYYYMMDD.img  (32GB Image)
 #   dist/ghostshell-rpi3-arm64-YYYYMMDD.img.sha256
@@ -602,6 +606,31 @@ RestartSec=10
 [Install]
 WantedBy=dbai.target
 EOF
+
+    # Installer Script einbinden (für Installation auf interne Festplatte)
+    cp "${DBAI_ROOT}/scripts/ghostshell-installer.sh" "${rootfs}/usr/local/bin/ghostshell-install"
+    chmod +x "${rootfs}/usr/local/bin/ghostshell-install"
+
+    # Installer Systemd Service (optional, via Boot-Parameter aktivierbar)
+    cat > "${rootfs}/etc/systemd/system/ghostshell-installer.service" << 'EOF'
+[Unit]
+Description=GhostShell OS — Interaktiver Installer
+After=multi-user.target
+ConditionKernelCommandLine=ghostshell.install
+ConditionPathExists=!/opt/dbai/.installed
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ghostshell-install
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    chroot "$rootfs" systemctl enable ghostshell-installer.service 2>/dev/null || true
 
     # Target
     cat > "${rootfs}/etc/systemd/system/dbai.target" << 'EOF'

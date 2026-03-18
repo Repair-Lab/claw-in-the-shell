@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 /**
  * Ghost Chat v3 — Multi-Agent Chat mit Tabs
@@ -7,7 +9,9 @@ import { api } from '../../api'
  * Features:
  * - Mehrere Chat-Sessions parallel (Browser-Tab-Stil)
  * - Jeder Tab kann einer anderen Rolle/Agent zugewiesen werden
+ * - Live-Synchronisierung mit Ghost LLM Manager (Events)
  * - Ein LLM bedient alles ODER mehrere LLM-Instanzen parallel
+ * - Inline Modell-Zuweisung / Hot-Swap direkt aus dem Chat
  * - Einstellungen: Persönlichkeit, Modell, Memory, System-Prompt
  */
 
@@ -21,6 +25,8 @@ const SETTINGS_TABS = [
 let chatIdCounter = 1
 
 export default function GhostChat() {
+  const { settings: appSettings, schema: appSchema, update: updateAppSetting, reset: resetAppSettings } = useAppSettings('ghost-chat')
+  const [showAppSettings, setShowAppSettings] = useState(false)
   // ── Multi-Tab Chat State ──
   const [chatTabs, setChatTabs] = useState([
     { id: chatIdCounter++, role: 'sysadmin', title: 'Sysadmin', messages: [], pinned: false },
@@ -36,7 +42,11 @@ export default function GhostChat() {
   const [instances, setInstances] = useState([])
   const [config, setConfig] = useState([])
   const [models, setModels] = useState([])
+  const [activeGhosts, setActiveGhosts] = useState([])
+  const [ghostRolesCompat, setGhostRolesCompat] = useState([])
+  const [swapping, setSwapping] = useState(false)
   const messagesRef = useRef(null)
+  const refreshRef = useRef(null)
 
   // ── Settings State ──
   const [editPrompt, setEditPrompt] = useState('')
@@ -53,12 +63,21 @@ export default function GhostChat() {
   const loadData = useCallback(async () => {
     try {
       const [ghostData, llmData, agentData] = await Promise.all([
-        api.ghosts().catch(() => ({ roles: [], active_ghosts: [] })),
+        api.ghosts().catch(() => ({ roles: [], active_ghosts: [], models: [], compatibility: [] })),
         api.llmStatus().catch(() => ({ models: [], config: [] })),
         api.agentsInstances().catch(() => []),
       ])
       setRoles(ghostData.roles || [])
-      setModels(llmData.models || [])
+      setActiveGhosts(ghostData.active_ghosts || [])
+      setGhostRolesCompat(ghostData.compatibility || [])
+      // Merge: ghost_models + llmStatus models (dedupliziert)
+      const ghostModels = ghostData.models || []
+      const llmModels = llmData.models || []
+      const merged = [...ghostModels]
+      llmModels.forEach(lm => {
+        if (!merged.find(gm => gm.name === lm.name)) merged.push(lm)
+      })
+      setModels(merged)
       setConfig(llmData.config || [])
       setInstances(Array.isArray(agentData) ? agentData : [])
 
@@ -87,6 +106,47 @@ export default function GhostChat() {
   }, [])
 
   useEffect(() => { loadData() }, [loadData])
+
+  // ── Live sync with Ghost LLM Manager ──
+  useEffect(() => {
+    const handleGhostSwap = () => loadData()
+    const handleLLMChange = () => loadData()
+    window.addEventListener('dbai:ghost_swap', handleGhostSwap)
+    window.addEventListener('dbai:llm_model_change', handleLLMChange)
+    return () => {
+      window.removeEventListener('dbai:ghost_swap', handleGhostSwap)
+      window.removeEventListener('dbai:llm_model_change', handleLLMChange)
+    }
+  }, [loadData])
+
+  // ── Auto-refresh every 30s ──
+  useEffect(() => {
+    refreshRef.current = setInterval(loadData, 30000)
+    return () => clearInterval(refreshRef.current)
+  }, [loadData])
+
+  // ── Ghost swap from chat ──
+  const handleQuickSwap = async (roleName, modelName) => {
+    setSwapping(true)
+    try {
+      await api.swapGhost(roleName, modelName, 'Quick-Swap via Ghost Chat')
+      window.dispatchEvent(new CustomEvent('dbai:ghost_swap'))
+      await loadData()
+    } catch (err) {
+      console.error('Ghost-Swap fehlgeschlagen:', err)
+    }
+    setSwapping(false)
+  }
+
+  const getActiveGhostForRole = (roleName) => {
+    return activeGhosts.find(g => g.role_name === roleName)
+  }
+
+  const getCompatModelsForRole = (roleName) => {
+    return ghostRolesCompat
+      .filter(c => c.role_name === roleName)
+      .sort((a, b) => b.fitness_score - a.fitness_score)
+  }
 
   // Auto-scroll
   useEffect(() => {
@@ -148,7 +208,7 @@ export default function GhostChat() {
 
     setLoading(true)
     try {
-      const result = await api.askGhost(activeChat.role, userMsg)
+      const result = await api.askGhost(activeChat.role, userMsg, {}, selectedModel || null)
       const aiMsg = result.error
         ? `⚠️ ${result.error}${result.hint ? '\n💡 ' + result.hint : ''}`
         : result.response || result.answer || `⏳ Anfrage an ${result.model} gesendet (Task: ${result.task_id?.slice(0, 8)}...)\nStatus: ${result.status}`
@@ -262,13 +322,22 @@ export default function GhostChat() {
           <button
             style={{ ...sx.settingsBtn, ...(showSettings ? { background: 'rgba(0,255,204,0.1)', color: '#00ffcc' } : {}) }}
             onClick={() => setShowSettings(!showSettings)}
-            title="Einstellungen"
+            title="Chat-Einstellungen"
           >⚙️</button>
+          <button
+            style={{ ...sx.settingsBtn, ...(showAppSettings ? { background: 'rgba(0,255,204,0.1)', color: '#00ffcc' } : {}) }}
+            onClick={() => setShowAppSettings(!showAppSettings)}
+            title="App-Einstellungen"
+          >🔧</button>
         </div>
       </div>
 
-      {/* ── Settings Panel ── */}
-      {showSettings ? (
+      {/* ── App Settings Panel ── */}
+      {showAppSettings ? (
+        <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
+          <AppSettingsPanel schema={appSchema} settings={appSettings} onUpdate={updateAppSetting} onReset={resetAppSettings} title="Ghost Chat" />
+        </div>
+      ) : showSettings ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={sx.settingsTabBar}>
             {SETTINGS_TABS.map(t => (
@@ -324,8 +393,64 @@ export default function GhostChat() {
             {/* Modell */}
             {settingsTab === 'model' && (
               <>
-                <div style={sx.settingHeader}>🧠 Modell-Auswahl</div>
-                <p style={sx.settingDesc}>Jeder Agent kann ein anderes Modell nutzen.</p>
+                <div style={sx.settingHeader}>🧠 Modell-Auswahl & Ghost-Status</div>
+                <p style={sx.settingDesc}>Modelle pro Rolle zuweisen. Änderungen sind sofort im Chat aktiv.</p>
+
+                {/* Ghost-Status pro Rolle */}
+                <div style={sx.settingGroup}>
+                  <label style={sx.label}>👻 Ghost-Status pro Rolle</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {roles.map(role => {
+                      const active = getActiveGhostForRole(role.name)
+                      const compat = getCompatModelsForRole(role.name)
+                      return (
+                        <div key={role.name} style={{
+                          padding: '10px 12px', borderRadius: 8, 
+                          background: active ? 'rgba(0,255,136,0.04)' : 'rgba(255,68,68,0.04)',
+                          border: `1px solid ${active ? 'rgba(0,255,136,0.2)' : 'rgba(255,68,68,0.2)'}`,
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                            <span style={{ fontSize: 16 }}>{role.icon}</span>
+                            <span style={{ fontWeight: 600, fontSize: 12, color: role.color || '#e0e0e0' }}>{role.display_name}</span>
+                            {active ? (
+                              <span style={{ fontSize: 10, color: '#00ff88', marginLeft: 'auto' }}>● {active.model_display || active.model_name}</span>
+                            ) : (
+                              <span style={{ fontSize: 10, color: '#ff4444', marginLeft: 'auto' }}>○ Kein Ghost aktiv</span>
+                            )}
+                          </div>
+                          {/* Inline-Swap: kompatible Modelle */}
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {(compat.length > 0 ? compat : models).slice(0, 6).map(m => {
+                              const modelName = m.model_name || m.name
+                              const isActive = active?.model_name === modelName
+                              return (
+                                <button
+                                  key={modelName}
+                                  disabled={swapping}
+                                  onClick={() => handleQuickSwap(role.name, modelName)}
+                                  style={{
+                                    padding: '3px 8px', borderRadius: 5, fontSize: 10,
+                                    border: `1px solid ${isActive ? '#00ffcc' : '#2a2a40'}`,
+                                    background: isActive ? 'rgba(0,255,204,0.1)' : 'transparent',
+                                    color: isActive ? '#00ffcc' : '#6688aa',
+                                    cursor: swapping ? 'wait' : 'pointer',
+                                    transition: 'all 0.15s',
+                                  }}
+                                >
+                                  {isActive ? '✓ ' : ''}{m.display_name || modelName}
+                                  {m.fitness_score && <span style={{ marginLeft: 4, color: m.fitness_score > 0.8 ? '#00ff88' : '#ffaa00' }}>
+                                    {(m.fitness_score * 100).toFixed(0)}%
+                                  </span>}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {roles.length === 0 && <div style={{ fontSize: 12, color: '#556677' }}>Keine Rollen gefunden</div>}
+                  </div>
+                </div>
 
                 {runningInstances.length > 0 && (
                   <div style={sx.settingGroup}>
@@ -346,23 +471,31 @@ export default function GhostChat() {
                 )}
 
                 <div style={sx.settingGroup}>
-                  <label style={sx.label}>Standard-Modell</label>
+                  <label style={sx.label}>Alle verfügbaren Modelle ({models.length})</label>
                   <div style={sx.modelGrid}>
-                    {models.map(m => (
-                      <div key={m.id || m.name} onClick={() => {
-                        setSelectedModel(m.name)
-                        saveConfig('ghost_default_model', m.name)
-                      }} style={{
-                        ...sx.modelCard,
-                        borderColor: selectedModel === m.name ? '#00ffcc' : '#1a1a2e',
-                        background: selectedModel === m.name ? 'rgba(0,255,204,0.05)' : '#12121e',
-                      }}>
-                        <div style={{ fontWeight: 600, color: '#e0e0e0', fontSize: 12 }}>{m.display_name || m.name}</div>
-                        <div style={{ fontSize: 10, color: '#00f5ff', fontFamily: 'monospace' }}>{m.provider || m.type || '-'}</div>
-                        {m.context_window && <div style={{ fontSize: 9, color: '#556677' }}>Ctx: {m.context_window}</div>}
-                      </div>
-                    ))}
-                    {models.length === 0 && <div style={{ fontSize: 12, color: '#556677' }}>Keine Modelle. Gehe zum LLM Manager.</div>}
+                    {models.map(m => {
+                      const isSelected = selectedModel === m.name
+                      const isLoaded = m.is_loaded || m.state === 'active'
+                      return (
+                        <div key={m.id || m.name} onClick={() => {
+                          setSelectedModel(m.name)
+                          saveConfig('ghost_default_model', m.name)
+                        }} style={{
+                          ...sx.modelCard,
+                          borderColor: isSelected ? '#00ffcc' : '#1a1a2e',
+                          background: isSelected ? 'rgba(0,255,204,0.05)' : '#12121e',
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                            {isLoaded && <span style={{ fontSize: 8, color: '#00ff88' }}>●</span>}
+                            <div style={{ fontWeight: 600, color: '#e0e0e0', fontSize: 12 }}>{m.display_name || m.name}</div>
+                          </div>
+                          <div style={{ fontSize: 10, color: '#00f5ff', fontFamily: 'monospace' }}>{m.provider || m.type || '-'}</div>
+                          {m.quantization && <div style={{ fontSize: 9, color: '#8899aa' }}>{m.parameter_count} · {m.quantization}</div>}
+                          {(m.context_window || m.context_size) && <div style={{ fontSize: 9, color: '#556677' }}>Ctx: {m.context_window || m.context_size}</div>}
+                        </div>
+                      )
+                    })}
+                    {models.length === 0 && <div style={{ fontSize: 12, color: '#556677' }}>Keine Modelle. Gehe zum Ghost LLM Manager.</div>}
                   </div>
                 </div>
 
@@ -465,38 +598,81 @@ export default function GhostChat() {
           {activeChat && (
             <div style={sx.roleBar}>
               <span style={{ fontSize: 11, color: '#6688aa', marginRight: 4 }}>Agent:</span>
-              {roles.map(r => (
-                <button key={r.name} onClick={() => changeTabRole(activeChatId, r.name)} style={{
-                  ...sx.roleBtn,
-                  ...(activeChat.role === r.name ? {
-                    borderColor: r.color || '#00ffcc',
-                    background: `${r.color || '#00ffcc'}15`,
-                    color: r.color || '#00ffcc',
-                  } : {}),
-                }}>
-                  {r.icon} {r.display_name}
-                </button>
-              ))}
+              {roles.map(r => {
+                const hasGhost = getActiveGhostForRole(r.name)
+                return (
+                  <button key={r.name} onClick={() => changeTabRole(activeChatId, r.name)} style={{
+                    ...sx.roleBtn,
+                    ...(activeChat.role === r.name ? {
+                      borderColor: r.color || '#00ffcc',
+                      background: `${r.color || '#00ffcc'}15`,
+                      color: r.color || '#00ffcc',
+                    } : {}),
+                    opacity: hasGhost ? 1 : 0.5,
+                  }}>
+                    {r.icon} {r.display_name}
+                    {!hasGhost && <span style={{ fontSize: 8, marginLeft: 2 }}>○</span>}
+                  </button>
+                )
+              })}
               {activeChat.messages.length > 0 && (
                 <button style={sx.clearBtn} onClick={() => clearTabMessages(activeChatId)} title="Chat leeren">🗑️</button>
               )}
             </div>
           )}
 
-          {/* Agent info hint */}
-          {selectedRole && (
-            <div style={sx.promptHint}>
-              <span>{selectedRole.icon} {selectedRole.display_name}</span>
-              <span style={{ color: '#556677', margin: '0 6px' }}>·</span>
-              <span>{selectedRole.description}</span>
-              {runningInstances.find(i => i.role_name === selectedRole.name) && (
-                <>
-                  <span style={{ color: '#556677', margin: '0 6px' }}>·</span>
-                  <span style={{ color: '#00ff88' }}>🟢 GPU-Agent aktiv</span>
-                </>
-              )}
-            </div>
-          )}
+          {/* Active Ghost status / warning */}
+          {selectedRole && (() => {
+            const activeGhost = getActiveGhostForRole(activeChat?.role)
+            return activeGhost ? (
+              <div style={sx.promptHint}>
+                <span>{selectedRole.icon} {selectedRole.display_name}</span>
+                <span style={{ color: '#556677', margin: '0 6px' }}>·</span>
+                <span style={{ color: '#00ff88' }}>🧠 {activeGhost.model_display || activeGhost.model_name}</span>
+                <span style={{ color: '#556677', margin: '0 6px' }}>·</span>
+                <span>{selectedRole.description}</span>
+                {runningInstances.find(i => i.role_name === selectedRole.name) && (
+                  <>
+                    <span style={{ color: '#556677', margin: '0 6px' }}>·</span>
+                    <span style={{ color: '#00ff88' }}>🟢 GPU</span>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div style={{
+                ...sx.promptHint,
+                background: 'rgba(255,68,68,0.06)', borderBottom: '1px solid rgba(255,68,68,0.2)',
+              }}>
+                <span>⚠️ <strong>{selectedRole.display_name}</strong> hat keinen aktiven Ghost</span>
+                <span style={{ color: '#556677', margin: '0 6px' }}>·</span>
+                <span style={{ fontSize: 10, color: '#ff8866' }}>Modell zuweisen:</span>
+                {getCompatModelsForRole(activeChat?.role).slice(0, 4).map(c => (
+                  <button
+                    key={c.model_name}
+                    disabled={swapping}
+                    onClick={() => handleQuickSwap(activeChat.role, c.model_name)}
+                    style={{
+                      padding: '1px 6px', borderRadius: 4, fontSize: 9, marginLeft: 4,
+                      border: '1px solid rgba(0,255,204,0.3)', background: 'rgba(0,255,204,0.08)',
+                      color: '#00ffcc', cursor: swapping ? 'wait' : 'pointer',
+                    }}
+                  >{c.model_name}</button>
+                ))}
+                {getCompatModelsForRole(activeChat?.role).length === 0 && models.slice(0, 3).map(m => (
+                  <button
+                    key={m.name}
+                    disabled={swapping}
+                    onClick={() => handleQuickSwap(activeChat.role, m.name)}
+                    style={{
+                      padding: '1px 6px', borderRadius: 4, fontSize: 9, marginLeft: 4,
+                      border: '1px solid rgba(0,255,204,0.3)', background: 'rgba(0,255,204,0.08)',
+                      color: '#00ffcc', cursor: swapping ? 'wait' : 'pointer',
+                    }}
+                  >{m.display_name || m.name}</button>
+                ))}
+              </div>
+            )
+          })()}
 
           {/* Multi-agent status bar */}
           {chatTabs.length > 1 && (

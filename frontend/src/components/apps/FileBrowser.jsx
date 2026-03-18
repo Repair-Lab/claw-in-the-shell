@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 /**
  * FileBrowser — Durchsucht die Objekt-Registry (dbai_core.objects)
  * Dateien sind UUIDs, keine Pfade.
  */
 export default function FileBrowser({ windowId }) {
+  const { settings, schema: settingsSchema, update: updateSetting, reset: resetSettings } = useAppSettings('file-browser')
+  const [showSettings, setShowSettings] = useState(false)
   const [objects, setObjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -56,7 +60,7 @@ export default function FileBrowser({ windowId }) {
     setSelectedTable(`${schema}.${name}`)
     setTableLoading(true)
     try {
-      const result = await api.sqlQuery(`SELECT * FROM ${schema}.${name} LIMIT 50`)
+      const result = await api.sqlQuery(`SELECT * FROM ${schema}.${name} LIMIT ${settings?.rows_per_page ?? 50}`)
       setTableData(result)
     } catch (err) {
       setTableData({ error: err.message })
@@ -67,6 +71,13 @@ export default function FileBrowser({ windowId }) {
 
   return (
     <div style={{ display: 'flex', height: '100%', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
+      {showSettings ? (
+        <div style={{ padding: '16px', width: '100%' }}>
+          <button onClick={() => setShowSettings(false)} style={{ marginBottom: '12px', padding: '4px 12px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '11px' }}>← Zurück</button>
+          <AppSettingsPanel schema={settingsSchema} settings={settings} onUpdate={updateSetting} onReset={resetSettings} title="Datei-Browser" />
+        </div>
+      ) : (
+      <>
       {/* Sidebar */}
       <div style={{
         width: '280px', borderRight: '1px solid var(--border)',
@@ -74,15 +85,18 @@ export default function FileBrowser({ windowId }) {
       }}>
         {/* Search */}
         <div style={{ padding: '8px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', gap: '4px' }}>
           <input
             type="text" placeholder="🔍 Tabelle suchen..."
             value={search} onChange={e => setSearch(e.target.value)}
             style={{
-              width: '100%', padding: '6px 8px', background: 'var(--bg-primary)',
+              flex: 1, padding: '6px 8px', background: 'var(--bg-primary)',
               border: '1px solid var(--border)', borderRadius: '4px',
               color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: '11px'
             }}
           />
+          <button onClick={() => setShowSettings(true)} style={{ padding: '4px 8px', background: 'transparent', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '11px' }}>⚙️</button>
+          </div>
           <select
             value={schema} onChange={e => setSchema(e.target.value)}
             style={{
@@ -140,7 +154,7 @@ export default function FileBrowser({ windowId }) {
         {selectedTable && tableData && !tableLoading && (
           <>
             <div style={{ marginBottom: '8px', color: 'var(--accent)', fontWeight: 600 }}>
-              {selectedTable} — {tableData.rows?.length || 0} Zeilen (max 50)
+              {selectedTable} — {tableData.rows?.length || 0} Zeilen (max {settings?.rows_per_page ?? 50})
             </div>
             {tableData.error ? (
               <div style={{ color: 'var(--danger)' }}>{tableData.error}</div>
@@ -182,6 +196,8 @@ export default function FileBrowser({ windowId }) {
           </>
         )}
       </div>
+      </>
+      )}
     </div>
   )
 }

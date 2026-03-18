@@ -24,7 +24,7 @@ GRANT USAGE ON SCHEMA dbai_knowledge TO dbai_system, dbai_llm, dbai_monitor;
 -- Jede DBAI-Datei / jedes Modul als dokumentierte Zeile
 -- Das ist die "README als Datenbank" — Kein Suchen mehr, nur SELECTen
 -- =============================================================================
-CREATE TABLE dbai_knowledge.module_registry (
+CREATE TABLE IF NOT EXISTS dbai_knowledge.module_registry (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     -- Pfad relativ zum DBAI-Root (z.B. 'schema/01-core-tables.sql')
     file_path       TEXT NOT NULL UNIQUE,
@@ -64,21 +64,22 @@ CREATE TABLE dbai_knowledge.module_registry (
     last_verified   TIMESTAMPTZ
 );
 
+DROP TRIGGER IF EXISTS trg_module_updated ON dbai_knowledge.module_registry;
 CREATE TRIGGER trg_module_updated
     BEFORE UPDATE ON dbai_knowledge.module_registry
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
 
-CREATE INDEX idx_module_category ON dbai_knowledge.module_registry(category);
-CREATE INDEX idx_module_status ON dbai_knowledge.module_registry(status);
-CREATE INDEX idx_module_critical ON dbai_knowledge.module_registry(is_critical) WHERE is_critical = TRUE;
-CREATE INDEX idx_module_provides ON dbai_knowledge.module_registry USING GIN(provides);
-CREATE INDEX idx_module_depends ON dbai_knowledge.module_registry USING GIN(depends_on);
+CREATE INDEX IF NOT EXISTS idx_module_category ON dbai_knowledge.module_registry(category);
+CREATE INDEX IF NOT EXISTS idx_module_status ON dbai_knowledge.module_registry(status);
+CREATE INDEX IF NOT EXISTS idx_module_critical ON dbai_knowledge.module_registry(is_critical) WHERE is_critical = TRUE;
+CREATE INDEX IF NOT EXISTS idx_module_provides ON dbai_knowledge.module_registry USING GIN(provides);
+CREATE INDEX IF NOT EXISTS idx_module_depends ON dbai_knowledge.module_registry USING GIN(depends_on);
 
 -- =============================================================================
 -- TABELLE: module_dependencies
 -- Explizite Abhängigkeiten zwischen Modulen (gerichteter Graph)
 -- =============================================================================
-CREATE TABLE dbai_knowledge.module_dependencies (
+CREATE TABLE IF NOT EXISTS dbai_knowledge.module_dependencies (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     source_id       UUID NOT NULL REFERENCES dbai_knowledge.module_registry(id) ON DELETE CASCADE,
     target_id       UUID NOT NULL REFERENCES dbai_knowledge.module_registry(id) ON DELETE CASCADE,
@@ -97,15 +98,15 @@ CREATE TABLE dbai_knowledge.module_dependencies (
     UNIQUE (source_id, target_id, dependency_type)
 );
 
-CREATE INDEX idx_dep_source ON dbai_knowledge.module_dependencies(source_id);
-CREATE INDEX idx_dep_target ON dbai_knowledge.module_dependencies(target_id);
+CREATE INDEX IF NOT EXISTS idx_dep_source ON dbai_knowledge.module_dependencies(source_id);
+CREATE INDEX IF NOT EXISTS idx_dep_target ON dbai_knowledge.module_dependencies(target_id);
 
 -- =============================================================================
 -- TABELLE: changelog
 -- Jede Änderung am System — append-only wie das Journal
 -- Ersetzt die klassische CHANGELOG.md Datei
 -- =============================================================================
-CREATE TABLE dbai_knowledge.changelog (
+CREATE TABLE IF NOT EXISTS dbai_knowledge.changelog (
     id              BIGSERIAL PRIMARY KEY,
     version         TEXT NOT NULL,              -- z.B. '0.1.0', '0.2.0'
     change_type     TEXT NOT NULL CHECK (change_type IN (
@@ -146,19 +147,20 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_protect_changelog ON dbai_knowledge.changelog;
 CREATE TRIGGER trg_protect_changelog
     BEFORE UPDATE OR DELETE ON dbai_knowledge.changelog
     FOR EACH ROW EXECUTE FUNCTION dbai_knowledge.protect_changelog();
 
-CREATE INDEX idx_changelog_version ON dbai_knowledge.changelog(version);
-CREATE INDEX idx_changelog_type ON dbai_knowledge.changelog(change_type);
-CREATE INDEX idx_changelog_created ON dbai_knowledge.changelog(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_changelog_version ON dbai_knowledge.changelog(version);
+CREATE INDEX IF NOT EXISTS idx_changelog_type ON dbai_knowledge.changelog(change_type);
+CREATE INDEX IF NOT EXISTS idx_changelog_created ON dbai_knowledge.changelog(created_at DESC);
 
 -- =============================================================================
 -- TABELLE: architecture_decisions (ADR)
 -- Warum wurde was wie gebaut? Kontext geht nie verloren.
 -- =============================================================================
-CREATE TABLE dbai_knowledge.architecture_decisions (
+CREATE TABLE IF NOT EXISTS dbai_knowledge.architecture_decisions (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     adr_number      SERIAL,
     title           TEXT NOT NULL,
@@ -180,17 +182,18 @@ CREATE TABLE dbai_knowledge.architecture_decisions (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+DROP TRIGGER IF EXISTS trg_adr_updated ON dbai_knowledge.architecture_decisions;
 CREATE TRIGGER trg_adr_updated
     BEFORE UPDATE ON dbai_knowledge.architecture_decisions
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
 
-CREATE INDEX idx_adr_status ON dbai_knowledge.architecture_decisions(status);
+CREATE INDEX IF NOT EXISTS idx_adr_status ON dbai_knowledge.architecture_decisions(status);
 
 -- =============================================================================
 -- TABELLE: system_glossary
 -- Begriffsdefinitionen — damit Mensch und KI dieselbe Sprache sprechen
 -- =============================================================================
-CREATE TABLE dbai_knowledge.system_glossary (
+CREATE TABLE IF NOT EXISTS dbai_knowledge.system_glossary (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     term            TEXT NOT NULL UNIQUE,
     definition      TEXT NOT NULL,
@@ -201,13 +204,13 @@ CREATE TABLE dbai_knowledge.system_glossary (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_glossary_term ON dbai_knowledge.system_glossary(term);
+CREATE INDEX IF NOT EXISTS idx_glossary_term ON dbai_knowledge.system_glossary(term);
 
 -- =============================================================================
 -- TABELLE: known_issues
 -- Bekannte Probleme und deren Status — für proaktive Fehlerbehebung
 -- =============================================================================
-CREATE TABLE dbai_knowledge.known_issues (
+CREATE TABLE IF NOT EXISTS dbai_knowledge.known_issues (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     title           TEXT NOT NULL,
     description     TEXT NOT NULL,
@@ -231,18 +234,19 @@ CREATE TABLE dbai_knowledge.known_issues (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+DROP TRIGGER IF EXISTS trg_issues_updated ON dbai_knowledge.known_issues;
 CREATE TRIGGER trg_issues_updated
     BEFORE UPDATE ON dbai_knowledge.known_issues
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
 
-CREATE INDEX idx_issues_severity ON dbai_knowledge.known_issues(severity);
-CREATE INDEX idx_issues_status ON dbai_knowledge.known_issues(status);
+CREATE INDEX IF NOT EXISTS idx_issues_severity ON dbai_knowledge.known_issues(severity);
+CREATE INDEX IF NOT EXISTS idx_issues_status ON dbai_knowledge.known_issues(status);
 
 -- =============================================================================
 -- TABELLE: build_log
 -- Dokumentiert jeden Build / jede Installation
 -- =============================================================================
-CREATE TABLE dbai_knowledge.build_log (
+CREATE TABLE IF NOT EXISTS dbai_knowledge.build_log (
     id              BIGSERIAL PRIMARY KEY,
     build_type      TEXT NOT NULL CHECK (build_type IN (
                         'initial_install', 'schema_migration',
@@ -264,9 +268,9 @@ CREATE TABLE dbai_knowledge.build_log (
     completed_at    TIMESTAMPTZ
 );
 
-CREATE INDEX idx_build_type ON dbai_knowledge.build_log(build_type);
-CREATE INDEX idx_build_success ON dbai_knowledge.build_log(success);
-CREATE INDEX idx_build_started ON dbai_knowledge.build_log(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_build_type ON dbai_knowledge.build_log(build_type);
+CREATE INDEX IF NOT EXISTS idx_build_success ON dbai_knowledge.build_log(success);
+CREATE INDEX IF NOT EXISTS idx_build_started ON dbai_knowledge.build_log(started_at DESC);
 
 -- =============================================================================
 -- VIEWS — Wissensdatenbank-Abfragen

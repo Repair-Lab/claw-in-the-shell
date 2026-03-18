@@ -615,7 +615,8 @@ INSERT INTO dbai_knowledge.module_registry
  'Operational (NOTIFY-Channels, Defaults), Roadmap. Plus 7 agent_sessions (v0.1.0-v0.7.0).',
  ARRAY['data:system_memory', 'data:agent_sessions'],
  ARRAY['schema/24-system-memory.sql'],
- '0.7.0', FALSE, 26, 'active');
+ '0.7.0', FALSE, 26, 'active')
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 2. ARCHITEKTUR-ENTSCHEIDUNGEN (ADRs) — Warum wurde was wie gebaut
@@ -803,7 +804,8 @@ INSERT INTO dbai_knowledge.architecture_decisions
  '[{"option":"Markdown-Dateien","pros":["Einfach","Lesbar"],"cons":["Nicht durchsuchbar","Nicht strukturiert","Kein UPSERT"]},
    {"option":"JSON-Dateien","pros":["Strukturiert"],"cons":["Kein SQL","Kein RLS","Keine Relationen"]},
    {"option":"Kein Gedaechtnis","pros":["Kein Aufwand"],"cons":["Kontextverlust","Ineffizient","Fehleranfaellig"]}]'::JSONB,
- 'human+system');
+ 'human+system')
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 3. ERROR PATTERNS — Bekannte Fehler und ihre Lösungen
@@ -969,7 +971,8 @@ INSERT INTO dbai_knowledge.error_patterns
  '3) Manuelles Nachladen: psql -d dbai -f schema/<fehlendes_schema>.sql.',
  NULL, FALSE,
  ARRAY['schema', 'migration', 'bootstrap', 'sql'],
- 0, NULL);
+ 0, NULL)
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 4. RUNBOOKS — Schritt-für-Schritt Anleitungen
@@ -1039,7 +1042,8 @@ INSERT INTO dbai_knowledge.runbooks
    {"step":4,"action":"Fix anwenden","type":"manual","command":"Verbotene Inhalte entfernen/ersetzen"},
    {"step":5,"action":"Tests erneut ausführen","type":"shell","command":"python3 -m unittest tests.test_core -v"},
    {"step":6,"action":"Fehler dokumentieren","type":"sql","command":"INSERT INTO dbai_knowledge.error_log (error_source, error_message, module_path, is_resolved, resolved_by) VALUES (''python'', ''<Fehlermeldung>'', ''tests/test_core.py'', TRUE, ''manual'');"}]'::JSONB,
- (SELECT ARRAY[id] FROM dbai_knowledge.error_patterns WHERE name = 'forbidden_file_path_in_sql'));
+ (SELECT ARRAY[id] FROM dbai_knowledge.error_patterns WHERE name = 'forbidden_file_path_in_sql'))
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 5. SYSTEM-GLOSSAR — Begriffe die Mensch und KI verstehen müssen
@@ -1135,7 +1139,8 @@ INSERT INTO dbai_knowledge.system_glossary (term, definition, context, examples,
 ('Synaptic Memory', 'KI-Gedaechtnis basierend auf pgvector mit HNSW-Index. 100x schneller als JSON-File-Scan. ' ||
  'Semantische Suche in 1536-dimensionalem Vektorraum.',
  'KI, Erinnerungen', ARRAY['SELECT dbai_vector.search_memories(embedding, 10);'],
- ARRAY['pgvector', 'Embedding', 'Ghost']);
+ ARRAY['pgvector', 'Embedding', 'Ghost'])
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 6. CHANGELOG — Alles was wir bisher gebaut haben
@@ -1385,7 +1390,8 @@ INSERT INTO dbai_knowledge.changelog
  'Konventionen, Beziehungen, Tech-Inventar, Workflows, Operational Knowledge, Roadmap. ' ||
  'Plus dokumentierte Agent-Sessions von v0.1.0 bis v0.7.0.',
  ARRAY['schema/25-system-memory-seed.sql'],
- 'system');
+ 'system')
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 7. KNOWN ISSUES — Bekannte Probleme und Workarounds
@@ -1424,7 +1430,8 @@ INSERT INTO dbai_knowledge.known_issues
  'low', 'workaround',
  ARRAY['schema/08-llm-integration.sql'],
  'Die LLM-Funktionen arbeiten über den Python LLM-Bridge Service statt direkt über plpython3u.',
- NULL, NULL, NULL);
+ NULL, NULL, NULL)
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 8. BUILD LOG — Initialer Build dokumentiert
@@ -1467,7 +1474,8 @@ INSERT INTO dbai_knowledge.build_log
 
 ('schema_migration', TRUE,
  'DBAI v0.7.0: System Memory. Vollstaendiges KI-Gehirn in die DB gespeichert.',
- '{"schemas_added":["24-system-memory.sql","25-system-memory-seed.sql"],"strategy":"Kein Kontextverlust zwischen Sessions","date":"2026-03-15"}'::JSONB);
+ '{"schemas_added":["24-system-memory.sql","25-system-memory-seed.sql"],"strategy":"Kein Kontextverlust zwischen Sessions","date":"2026-03-15"}'::JSONB)
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- FERTIG — Alles Wissen liegt jetzt in der Datenbank

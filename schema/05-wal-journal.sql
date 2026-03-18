@@ -5,7 +5,7 @@
 -- =============================================================================
 
 -- Haupt-Journal: Jede Datenänderung wird hier protokolliert
-CREATE TABLE dbai_journal.change_log (
+CREATE TABLE IF NOT EXISTS dbai_journal.change_log (
     id              BIGSERIAL PRIMARY KEY,
     ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     -- Welches Schema und welche Tabelle wurde geändert
@@ -41,18 +41,19 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_journal_protect ON dbai_journal.change_log;
 CREATE TRIGGER trg_journal_protect
     BEFORE UPDATE OR DELETE ON dbai_journal.change_log
     FOR EACH ROW EXECUTE FUNCTION dbai_journal.protect_journal();
 
-CREATE INDEX idx_journal_ts ON dbai_journal.change_log(ts DESC);
-CREATE INDEX idx_journal_table ON dbai_journal.change_log(schema_name, table_name);
-CREATE INDEX idx_journal_txid ON dbai_journal.change_log(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_journal_ts ON dbai_journal.change_log(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_journal_table ON dbai_journal.change_log(schema_name, table_name);
+CREATE INDEX IF NOT EXISTS idx_journal_txid ON dbai_journal.change_log(transaction_id);
 
 -- =============================================================================
 -- Event-Journal: Alle Events (Append-Only Kopie)
 -- =============================================================================
-CREATE TABLE dbai_journal.event_log (
+CREATE TABLE IF NOT EXISTS dbai_journal.event_log (
     id              BIGSERIAL PRIMARY KEY,
     ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     event_id        BIGINT NOT NULL,
@@ -61,17 +62,18 @@ CREATE TABLE dbai_journal.event_log (
     payload         JSONB NOT NULL DEFAULT '{}'
 );
 
+DROP TRIGGER IF EXISTS trg_event_log_protect ON dbai_journal.event_log;
 CREATE TRIGGER trg_event_log_protect
     BEFORE UPDATE OR DELETE ON dbai_journal.event_log
     FOR EACH ROW EXECUTE FUNCTION dbai_journal.protect_journal();
 
-CREATE INDEX idx_event_log_ts ON dbai_journal.event_log(ts DESC);
-CREATE INDEX idx_event_log_type ON dbai_journal.event_log(event_type);
+CREATE INDEX IF NOT EXISTS idx_event_log_ts ON dbai_journal.event_log(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_event_log_type ON dbai_journal.event_log(event_type);
 
 -- =============================================================================
 -- System-Status-Journal: Jede Sekunde ein Statusbericht (PITR)
 -- =============================================================================
-CREATE TABLE dbai_journal.system_snapshots (
+CREATE TABLE IF NOT EXISTS dbai_journal.system_snapshots (
     id              BIGSERIAL PRIMARY KEY,
     ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     -- Komprimierter System-Snapshot
@@ -87,12 +89,13 @@ CREATE TABLE dbai_journal.system_snapshots (
                     ))
 );
 
+DROP TRIGGER IF EXISTS trg_snapshots_protect ON dbai_journal.system_snapshots;
 CREATE TRIGGER trg_snapshots_protect
     BEFORE UPDATE OR DELETE ON dbai_journal.system_snapshots
     FOR EACH ROW EXECUTE FUNCTION dbai_journal.protect_journal();
 
-CREATE INDEX idx_snapshots_ts ON dbai_journal.system_snapshots(ts DESC);
-CREATE INDEX idx_snapshots_type ON dbai_journal.system_snapshots(snapshot_type);
+CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON dbai_journal.system_snapshots(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshots_type ON dbai_journal.system_snapshots(snapshot_type);
 
 -- =============================================================================
 -- Automatischer Change-Log Trigger für alle Core-Tabellen
@@ -103,12 +106,25 @@ DECLARE
     v_checksum TEXT;
     v_row_id TEXT;
 BEGIN
-    -- Versuche die ID zu extrahieren
-    IF TG_OP = 'DELETE' THEN
-        v_row_id := OLD.id::TEXT;
-    ELSE
-        v_row_id := NEW.id::TEXT;
-    END IF;
+    -- Versuche die ID zu extrahieren (unterstützt id, key, oder Fallback)
+    BEGIN
+        IF TG_OP = 'DELETE' THEN
+            v_row_id := OLD.id::TEXT;
+        ELSE
+            v_row_id := NEW.id::TEXT;
+        END IF;
+    EXCEPTION WHEN undefined_column THEN
+        BEGIN
+            IF TG_OP = 'DELETE' THEN
+                v_row_id := (row_to_json(OLD) ->> 'key');
+            ELSE
+                v_row_id := (row_to_json(NEW) ->> 'key');
+            END IF;
+            IF v_row_id IS NULL THEN
+                v_row_id := TG_TABLE_NAME || ':unknown';
+            END IF;
+        END;
+    END;
 
     -- Prüfsumme berechnen
     IF TG_OP = 'INSERT' THEN
@@ -142,18 +158,22 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Change-Log Trigger für Core-Tabellen aktivieren
+DROP TRIGGER IF EXISTS trg_objects_journal ON dbai_core.objects;
 CREATE TRIGGER trg_objects_journal
     AFTER INSERT OR UPDATE OR DELETE ON dbai_core.objects
     FOR EACH ROW EXECUTE FUNCTION dbai_journal.log_change();
 
+DROP TRIGGER IF EXISTS trg_processes_journal ON dbai_core.processes;
 CREATE TRIGGER trg_processes_journal
     AFTER INSERT OR UPDATE OR DELETE ON dbai_core.processes
     FOR EACH ROW EXECUTE FUNCTION dbai_journal.log_change();
 
+DROP TRIGGER IF EXISTS trg_config_journal ON dbai_core.config;
 CREATE TRIGGER trg_config_journal
     AFTER INSERT OR UPDATE OR DELETE ON dbai_core.config
     FOR EACH ROW EXECUTE FUNCTION dbai_journal.log_change();
 
+DROP TRIGGER IF EXISTS trg_drivers_journal ON dbai_core.drivers;
 CREATE TRIGGER trg_drivers_journal
     AFTER INSERT OR UPDATE OR DELETE ON dbai_core.drivers
     FOR EACH ROW EXECUTE FUNCTION dbai_journal.log_change();

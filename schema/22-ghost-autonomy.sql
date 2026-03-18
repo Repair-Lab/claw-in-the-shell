@@ -165,6 +165,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_protect_thought_log ON dbai_llm.ghost_thought_log;
 CREATE TRIGGER trg_protect_thought_log
     BEFORE UPDATE OR DELETE ON dbai_llm.ghost_thought_log
     FOR EACH ROW EXECUTE FUNCTION dbai_llm.protect_thought_log();
@@ -709,72 +710,95 @@ ORDER BY gf.created_at DESC;
 
 -- proposed_actions
 ALTER TABLE dbai_llm.proposed_actions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS proposed_actions_system ON dbai_llm.proposed_actions;
 CREATE POLICY proposed_actions_system ON dbai_llm.proposed_actions
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS proposed_actions_llm ON dbai_llm.proposed_actions;
 CREATE POLICY proposed_actions_llm ON dbai_llm.proposed_actions
     FOR INSERT TO dbai_llm WITH CHECK (TRUE);
+DROP POLICY IF EXISTS proposed_actions_llm_read ON dbai_llm.proposed_actions;
 CREATE POLICY proposed_actions_llm_read ON dbai_llm.proposed_actions
     FOR SELECT TO dbai_llm USING (TRUE);
+DROP POLICY IF EXISTS proposed_actions_monitor ON dbai_llm.proposed_actions;
 CREATE POLICY proposed_actions_monitor ON dbai_llm.proposed_actions
     FOR SELECT TO dbai_monitor USING (TRUE);
 
 -- ghost_context
 ALTER TABLE dbai_llm.ghost_context ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ghost_context_system ON dbai_llm.ghost_context;
 CREATE POLICY ghost_context_system ON dbai_llm.ghost_context
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS ghost_context_llm ON dbai_llm.ghost_context;
 CREATE POLICY ghost_context_llm ON dbai_llm.ghost_context
     FOR SELECT TO dbai_llm USING (TRUE);
 
 -- ghost_thought_log
 ALTER TABLE dbai_llm.ghost_thought_log ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS thought_log_system ON dbai_llm.ghost_thought_log;
 CREATE POLICY thought_log_system ON dbai_llm.ghost_thought_log
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS thought_log_llm ON dbai_llm.ghost_thought_log;
 CREATE POLICY thought_log_llm ON dbai_llm.ghost_thought_log
     FOR INSERT TO dbai_llm WITH CHECK (TRUE);
+DROP POLICY IF EXISTS thought_log_llm_read ON dbai_llm.ghost_thought_log;
 CREATE POLICY thought_log_llm_read ON dbai_llm.ghost_thought_log
     FOR SELECT TO dbai_llm USING (TRUE);
+DROP POLICY IF EXISTS thought_log_monitor ON dbai_llm.ghost_thought_log;
 CREATE POLICY thought_log_monitor ON dbai_llm.ghost_thought_log
     FOR SELECT TO dbai_monitor USING (TRUE);
 
 -- process_importance
 ALTER TABLE dbai_system.process_importance ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS process_imp_system ON dbai_system.process_importance;
 CREATE POLICY process_imp_system ON dbai_system.process_importance
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS process_imp_llm ON dbai_system.process_importance;
 CREATE POLICY process_imp_llm ON dbai_system.process_importance
     FOR SELECT TO dbai_llm USING (TRUE);
+DROP POLICY IF EXISTS process_imp_monitor ON dbai_system.process_importance;
 CREATE POLICY process_imp_monitor ON dbai_system.process_importance
     FOR SELECT TO dbai_monitor USING (TRUE);
 
 -- energy_consumption
 ALTER TABLE dbai_system.energy_consumption ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS energy_system ON dbai_system.energy_consumption;
 CREATE POLICY energy_system ON dbai_system.energy_consumption
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS energy_llm ON dbai_system.energy_consumption;
 CREATE POLICY energy_llm ON dbai_system.energy_consumption
     FOR SELECT TO dbai_llm USING (TRUE);
+DROP POLICY IF EXISTS energy_monitor ON dbai_system.energy_consumption;
 CREATE POLICY energy_monitor ON dbai_system.energy_consumption
     FOR SELECT TO dbai_monitor USING (TRUE);
 
 -- ghost_files
 ALTER TABLE dbai_core.ghost_files ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ghost_files_system ON dbai_core.ghost_files;
 CREATE POLICY ghost_files_system ON dbai_core.ghost_files
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS ghost_files_llm ON dbai_core.ghost_files;
 CREATE POLICY ghost_files_llm ON dbai_core.ghost_files
     FOR ALL TO dbai_llm USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS ghost_files_monitor ON dbai_core.ghost_files;
 CREATE POLICY ghost_files_monitor ON dbai_core.ghost_files
     FOR SELECT TO dbai_monitor USING (TRUE);
 
 -- ghost_feedback
 ALTER TABLE dbai_llm.ghost_feedback ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ghost_feedback_system ON dbai_llm.ghost_feedback;
 CREATE POLICY ghost_feedback_system ON dbai_llm.ghost_feedback
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS ghost_feedback_llm ON dbai_llm.ghost_feedback;
 CREATE POLICY ghost_feedback_llm ON dbai_llm.ghost_feedback
     FOR SELECT TO dbai_llm USING (TRUE);
 
 -- api_keys
 ALTER TABLE dbai_core.api_keys ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS api_keys_system ON dbai_core.api_keys;
 CREATE POLICY api_keys_system ON dbai_core.api_keys
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
 -- LLM darf nur aktive Keys sehen (und nur den Preview, nie den Hash)
+DROP POLICY IF EXISTS api_keys_llm ON dbai_core.api_keys;
 CREATE POLICY api_keys_llm ON dbai_core.api_keys
     FOR SELECT TO dbai_llm USING (is_active = TRUE);
 

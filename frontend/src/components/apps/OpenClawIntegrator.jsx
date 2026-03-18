@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 /**
  * OpenClaw Integrator — Verbindung zum OpenClaw-System
@@ -31,7 +33,9 @@ const TAB_ITEMS = [
 ]
 
 export default function OpenClawIntegrator() {
-  const [tab, setTab] = useState('overview')
+  const { settings, schema: appSchema, update: updateSetting, reset: resetSettings } = useAppSettings('openclaw-integrator')
+  const [showAppSettings, setShowAppSettings] = useState(false)
+  const [tab, setTab] = useState(settings?.default_tab || 'overview')
   const [live, setLive] = useState(null)
   const [dbStatus, setDbStatus] = useState(null)
   const [gateway, setGateway] = useState(null)
@@ -110,9 +114,16 @@ export default function OpenClawIntegrator() {
           }}>{t.label}</button>
         ))}
         <div style={{ flex: 1 }} />
+        <button onClick={() => setShowAppSettings(true)} style={{ ...sx.refreshBtn, marginRight: 4 }}>⚙️</button>
         <button onClick={loadAll} style={sx.refreshBtn}>🔄</button>
       </div>
 
+      {showAppSettings ? (
+        <div style={{ padding: '16px', overflow: 'auto' }}>
+          <button onClick={() => setShowAppSettings(false)} style={{ marginBottom: '12px', padding: '4px 12px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '11px' }}>← Zurück</button>
+          <AppSettingsPanel schema={appSchema} settings={settings} onUpdate={updateSetting} onReset={resetSettings} title="OpenClaw Integrator" />
+        </div>
+      ) : (
       <div style={sx.content}>
         {/* ── ÜBERSICHT ── */}
         {tab === 'overview' && (
@@ -421,6 +432,7 @@ export default function OpenClawIntegrator() {
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }

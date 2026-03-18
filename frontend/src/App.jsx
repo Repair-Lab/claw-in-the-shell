@@ -4,6 +4,61 @@ import BootScreen from './components/BootScreen'
 import LoginScreen from './components/LoginScreen'
 import Desktop from './components/Desktop'
 import SetupWizard from './components/apps/SetupWizard'
+import { NotificationProvider } from './hooks/useNotification'
+
+// ═══════════════════════════════════════════════════════════════
+// Error Boundary — fängt Runtime-Crashes ab statt schwarzer Bildschirm
+// ═══════════════════════════════════════════════════════════════
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false, error: null, errorInfo: null }
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error }
+  }
+  componentDidCatch(error, errorInfo) {
+    this.setState({ errorInfo })
+    console.error('[DBAI ErrorBoundary]', error, errorInfo)
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: '#0a0e14', color: '#ff4444',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          fontFamily: 'monospace', padding: '20px',
+        }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>💀</div>
+          <h1 style={{ color: '#ff6666', marginBottom: '8px' }}>DBAI — Runtime Error</h1>
+          <pre style={{
+            background: '#1a1a2e', padding: '16px', borderRadius: '8px',
+            maxWidth: '80vw', maxHeight: '40vh', overflow: 'auto',
+            border: '1px solid #ff4444', fontSize: '12px', color: '#ff8888',
+          }}>
+            {this.state.error?.toString()}
+            {'\n\n'}
+            {this.state.errorInfo?.componentStack}
+          </pre>
+          <button
+            onClick={() => { this.setState({ hasError: false, error: null, errorInfo: null }) }}
+            style={{
+              marginTop: '16px', padding: '8px 24px',
+              background: '#00ffcc', color: '#0a0e14',
+              border: 'none', borderRadius: '4px', cursor: 'pointer',
+              fontWeight: 600,
+            }}
+          >
+            🔄 Neu laden
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // App States: BOOT → LOGIN → SETUP (if needed) → DESKTOP
@@ -18,6 +73,7 @@ export default function App() {
   const [user, setUser] = useState(null)
   const [token, setToken] = useState(null)
   const [desktopState, setDesktopState] = useState(null)
+  const [tabInfo, setTabInfo] = useState(null) // { tab_id, hostname, label }
   const [notifications, setNotifications] = useState([])
   const wsRef = useRef(null)
 
@@ -80,18 +136,31 @@ export default function App() {
 
   // ── Logout ──
   const handleLogout = useCallback(async () => {
+    // Tab deaktivieren
+    try { await api.tabClose(api.getTabId()) } catch {}
     try { await api.logout() } catch {}
     localStorage.removeItem('dbai_token')
     if (wsRef.current) wsRef.current.close()
     setUser(null)
     setToken(null)
     setDesktopState(null)
+    setTabInfo(null)
     setPhase(PHASE_LOGIN)
   }, [])
 
-  // ── Load Desktop ──
+  // ── Load Desktop + Tab registrieren ──
   useEffect(() => {
     if (phase === PHASE_DESKTOP && token) {
+      const tabId = api.getTabId()
+
+      // 1) Tab beim Backend registrieren
+      api.tabRegister(tabId).then(info => {
+        setTabInfo(info)
+        // Seitenitel mit Hostname
+        document.title = `${info.hostname || 'DBAI'} — Ghost Desktop`
+      }).catch(() => {})
+
+      // 2) Desktop-State laden (X-Tab-Id Header wird automatisch mitgeschickt)
       api.desktop()
         .then(state => {
           if (state && !state.error) {
@@ -105,6 +174,13 @@ export default function App() {
           console.error('Desktop laden fehlgeschlagen:', err)
           setDesktopState({ apps: [], windows: [], notifications: [], desktop: {}, theme: {}, ghosts: [], user: {} })
         })
+
+      // 3) Heartbeat alle 60s — hält diesen Tab am Leben
+      const hbInterval = setInterval(() => {
+        api.tabHeartbeat(tabId).catch(() => {})
+      }, 60000)
+
+      return () => clearInterval(hbInterval)
     }
   }, [phase, token])
 
@@ -179,7 +255,8 @@ export default function App() {
 
   // ── Render ──
   return (
-    <>
+    <ErrorBoundary>
+    <NotificationProvider>
       {phase === PHASE_BOOT && (
         <BootScreen onComplete={handleBootComplete} />
       )}
@@ -214,6 +291,7 @@ export default function App() {
         <Desktop
           user={user}
           desktopState={desktopState}
+          tabInfo={tabInfo}
           onLogout={handleLogout}
         />
       )}
@@ -238,6 +316,7 @@ export default function App() {
           ))}
         </div>
       )}
-    </>
+    </NotificationProvider>
+    </ErrorBoundary>
   )
 }

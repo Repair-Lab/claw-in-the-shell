@@ -4,7 +4,7 @@
 
 [system]
 name = "DBAI"
-version = "0.1.0"
+version = "0.12.0"
 log_level = "INFO"
 
 [database]

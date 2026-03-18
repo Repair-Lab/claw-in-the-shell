@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 /**
  * KI Werkstatt — Eigene KI-Datenbanken bauen
@@ -14,6 +16,9 @@ import { api } from '../../api'
  * - Vorlagen für schnellen Start
  */
 export default function AIWorkshop({ windowId }) {
+  // ── Settings ──
+  const { settings: appSettings, schema: appSchema, update: updateSetting, reset: resetSettings } = useAppSettings('ai-workshop')
+  const [showSettings, setShowSettings] = useState(false)
   // ── State ──
   const [view, setView] = useState('projects')  // projects, create, detail, import, devices, chat, templates
   const [projects, setProjects] = useState([])
@@ -24,8 +29,12 @@ export default function AIWorkshop({ windowId }) {
   const [devices, setDevices] = useState([])
   const [chatMessages, setChatMessages] = useState([])
   const [importJobs, setImportJobs] = useState([])
+  const [customTables, setCustomTables] = useState([])
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState({})
+  const [llmStatus, setLlmStatus] = useState(null)
+  const [mlModels, setMlModels] = useState(null)
+  const [errorMsg, setErrorMsg] = useState(null)
 
   // ── Laden ──
   const loadProjects = useCallback(async () => {
@@ -57,25 +66,41 @@ export default function AIWorkshop({ windowId }) {
     }
   }, [])
 
+  const loadLlmStatus = useCallback(async () => {
+    try {
+      const data = await api.workshopLlmStatus()
+      setLlmStatus(data)
+    } catch { setLlmStatus({ has_provider: false, missing: ['LLM-Status konnte nicht geladen werden'] }) }
+  }, [])
+
+  const loadMlModels = useCallback(async () => {
+    try {
+      const data = await api.workshopMlModels()
+      setMlModels(data)
+    } catch { setMlModels(null) }
+  }, [])
+
   useEffect(() => {
-    Promise.all([loadProjects(), loadTemplates(), loadStats()])
+    Promise.all([loadProjects(), loadTemplates(), loadStats(), loadLlmStatus(), loadMlModels()])
       .finally(() => setLoading(false))
-  }, [loadProjects, loadTemplates, loadStats])
+  }, [loadProjects, loadTemplates, loadStats, loadLlmStatus, loadMlModels])
 
   const loadProjectDetail = useCallback(async (projectId) => {
     try {
-      const [detail, media, colls, devs, jobs] = await Promise.all([
+      const [detail, media, colls, devs, jobs, tables] = await Promise.all([
         api.workshopProject(projectId),
         api.workshopMedia(projectId),
         api.workshopCollections(projectId),
         api.workshopDevices(projectId),
         api.workshopImportJobs(projectId),
+        api.workshopCustomTables(projectId),
       ])
       setCurrentProject(detail)
       setMediaItems(media || [])
       setCollections(colls || [])
       setDevices(devs || [])
       setImportJobs(jobs || [])
+      setCustomTables(tables || [])
       setView('detail')
     } catch (err) {
       console.error('Projektdetail:', err)
@@ -97,11 +122,14 @@ export default function AIWorkshop({ windowId }) {
       <div style={styles.sidebar}>
         <div style={styles.sidebarHeader}>
           <span style={styles.sidebarTitle}>🔬 KI Werkstatt</span>
+          <button style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--text-secondary)' }} onClick={() => setShowSettings(!showSettings)}>⚙️</button>
         </div>
+        {showSettings && <div style={{ padding: '0 8px 8px' }}><AppSettingsPanel settings={appSettings} schema={appSchema} onUpdate={updateSetting} onReset={resetSettings} /></div>}
         <nav style={styles.nav}>
           <NavItem icon="🏠" label="Meine Projekte" active={view === 'projects'} onClick={() => setView('projects')} />
           <NavItem icon="✨" label="Neues Projekt" active={view === 'create'} onClick={() => setView('create')} />
           <NavItem icon="📋" label="Vorlagen" active={view === 'templates'} onClick={() => setView('templates')} />
+          <NavItem icon="🧠" label="ML & Training" active={view === 'ml-training'} onClick={() => { setView('ml-training'); loadMlModels() }} />
           {currentProject && (
             <>
               <div style={styles.navDivider} />
@@ -110,7 +138,8 @@ export default function AIWorkshop({ windowId }) {
               <NavItem icon="📥" label="Importieren" active={view === 'import'} onClick={() => setView('import')} indent />
               <NavItem icon="📁" label="Sammlungen" active={view === 'collections'} onClick={() => setView('collections')} indent />
               <NavItem icon="📱" label="Smart Home" active={view === 'devices'} onClick={() => setView('devices')} indent />
-              <NavItem icon="💬" label="KI-Chat" active={view === 'chat'} onClick={() => setView('chat')} indent />
+              <NavItem icon="�️" label="Datenbank" active={view === 'custom-tables'} onClick={() => setView('custom-tables')} indent />
+              <NavItem icon="�💬" label="KI-Chat" active={view === 'chat'} onClick={() => setView('chat')} indent />
             </>
           )}
         </nav>
@@ -125,6 +154,35 @@ export default function AIWorkshop({ windowId }) {
 
       {/* Main Content */}
       <div style={styles.main}>
+        {/* LLM Status Banner */}
+        {llmStatus && !llmStatus.has_provider && (
+          <div style={{
+            padding: '12px 20px', background: 'rgba(255,170,0,0.08)',
+            borderBottom: '1px solid rgba(255,170,0,0.2)', display: 'flex', alignItems: 'center', gap: 12,
+          }}>
+            <span style={{ fontSize: 20 }}>⚠️</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--warning)' }}>Kein KI-Provider konfiguriert</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                {llmStatus.missing?.join(' • ') || 'KI-Chat, Auto-Tagging und ML-Funktionen benötigen einen LLM-Provider.'}
+              </div>
+              {llmStatus.recommendations?.map((r, i) => (
+                <div key={i} style={{ fontSize: 11, color: 'var(--accent)', marginTop: 2 }}>💡 {r}</div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Error Toast */}
+        {errorMsg && (
+          <div style={{
+            padding: '10px 16px', background: 'rgba(255,68,68,0.1)', borderBottom: '1px solid rgba(255,68,68,0.2)',
+            display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--danger)',
+          }}>
+            <span>❌</span><span style={{ flex: 1 }}>{errorMsg}</span>
+            <button onClick={() => setErrorMsg(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>✕</button>
+          </div>
+        )}
         {view === 'projects' && (
           <ProjectsView
             projects={projects}
@@ -181,12 +239,26 @@ export default function AIWorkshop({ windowId }) {
             onRefresh={() => loadProjectDetail(currentProject.id)}
           />
         )}
+        {view === 'custom-tables' && currentProject && (
+          <CustomTablesView
+            project={currentProject}
+            customTables={customTables}
+            onRefresh={() => loadProjectDetail(currentProject.id)}
+          />
+        )}
         {view === 'chat' && currentProject && (
           <ChatView
             project={currentProject}
             chatMessages={chatMessages}
             setChatMessages={setChatMessages}
             mediaItems={mediaItems}
+          />
+        )}
+        {view === 'ml-training' && (
+          <MLTrainingView
+            mlModels={mlModels}
+            llmStatus={llmStatus}
+            onRefresh={loadMlModels}
           />
         )}
       </div>
@@ -360,6 +432,7 @@ function CreateProjectView({ templates, onCreated, onCancel }) {
   const [aiAutoDescribe, setAiAutoDescribe] = useState(true)
   const [creating, setCreating] = useState(false)
   const [step, setStep] = useState(1)
+  const [createError, setCreateError] = useState(null)
 
   const projectTypes = [
     { id: 'media_collection', icon: '📸', name: 'Medien-Sammlung', desc: 'Fotos, Videos, Audio organisieren' },
@@ -391,8 +464,11 @@ function CreateProjectView({ templates, onCreated, onCancel }) {
         template_id: selectedTemplate,
       })
       if (result?.id) onCreated(result)
+      else throw new Error('Keine Projekt-ID erhalten')
     } catch (err) {
-      alert('Projekt erstellen fehlgeschlagen: ' + err.message)
+      console.error('Projekt erstellen:', err)
+      // Show inline error instead of alert
+      setCreateError(err.message || 'Projekt erstellen fehlgeschlagen')
     }
     setCreating(false)
   }
@@ -411,6 +487,18 @@ function CreateProjectView({ templates, onCreated, onCancel }) {
       <div style={styles.progressBar}>
         <div style={{ ...styles.progressFill, width: `${(step / 3) * 100}%` }} />
       </div>
+
+      {/* Create Error */}
+      {createError && (
+        <div style={{
+          margin: '12px 20px 0', padding: '10px 14px', borderRadius: 8,
+          background: 'rgba(255,68,68,0.08)', border: '1px solid rgba(255,68,68,0.25)',
+          display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--danger)',
+        }}>
+          <span>❌</span><span style={{ flex: 1 }}>{createError}</span>
+          <button onClick={() => setCreateError(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>✕</button>
+        </div>
+      )}
 
       {/* Step 1: Typ wählen */}
       {step === 1 && (
@@ -1378,6 +1466,208 @@ function DevicesView({ project, devices, collections, onRefresh }) {
   )
 }
 
+// ═══ CUSTOM TABLES VIEW (Benutzerdefinierte Datenbanken) ═══
+function CustomTablesView({ project, customTables, onRefresh }) {
+  const [creating, setCreating] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newDesc, setNewDesc] = useState('')
+  const [newCols, setNewCols] = useState([{ name: '', type: 'text', required: false }])
+  const [activeTable, setActiveTable] = useState(null)
+  const [rows, setRows] = useState([])
+  const [editRow, setEditRow] = useState(null) // {data} or null for new
+
+  const COL_TYPES = ['text', 'number', 'boolean', 'date', 'url', 'email', 'select', 'tags']
+
+  const loadRows = useCallback(async (tid) => {
+    try { setRows(await api.workshopCustomRows(project.id, tid) || []) }
+    catch { setRows([]) }
+  }, [project.id])
+
+  const openTable = (t) => { setActiveTable(t); loadRows(t.id); setEditRow(null) }
+
+  const createTable = async () => {
+    const cols = newCols.filter(c => c.name.trim())
+    if (!newName.trim() || cols.length === 0) return
+    await api.workshopCreateCustomTable(project.id, { table_name: newName, description: newDesc, columns: cols })
+    setCreating(false); setNewName(''); setNewDesc(''); setNewCols([{ name: '', type: 'text', required: false }])
+    onRefresh()
+  }
+
+  const deleteTable = async (tid) => {
+    if (!confirm('Tabelle und alle Daten löschen?')) return
+    await api.workshopDeleteCustomTable(project.id, tid)
+    if (activeTable?.id === tid) { setActiveTable(null); setRows([]) }
+    onRefresh()
+  }
+
+  const saveRow = async (data) => {
+    if (editRow?.id) await api.workshopUpdateCustomRow(project.id, activeTable.id, editRow.id, data)
+    else await api.workshopAddCustomRow(project.id, activeTable.id, data)
+    setEditRow(null); loadRows(activeTable.id)
+  }
+
+  const deleteRow = async (rid) => {
+    await api.workshopDeleteCustomRow(project.id, activeTable.id, rid)
+    loadRows(activeTable.id)
+  }
+
+  const S = {
+    wrap: { display: 'flex', height: '100%', gap: 0 },
+    sidebar: { width: 260, borderRight: '1px solid var(--border)', padding: 16, overflowY: 'auto', background: 'var(--bg-secondary)' },
+    main: { flex: 1, padding: 20, overflowY: 'auto' },
+    tableItem: (a) => ({ padding: '10px 12px', borderRadius: 8, cursor: 'pointer', marginBottom: 4, background: a ? 'rgba(0,255,204,0.1)' : 'transparent', border: a ? '1px solid var(--accent)' : '1px solid transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }),
+    input: { width: '100%', padding: '8px 10px', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' },
+    btn: (c) => ({ padding: '6px 14px', background: c || 'var(--accent)', color: c === 'transparent' ? 'var(--text-secondary)' : '#111', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }),
+    delBtn: { background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', fontSize: 14, padding: '2px 6px' },
+    th: { textAlign: 'left', padding: '8px 10px', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', borderBottom: '2px solid var(--border)' },
+    td: { padding: '8px 10px', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border)' },
+  }
+
+  return (
+    <div style={S.wrap}>
+      {/* Tabellen-Sidebar */}
+      <div style={S.sidebar}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>🗄️ Tabellen</span>
+          <button onClick={() => setCreating(!creating)} style={S.btn(creating ? '#666' : undefined)}>{creating ? '✕' : '+ Neu'}</button>
+        </div>
+
+        {creating && (
+          <div style={{ padding: 12, background: 'var(--bg-surface)', borderRadius: 8, marginBottom: 12, border: '1px solid var(--border)' }}>
+            <input placeholder="Tabellenname" value={newName} onChange={e => setNewName(e.target.value)} style={{ ...S.input, marginBottom: 6 }} />
+            <input placeholder="Beschreibung (optional)" value={newDesc} onChange={e => setNewDesc(e.target.value)} style={{ ...S.input, marginBottom: 8 }} />
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>Spalten:</div>
+            {newCols.map((col, i) => (
+              <div key={i} style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                <input placeholder="Name" value={col.name} onChange={e => { const c = [...newCols]; c[i].name = e.target.value; setNewCols(c) }} style={{ ...S.input, flex: 1 }} />
+                <select value={col.type} onChange={e => { const c = [...newCols]; c[i].type = e.target.value; setNewCols(c) }} style={{ ...S.input, width: 80 }}>
+                  {COL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <button onClick={() => setNewCols(newCols.filter((_, j) => j !== i))} style={S.delBtn}>✕</button>
+              </div>
+            ))}
+            <button onClick={() => setNewCols([...newCols, { name: '', type: 'text', required: false }])} style={{ ...S.btn('transparent'), fontSize: 11, padding: '4px 8px' }}>+ Spalte</button>
+            <div style={{ marginTop: 8 }}>
+              <button onClick={createTable} style={S.btn()} disabled={!newName.trim()}>Erstellen</button>
+            </div>
+          </div>
+        )}
+
+        {customTables.length === 0 && !creating && (
+          <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)', fontSize: 13 }}>Noch keine Tabellen. Klicke "+ Neu".</div>
+        )}
+
+        {customTables.map(t => (
+          <div key={t.id} style={S.tableItem(activeTable?.id === t.id)} onClick={() => openTable(t)}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>📋 {t.table_name}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{(t.columns || []).length} Spalten · {t.row_count || 0} Zeilen</div>
+            </div>
+            <button onClick={e => { e.stopPropagation(); deleteTable(t.id) }} style={S.delBtn} title="Löschen">🗑</button>
+          </div>
+        ))}
+      </div>
+
+      {/* Tabellen-Inhalt */}
+      <div style={S.main}>
+        {!activeTable ? (
+          <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>🗄️</div>
+            <div style={{ fontSize: 16, fontWeight: 500 }}>Benutzerdefinierte Datenbank</div>
+            <div style={{ fontSize: 13, marginTop: 6 }}>Wähle eine Tabelle oder erstelle eine neue.</div>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, color: 'var(--text-primary)' }}>📋 {activeTable.table_name}</h3>
+                {activeTable.description && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{activeTable.description}</div>}
+              </div>
+              <button onClick={() => setEditRow({ data: {} })} style={S.btn()}>+ Zeile hinzufügen</button>
+            </div>
+
+            {/* Inline Row Editor */}
+            {editRow && (
+              <RowEditor columns={activeTable.columns || []} row={editRow} onSave={saveRow} onCancel={() => setEditRow(null)} />
+            )}
+
+            {/* Daten-Tabelle */}
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    {(activeTable.columns || []).map(c => <th key={c.name} style={S.th}>{c.name} <span style={{ opacity: 0.5, fontSize: 10 }}>({c.type})</span></th>)}
+                    <th style={{ ...S.th, width: 80 }}>Aktionen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr key={r.id}>
+                      {(activeTable.columns || []).map(c => (
+                        <td key={c.name} style={S.td}>{renderCellValue(r.data?.[c.name], c.type)}</td>
+                      ))}
+                      <td style={S.td}>
+                        <button onClick={() => setEditRow(r)} style={{ ...S.delBtn, color: 'var(--accent)' }} title="Bearbeiten">✏️</button>
+                        <button onClick={() => deleteRow(r.id)} style={S.delBtn} title="Löschen">🗑</button>
+                      </td>
+                    </tr>
+                  ))}
+                  {rows.length === 0 && (
+                    <tr><td colSpan={999} style={{ ...S.td, textAlign: 'center', color: 'var(--text-muted)', padding: 30 }}>Keine Daten. Klicke "+ Zeile hinzufügen".</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Hilfskomponenten für Custom Tables ──
+function RowEditor({ columns, row, onSave, onCancel }) {
+  const [data, setData] = useState(row.data || {})
+  const S = {
+    wrap: { padding: 14, background: 'var(--bg-surface)', borderRadius: 8, border: '1px solid var(--accent)', marginBottom: 14 },
+    input: { width: '100%', padding: '7px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' },
+  }
+  return (
+    <div style={S.wrap}>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(columns.length, 3)}, 1fr)`, gap: 8, marginBottom: 10 }}>
+        {columns.map(c => (
+          <div key={c.name}>
+            <label style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 2, display: 'block' }}>{c.name}</label>
+            {c.type === 'boolean' ? (
+              <select value={data[c.name] || ''} onChange={e => setData({ ...data, [c.name]: e.target.value === 'true' })} style={S.input}>
+                <option value="">—</option><option value="true">Ja</option><option value="false">Nein</option>
+              </select>
+            ) : c.type === 'number' ? (
+              <input type="number" value={data[c.name] ?? ''} onChange={e => setData({ ...data, [c.name]: parseFloat(e.target.value) || 0 })} style={S.input} />
+            ) : c.type === 'date' ? (
+              <input type="date" value={data[c.name] || ''} onChange={e => setData({ ...data, [c.name]: e.target.value })} style={S.input} />
+            ) : (
+              <input value={data[c.name] || ''} onChange={e => setData({ ...data, [c.name]: e.target.value })} style={S.input} placeholder={c.type} />
+            )}
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={() => onSave(data)} style={{ padding: '6px 16px', background: 'var(--accent)', color: '#111', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>{row.id ? 'Speichern' : 'Hinzufügen'}</button>
+        <button onClick={onCancel} style={{ padding: '6px 16px', background: '#444', color: '#ccc', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>Abbrechen</button>
+      </div>
+    </div>
+  )
+}
+
+function renderCellValue(val, type) {
+  if (val === null || val === undefined) return <span style={{ opacity: 0.3 }}>—</span>
+  if (type === 'boolean') return val ? '✅' : '❌'
+  if (type === 'url') return <a href={val} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{val.length > 40 ? val.slice(0, 40) + '…' : val}</a>
+  if (type === 'tags' && Array.isArray(val)) return val.map(t => <span key={t} style={{ padding: '2px 6px', background: 'var(--bg-surface)', borderRadius: 4, fontSize: 11, marginRight: 3 }}>{t}</span>)
+  return String(val)
+}
+
 // ═══ CHAT VIEW ═══
 function ChatView({ project, chatMessages, setChatMessages, mediaItems }) {
   const [input, setInput] = useState('')
@@ -1528,6 +1818,494 @@ function ChatView({ project, chatMessages, setChatMessages, mediaItems }) {
     </div>
   )
 }
+
+
+// ═══ ML TRAINING VIEW ═══
+function MLTrainingView({ mlModels, llmStatus, onRefresh }) {
+  const [tab, setTab] = useState('models')    // models, training, inference, settings
+  const [trainingCfg, setTrainingCfg] = useState({
+    model: 'all-MiniLM-L6-v2', dataset: '', epochs: 10, batchSize: 32,
+    learningRate: 0.001, optimizer: 'adam', scheduler: 'cosine',
+    warmupSteps: 100, maxSeqLen: 512, fp16: true, evalSteps: 500,
+    saveSteps: 1000, gradAccum: 1, weightDecay: 0.01,
+  })
+  const [inferenceInput, setInferenceInput] = useState('')
+  const [inferenceResult, setInferenceResult] = useState(null)
+
+  const activeModels = mlModels?.active_models || []
+  const architectures = mlModels?.available_architectures || []
+  const gpu = mlModels?.gpu_available || { available: false }
+  const providers = llmStatus?.active_providers || []
+
+  const mlTabs = [
+    { id: 'models', label: '🤖 Modelle', desc: 'Aktive & verfügbare Modelle' },
+    { id: 'training', label: '🎯 Training', desc: 'Modell trainieren / Fine-Tuning' },
+    { id: 'inference', label: '⚡ Inferenz', desc: 'Modell testen & Vorhersagen' },
+    { id: 'settings', label: '⚙️ Einstellungen', desc: 'Hyperparameter & Konfiguration' },
+  ]
+
+  return (
+    <div style={styles.viewContainer}>
+      <div style={styles.viewHeader}>
+        <div>
+          <h2 style={styles.viewTitle}>🧠 Machine Learning & Training</h2>
+          <p style={styles.viewSubtitle}>
+            {activeModels.length} aktive Modelle •{' '}
+            {gpu.available ? `GPU: ${gpu.name} (${gpu.used_mb || 0}/${gpu.total_mb || 0} MB)` : 'CPU-Modus'}
+          </p>
+        </div>
+        <button onClick={onRefresh} style={styles.btnSecondary}>🔄 Aktualisieren</button>
+      </div>
+
+      {/* ML Sub-Tabs */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
+        {mlTabs.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            padding: '10px 20px', border: 'none', background: 'transparent', cursor: 'pointer',
+            color: tab === t.id ? 'var(--accent)' : 'var(--text-secondary)', fontSize: 12,
+            borderBottom: tab === t.id ? '2px solid var(--accent)' : '2px solid transparent',
+          }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ flex: 1, overflow: 'auto', padding: 20 }}>
+        {/* ── MODELS TAB ── */}
+        {tab === 'models' && (
+          <div>
+            {/* GPU Status Card */}
+            <div style={{
+              padding: 16, borderRadius: 8, marginBottom: 20,
+              background: gpu.available ? 'rgba(0,255,136,0.06)' : 'rgba(255,170,0,0.06)',
+              border: `1px solid ${gpu.available ? 'rgba(0,255,136,0.2)' : 'rgba(255,170,0,0.2)'}`,
+              display: 'flex', alignItems: 'center', gap: 16,
+            }}>
+              <span style={{ fontSize: 28 }}>{gpu.available ? '🎮' : '💻'}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>
+                  {gpu.available ? gpu.name : 'Keine GPU erkannt'}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                  {gpu.available
+                    ? `VRAM: ${gpu.used_mb} / ${gpu.total_mb} MB belegt • Auslastung: ${gpu.utilization}%`
+                    : 'Training läuft auf CPU — langsamer, aber funktionsfähig'}
+                </div>
+              </div>
+              {gpu.available && gpu.total_mb > 0 && (
+                <div style={{ width: 80 }}>
+                  <div style={{ height: 6, background: 'var(--bg-elevated)', borderRadius: 3 }}>
+                    <div style={{
+                      height: 6, borderRadius: 3,
+                      width: `${Math.min((gpu.used_mb / gpu.total_mb) * 100, 100)}%`,
+                      background: gpu.used_mb / gpu.total_mb > 0.9 ? 'var(--danger)' : 'var(--success)',
+                    }} />
+                  </div>
+                  <div style={{ fontSize: 10, textAlign: 'center', marginTop: 2, color: 'var(--text-secondary)' }}>
+                    {Math.round((gpu.used_mb / gpu.total_mb) * 100)}%
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Active LLM Providers */}
+            {providers.length > 0 && (
+              <div style={{ marginBottom: 24 }}>
+                <h3 style={{ fontSize: 14, marginBottom: 10, color: 'var(--text-primary)' }}>☁️ Cloud-Provider</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
+                  {providers.map(p => (
+                    <div key={p.key} style={{
+                      padding: '12px 16px', background: 'var(--bg-surface)', borderRadius: 8,
+                      border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12,
+                    }}>
+                      <span style={{ fontSize: 24 }}>{p.icon || '🤖'}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: 12 }}>{p.name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'flex', gap: 6, marginTop: 2 }}>
+                          {p.chat && <span style={{ color: 'var(--success)' }}>💬 Chat</span>}
+                          {p.embedding && <span style={{ color: 'var(--accent)' }}>🔢 Embedding</span>}
+                          {p.vision && <span style={{ color: 'var(--info)' }}>👁️ Vision</span>}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 8, color: p.tested_ok ? 'var(--success)' : 'var(--text-secondary)' }}>●</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Active Local Models */}
+            {activeModels.filter(m => m.source === 'local').length > 0 && (
+              <div style={{ marginBottom: 24 }}>
+                <h3 style={{ fontSize: 14, marginBottom: 10, color: 'var(--text-primary)' }}>🖥️ Lokale Modelle</h3>
+                {activeModels.filter(m => m.source === 'local').map((m, i) => (
+                  <div key={i} style={{
+                    padding: '12px 16px', background: 'var(--bg-surface)', borderRadius: 8,
+                    border: '1px solid var(--border)', marginBottom: 6,
+                    display: 'flex', alignItems: 'center', gap: 12,
+                  }}>
+                    <span style={{ fontSize: 20 }}>{m.is_loaded ? '🟢' : '⚪'}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: 12 }}>{m.model_name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                        {m.model_size_mb ? `${m.model_size_mb} MB` : ''} {m.is_loaded ? '• Geladen' : '• Nicht geladen'}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Available Architectures */}
+            <h3 style={{ fontSize: 14, marginBottom: 10, color: 'var(--text-primary)' }}>📦 Verfügbare Architekturen</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
+              {architectures.map((arch, i) => (
+                <div key={i} style={{
+                  padding: '12px 16px', background: 'var(--bg-surface)', borderRadius: 8,
+                  border: '1px solid var(--border)',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 600, fontSize: 12 }}>{arch.name}</span>
+                    <span style={{
+                      fontSize: 10, padding: '2px 8px', borderRadius: 10,
+                      background: 'rgba(0,255,204,0.1)', color: 'var(--accent)', border: '1px solid rgba(0,255,204,0.2)',
+                    }}>
+                      {arch.type}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>{arch.desc}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 4 }}>
+                    💾 {arch.size_mb} MB
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── TRAINING TAB ── */}
+        {tab === 'training' && (
+          <div>
+            <div style={{
+              padding: 16, borderRadius: 8, marginBottom: 20,
+              background: 'rgba(0,255,204,0.04)', border: '1px solid rgba(0,255,204,0.15)',
+            }}>
+              <h3 style={{ margin: '0 0 8px', fontSize: 14, color: 'var(--text-primary)' }}>🎯 Training starten</h3>
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)' }}>
+                Wähle ein Basis-Modell und konfiguriere das Training. Die Daten kommen aus deinen Projekten.
+              </p>
+            </div>
+
+            {/* Model Selection */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={mlStyles.label}>Basis-Modell:</label>
+              <select value={trainingCfg.model} onChange={e => setTrainingCfg(c => ({ ...c, model: e.target.value }))}
+                style={mlStyles.select}>
+                {architectures.map(a => (
+                  <option key={a.name} value={a.name}>{a.name} ({a.type}, {a.size_mb} MB)</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Dataset */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={mlStyles.label}>Datensatz (Projekt-ID oder Pfad):</label>
+              <input value={trainingCfg.dataset} onChange={e => setTrainingCfg(c => ({ ...c, dataset: e.target.value }))}
+                placeholder="z.B. Projekt-ID oder /data/dataset.csv" style={mlStyles.input} />
+            </div>
+
+            {/* Grid config */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div>
+                <label style={mlStyles.label}>Epochen:</label>
+                <input type="number" value={trainingCfg.epochs}
+                  onChange={e => setTrainingCfg(c => ({ ...c, epochs: parseInt(e.target.value) || 1 }))}
+                  style={mlStyles.input} min={1} max={1000} />
+              </div>
+              <div>
+                <label style={mlStyles.label}>Batch-Größe:</label>
+                <input type="number" value={trainingCfg.batchSize}
+                  onChange={e => setTrainingCfg(c => ({ ...c, batchSize: parseInt(e.target.value) || 1 }))}
+                  style={mlStyles.input} min={1} max={512} />
+              </div>
+              <div>
+                <label style={mlStyles.label}>Lernrate:</label>
+                <input type="number" value={trainingCfg.learningRate} step="0.0001"
+                  onChange={e => setTrainingCfg(c => ({ ...c, learningRate: parseFloat(e.target.value) || 0.001 }))}
+                  style={mlStyles.input} />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div>
+                <label style={mlStyles.label}>Optimizer:</label>
+                <select value={trainingCfg.optimizer} onChange={e => setTrainingCfg(c => ({ ...c, optimizer: e.target.value }))}
+                  style={mlStyles.select}>
+                  <option value="adam">Adam</option>
+                  <option value="adamw">AdamW</option>
+                  <option value="sgd">SGD</option>
+                  <option value="adagrad">Adagrad</option>
+                  <option value="rmsprop">RMSprop</option>
+                </select>
+              </div>
+              <div>
+                <label style={mlStyles.label}>Scheduler:</label>
+                <select value={trainingCfg.scheduler} onChange={e => setTrainingCfg(c => ({ ...c, scheduler: e.target.value }))}
+                  style={mlStyles.select}>
+                  <option value="cosine">Cosine Annealing</option>
+                  <option value="linear">Lineare Abnahme</option>
+                  <option value="constant">Konstant</option>
+                  <option value="polynomial">Polynomial</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Advanced */}
+            <details style={{ marginBottom: 16 }}>
+              <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--accent)', marginBottom: 8 }}>
+                ⚙️ Erweiterte Einstellungen
+              </summary>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, padding: '12px 0' }}>
+                <div>
+                  <label style={mlStyles.label}>Warmup-Schritte:</label>
+                  <input type="number" value={trainingCfg.warmupSteps}
+                    onChange={e => setTrainingCfg(c => ({ ...c, warmupSteps: parseInt(e.target.value) || 0 }))}
+                    style={mlStyles.input} />
+                </div>
+                <div>
+                  <label style={mlStyles.label}>Max Sequenzlänge:</label>
+                  <input type="number" value={trainingCfg.maxSeqLen}
+                    onChange={e => setTrainingCfg(c => ({ ...c, maxSeqLen: parseInt(e.target.value) || 128 }))}
+                    style={mlStyles.input} />
+                </div>
+                <div>
+                  <label style={mlStyles.label}>Gradient Accumulation:</label>
+                  <input type="number" value={trainingCfg.gradAccum}
+                    onChange={e => setTrainingCfg(c => ({ ...c, gradAccum: parseInt(e.target.value) || 1 }))}
+                    style={mlStyles.input} />
+                </div>
+                <div>
+                  <label style={mlStyles.label}>Weight Decay:</label>
+                  <input type="number" value={trainingCfg.weightDecay} step="0.001"
+                    onChange={e => setTrainingCfg(c => ({ ...c, weightDecay: parseFloat(e.target.value) || 0 }))}
+                    style={mlStyles.input} />
+                </div>
+                <div>
+                  <label style={mlStyles.label}>Eval Steps:</label>
+                  <input type="number" value={trainingCfg.evalSteps}
+                    onChange={e => setTrainingCfg(c => ({ ...c, evalSteps: parseInt(e.target.value) || 100 }))}
+                    style={mlStyles.input} />
+                </div>
+                <div>
+                  <label style={mlStyles.label}>Save Steps:</label>
+                  <input type="number" value={trainingCfg.savSteps}
+                    onChange={e => setTrainingCfg(c => ({ ...c, saveSteps: parseInt(e.target.value) || 500 }))}
+                    style={mlStyles.input} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={trainingCfg.fp16}
+                    onChange={e => setTrainingCfg(c => ({ ...c, fp16: e.target.checked }))} />
+                  FP16 Mixed Precision {gpu.available ? '' : '(benötigt GPU)'}
+                </label>
+              </div>
+            </details>
+
+            {/* Start Training Button */}
+            <button style={{
+              padding: '12px 28px', background: 'rgba(0,255,204,0.1)', border: '1px solid var(--accent)',
+              borderRadius: 8, color: 'var(--accent)', cursor: 'pointer', fontSize: 14, fontWeight: 700,
+              width: '100%',
+            }}>
+              🚀 Training starten
+            </button>
+            <p style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 8, textAlign: 'center' }}>
+              {gpu.available
+                ? `GPU: ${gpu.name} — Beschleunigtes Training verfügbar`
+                : 'CPU-Modus — Training möglich, aber langsamer'}
+            </p>
+          </div>
+        )}
+
+        {/* ── INFERENCE TAB ── */}
+        {tab === 'inference' && (
+          <div>
+            <div style={{
+              padding: 16, borderRadius: 8, marginBottom: 20,
+              background: 'rgba(0,255,204,0.04)', border: '1px solid rgba(0,255,204,0.15)',
+            }}>
+              <h3 style={{ margin: '0 0 8px', fontSize: 14, color: 'var(--text-primary)' }}>⚡ Modell testen</h3>
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)' }}>
+                Teste ein geladenes Modell mit deinen Eingaben. Unterstützt Text, Embedding und Klassifikation.
+              </p>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={mlStyles.label}>Modell auswählen:</label>
+              <select style={mlStyles.select}>
+                {activeModels.length > 0
+                  ? activeModels.map((m, i) => (
+                    <option key={i} value={m.model_name}>{m.model_name} ({m.source})</option>
+                  ))
+                  : <option>Kein Modell verfügbar</option>
+                }
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={mlStyles.label}>Eingabe:</label>
+              <textarea
+                value={inferenceInput}
+                onChange={e => setInferenceInput(e.target.value)}
+                placeholder="Text eingeben zum Testen..."
+                style={{ ...mlStyles.input, height: 120, resize: 'vertical', fontFamily: 'var(--font-mono)' }}
+              />
+            </div>
+
+            <button style={{
+              padding: '10px 24px', background: 'rgba(0,255,204,0.1)', border: '1px solid var(--accent)',
+              borderRadius: 8, color: 'var(--accent)', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+            }}>
+              ⚡ Ausführen
+            </button>
+
+            {inferenceResult && (
+              <div style={{
+                marginTop: 16, padding: 16, background: 'var(--bg-surface)',
+                border: '1px solid var(--border)', borderRadius: 8,
+                fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'pre-wrap',
+              }}>
+                {typeof inferenceResult === 'string' ? inferenceResult : JSON.stringify(inferenceResult, null, 2)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── SETTINGS TAB ── */}
+        {tab === 'settings' && (
+          <div>
+            <h3 style={{ fontSize: 14, marginBottom: 16, color: 'var(--text-primary)' }}>⚙️ ML-Konfiguration</h3>
+
+            {/* General Settings */}
+            <div style={{
+              padding: 16, background: 'var(--bg-surface)', borderRadius: 8,
+              border: '1px solid var(--border)', marginBottom: 16,
+            }}>
+              <h4 style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-primary)' }}>Allgemein</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={mlStyles.label}>Standard-Embedding-Modell:</label>
+                  <select style={mlStyles.select}>
+                    <option value="all-MiniLM-L6-v2">all-MiniLM-L6-v2 (384 Dim.)</option>
+                    <option value="bge-small-en">BGE Small EN v1.5</option>
+                    <option value="multilingual">Multilingual MiniLM L12</option>
+                    <option value="openai">OpenAI text-embedding-3-small</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={mlStyles.label}>Standard-Chat-Modell:</label>
+                  <select style={mlStyles.select}>
+                    {providers.length > 0
+                      ? providers.filter(p => p.chat).map(p => (
+                        <option key={p.key} value={p.key}>{p.name}</option>
+                      ))
+                      : <option>Kein Chat-Provider</option>
+                    }
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Vector Search */}
+            <div style={{
+              padding: 16, background: 'var(--bg-surface)', borderRadius: 8,
+              border: '1px solid var(--border)', marginBottom: 16,
+            }}>
+              <h4 style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-primary)' }}>🔍 Vektorsuche (pgvector)</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={mlStyles.label}>Distanz-Metrik:</label>
+                  <select style={mlStyles.select}>
+                    <option value="cosine">Kosinus-Ähnlichkeit</option>
+                    <option value="l2">Euklidische Distanz (L2)</option>
+                    <option value="inner_product">Inner Product</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={mlStyles.label}>Top-K Ergebnisse:</label>
+                  <input type="number" defaultValue={10} min={1} max={100} style={mlStyles.input} />
+                </div>
+              </div>
+            </div>
+
+            {/* Auto-Processing */}
+            <div style={{
+              padding: 16, background: 'var(--bg-surface)', borderRadius: 8,
+              border: '1px solid var(--border)', marginBottom: 16,
+            }}>
+              <h4 style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-primary)' }}>🤖 Auto-Verarbeitung</h4>
+              {[
+                { label: 'Auto-Tagging neuer Medien', desc: 'Automatisch Tags generieren beim Import', defaultChecked: true },
+                { label: 'Auto-Beschreibung', desc: 'KI-Beschreibungen für Bilder und Texte', defaultChecked: true },
+                { label: 'Duplikat-Erkennung', desc: 'Ähnliche Dateien per Embedding erkennen', defaultChecked: false },
+                { label: 'Sprache Auto-Detect', desc: 'Sprache automatisch erkennen', defaultChecked: true },
+                { label: 'OCR bei Bildern', desc: 'Text aus Bildern extrahieren', defaultChecked: false },
+                { label: 'Audio-Transkription', desc: 'Sprache in Audio/Video automatisch zu Text', defaultChecked: false },
+              ].map((opt, i) => (
+                <label key={i} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0',
+                  borderBottom: '1px solid var(--border)', cursor: 'pointer', fontSize: 12,
+                }}>
+                  <input type="checkbox" defaultChecked={opt.defaultChecked} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 500 }}>{opt.label}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{opt.desc}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            {/* Performance */}
+            <div style={{
+              padding: 16, background: 'var(--bg-surface)', borderRadius: 8,
+              border: '1px solid var(--border)',
+            }}>
+              <h4 style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-primary)' }}>⚡ Performance</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={mlStyles.label}>Max. Worker-Threads:</label>
+                  <input type="number" defaultValue={4} min={1} max={32} style={mlStyles.input} />
+                </div>
+                <div>
+                  <label style={mlStyles.label}>Max. Batch bei Import:</label>
+                  <input type="number" defaultValue={50} min={1} max={1000} style={mlStyles.input} />
+                </div>
+                <div>
+                  <label style={mlStyles.label}>Embedding Cache (MB):</label>
+                  <input type="number" defaultValue={512} min={64} max={8192} style={mlStyles.input} />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const mlStyles = {
+  label: { display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4, fontWeight: 500 },
+  input: {
+    width: '100%', padding: '8px 12px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+    borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, boxSizing: 'border-box',
+  },
+  select: {
+    width: '100%', padding: '8px 12px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+    borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, boxSizing: 'border-box',
+  },
+}
+
 
 /* ═══════════════════════════════════════════════════════════════
    STYLES

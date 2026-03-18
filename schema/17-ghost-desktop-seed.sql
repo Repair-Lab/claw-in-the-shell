@@ -71,7 +71,8 @@ INSERT INTO dbai_llm.ghost_models
  500, 1000, FALSE,
  ARRAY['embedding', 'semantic_search', 'rag'],
  ARRAY['en', 'de'],
- '{"batch_size": 512}'::JSONB);
+ '{"batch_size": 512}'::JSONB)
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 2. GHOST ROLES — Vordefinierte KI-Rollen
@@ -136,7 +137,8 @@ INSERT INTO dbai_llm.ghost_roles
  'Du bist der Datenanalyst von DBAI. Du wertest Hardware-Metriken aus, ' ||
  'erkennst Trends und Anomalien, und erstellst verständliche Reports. ' ||
  'Nutze SQL-Abfragen um Statistiken zu liefern.',
- 4, FALSE);
+ 4, FALSE)
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 3. GHOST COMPATIBILITY — Welches Modell passt zu welcher Rolle?
@@ -184,7 +186,8 @@ INSERT INTO dbai_llm.ghost_compatibility
 -- Codestral: Code-Spezialist
 ((SELECT id FROM dbai_llm.ghost_models WHERE name = 'codestral-22b'),
  (SELECT id FROM dbai_llm.ghost_roles WHERE name = 'coder'),
- 0.95, 'Bestes Modell für Code-Aufgaben, braucht GPU', TRUE);
+ 0.95, 'Bestes Modell für Code-Aufgaben, braucht GPU', TRUE)
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 4. THEMES — Cyberpunk & Professional
@@ -275,7 +278,8 @@ INSERT INTO dbai_ui.themes
  }'::JSONB,
  '{"blur": true, "glow": false, "scanlines": false, "crt": false, "particles": false, "animations": true, "transparency": 0.72}'::JSONB,
  '{"font_color": "#0066ff", "speed_ms": 25, "show_logo": true, "sound": false}'::JSONB,
- FALSE, TRUE);
+ FALSE, TRUE)
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 5. DEFAULT USER — root
@@ -285,7 +289,8 @@ INSERT INTO dbai_ui.users
     (username, display_name, password_hash, db_role, is_admin, avatar_url) VALUES
 ('root', 'System Administrator',
  crypt('dbai2026', gen_salt('bf')),
- 'dbai_system', TRUE, '/assets/avatars/root.svg');
+ 'dbai_system', TRUE, '/assets/avatars/root.svg')
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 6. DEFAULT DESKTOP CONFIG
@@ -306,7 +311,8 @@ VALUES (
         {"app_id": "settings",       "x": 2, "y": 1, "label": "Einstellungen"}
     ]'::JSONB,
     '["system-monitor", "ghost-manager", "terminal"]'::JSONB
-);
+)
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 7. APPS — Registrierte Anwendungen
@@ -392,7 +398,8 @@ INSERT INTO dbai_ui.apps
  'Boot Log',
  'Zeigt die letzte Boot-Sequenz als Terminal-Animation.',
  '🚀', 'system', 'sql_view', 'dbai_ui.vw_boot_sequence',
- 700, 500, FALSE, FALSE, 13, 'dbai_monitor');
+ 700, 500, FALSE, FALSE, 13, 'dbai_monitor')
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 8. DEFAULT ACTIVE GHOSTS — System startet mit Qwen als Sysadmin
@@ -403,7 +410,8 @@ VALUES (
     (SELECT id FROM dbai_llm.ghost_roles WHERE name = 'sysadmin'),
     (SELECT id FROM dbai_llm.ghost_models WHERE name = 'qwen2.5-7b-instruct'),
     'active', 'system', 'System-Boot: Default-Ghost für Sysadmin-Rolle'
-);
+)
+ON CONFLICT DO NOTHING;
 
 -- Ghost History Eintrag
 INSERT INTO dbai_llm.ghost_history
@@ -414,7 +422,8 @@ VALUES (
     (SELECT id FROM dbai_llm.ghost_models WHERE name = 'qwen2.5-7b-instruct'),
     'qwen2.5-7b-instruct',
     'System-Boot: Default-Ghost aktiviert', 0, 'system'
-);
+)
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 9. WELCOME NOTIFICATION
@@ -425,4 +434,5 @@ INSERT INTO dbai_ui.notifications
 ((SELECT id FROM dbai_ui.users WHERE username = 'root'),
  'Willkommen bei DBAI',
  'Ghost in the Database ist einsatzbereit. Öffne den Ghost Manager um KI-Modelle zu verwalten.',
- '👻', 'ghost', 'open_app', 'ghost-manager');
+ '👻', 'ghost', 'open_app', 'ghost-manager')
+ON CONFLICT DO NOTHING;

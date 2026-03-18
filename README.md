@@ -27,8 +27,10 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Kernel-PostgreSQL_16-336791?style=for-the-badge&logo=postgresql&logoColor=white"/>
   <img src="https://img.shields.io/badge/Ghost-LLM_Powered-00ff88?style=for-the-badge&logo=openai&logoColor=black"/>
+  <img src="https://img.shields.io/badge/GPU-NVIDIA_CUDA-76B900?style=for-the-badge&logo=nvidia&logoColor=white"/>
   <img src="https://img.shields.io/badge/Interface-React_CyberDeck-61DAFB?style=for-the-badge&logo=react&logoColor=black"/>
   <img src="https://img.shields.io/badge/CI%2FCD-Atomic_OTA-ff6600?style=for-the-badge&logo=githubactions&logoColor=white"/>
+  <img src="https://img.shields.io/badge/Arch-x86__64_+_ARM64-purple?style=for-the-badge&logo=arm&logoColor=white"/>
   <img src="https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge"/>
 </p>
 
@@ -47,15 +49,21 @@ Every thought. Every file move. Every hardware impulse. All of it — ACID-compl
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                 🖥️  CYBER-DECK (React UI)                │
-│     Desktop · 32+ Apps · Ghost Chat · Software Store    │
-│       Terminal · Firewall · RAG Pipeline · Updater      │
+│     Desktop · 36 Apps · Ghost Chat · Software Store     │
+│     Terminal · LLM Manager · RAG Pipeline · Updater     │
 │              WebSocket-powered · Real-time              │
 └────────────────────────┬────────────────────────────────┘
                          │
 ┌────────────────────────▼────────────────────────────────┐
 │              ⚡ NEURAL BRIDGE (FastAPI)                   │
 │      Dual-Pool Architecture: System + Runtime           │
-│   194 REST Endpoints · WebSocket · Command Whitelist    │
+│   282 REST Endpoints · WebSocket · Command Whitelist    │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────┐
+│       🎮 GPU LAYER (NVIDIA CUDA · llama.cpp)             │
+│   Real-time VRAM Monitoring · Hot-Swap Model Loading    │
+│   18 Ghost Models · Multi-Backend (llama.cpp / vLLM)    │
 └────────────────────────┬────────────────────────────────┘
                          │
 ┌────────────────────────▼────────────────────────────────┐
@@ -64,8 +72,8 @@ Every thought. Every file move. Every hardware impulse. All of it — ACID-compl
 │   ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
 │   │ dbai_core│ │ dbai_llm │ │dbai_system│ │ dbai_ui  │  │
 │   │ Identity │ │  Ghosts  │ │ Hardware  │ │ Desktop  │  │
-│   │  Config  │ │ Thoughts │ │  Metrics  │ │ Windows  │  │
-│   │   Auth   │ │ RAG Pipe │ │  CI/CD    │ │ 32+ Apps │  │
+│   │  Config  │ │ 18 Models│ │  Metrics  │ │ Windows  │  │
+│   │   Auth   │ │ RAG Pipe │ │  CI/CD    │ │ 36 Apps  │  │
 │   └──────────┘ └──────────┘ └──────────┘ └──────────┘  │
 │   ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
 │   │dbai_event│ │dbai_panic│ │dbai_vector│ │dbai_know.│  │
@@ -73,7 +81,7 @@ Every thought. Every file move. Every hardware impulse. All of it — ACID-compl
 │   │  E-Mail  │ │ Failsafe │ │ Synaptic  │ │ Library  │  │
 │   └──────────┘ └──────────┘ └──────────┘ └──────────┘  │
 │                                                         │
-│     130+ Tables · 37 Schema Files · Row-Level Security  │
+│     152 Tables · 69 Schema Files · Row-Level Security   │
 │    Schema Fingerprints · Immutability · OTA Updates     │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -87,12 +95,13 @@ Every thought. Every file move. Every hardware impulse. All of it — ACID-compl
 | **Architecture** | Application on a system | **Is** the system |
 | **Data Storage** | Volatile JSON files | ACID transactions — every thought is permanent |
 | **Hardware** | External APIs | Hardware-as-a-Table — `UPDATE cpu SET governor='performance'` |
-| **AI Models** | Single model, restart required | Hot-Swap Ghosts — change LLMs without losing context |
+| **AI Models** | Single model, restart required | Hot-Swap 18 Ghosts — change LLMs without losing context |
+| **GPU** | No native support | NVIDIA CUDA — real-time VRAM monitoring, live model loading |
 | **Memory** | Flat context window | Synaptic Memory Pipeline + pgvector RAG |
 | **Security** | Application-level | 3-layer immutability: Core → Runtime → Ghost |
 | **Updates** | Manual reinstall | Atomic OTA with auto-rollback |
 | **Self-Repair** | Manual | Autonomous repair pipeline with human approval |
-| **Desktop** | None | 32+ native apps, windowed UI, taskbar, terminal |
+| **Desktop** | None | 36 native apps, windowed UI, taskbar, terminal |
 
 > OpenClaw is a great inspiration. GhostShell is the architecture it needs to be stable.
 
@@ -102,14 +111,16 @@ Every thought. Every file move. Every hardware impulse. All of it — ACID-compl
 
 | Layer | Technology | Purpose |
 |---|---|---|
-| **Kernel** | PostgreSQL 16 + pgvector | The relational core — 9 schemas, 130+ tables, 37 migration files |
-| **Intelligence** | Local LLMs (vLLM, llama.cpp) | Ghost consciousness — thoughts, decisions, RAG-augmented actions |
-| **Neural Bridge** | FastAPI (Python) | 194 API endpoints, dual-pool security, WebSocket real-time |
+| **Kernel** | PostgreSQL 16 + pgvector | The relational core — 10 schemas, 152 tables, 69 migration files |
+| **Intelligence** | Local LLMs (llama.cpp CUDA) | 18 Ghost models — hot-swap, GPU-accelerated, RAG-augmented |
+| **GPU Engine** | NVIDIA CUDA + llama.cpp | Real-time VRAM monitoring, model loading with live progress bar |
+| **Neural Bridge** | FastAPI (Python, 9000+ LOC) | 282 API endpoints, dual-pool security, WebSocket real-time |
 | **Sensors** | Python Hardware Bridge + C-Bindings | CPU, GPU, VRAM, temperature, network — all as tables |
-| **Interface** | React Cyber-Deck | 32+ desktop apps with windowed UI, taskbar, boot screen |
+| **Interface** | React Cyber-Deck | 36 desktop apps with windowed UI, taskbar, boot screen |
 | **Integrity** | Schema Fingerprints + RLS | 176 monitored objects, immutable core protection |
 | **Updates** | CI/CD + OTA Agent | Atomic updates with GitHub Actions, migration runner, auto-rollback |
 | **Dev Tools** | Docker Compose + QEMU Simulator | Containerized microservices, hardware emulation for testing |
+| **Multi-Arch** | x86_64 + ARM64 (Docker buildx) | Same Ghost, same DB — PC, Raspberry Pi, Apple Silicon |
 
 ---
 
@@ -191,8 +202,17 @@ cd frontend && npm install && npm run dev
 - [x] **Row-Level Security** — 71+ tables with RLS policies across 5 database roles
 - [x] **WebSocket Command Whitelist** — Every WS command validated against database
 
-### Desktop Experience (32+ Apps)
-- [x] **Ghost Chat** — Conversational AI with full system context
+### GPU & LLM Engine (NEW)
+- [x] **NVIDIA CUDA Acceleration** — llama.cpp compiled with CUDA (Blackwell/Ada/Ampere)
+- [x] **Real-Time VRAM Monitor** — Live GPU memory bar via `nvidia-smi` (1s polling)
+- [x] **Model Hot-Loading** — Start/stop LLMs on GPU with one click, live VRAM progress bar
+- [x] **18 Ghost Models** — Qwen3.5-27B, DeepSeek, Mistral, LLaMA, CodeLlama and more
+- [x] **Multi-Backend** — llama.cpp (GGUF), vLLM, OpenAI-compatible API
+- [x] **GPU Recommendations** — Automatic `n_gpu_layers`, `ctx_size`, `threads` based on model + hardware
+- [x] **CPU/GPU Toggle** — Switch between GPU-accelerated and CPU-only inference
+
+### Desktop Experience (36 Apps)
+- [x] **Ghost Chat** — Conversational AI with model selector and full system context
 - [x] **Software Store** — Install and manage desktop apps
 - [x] **Terminal** — Full Linux terminal with ANSI colors, tab support, 5000-line scrollback
 - [x] **SQL Console** — Direct database queries from the desktop
@@ -200,7 +220,8 @@ cd frontend && npm install && npm run dev
 - [x] **File Browser** — Navigate the filesystem
 - [x] **Network Scanner** — Discover all Web-UIs in your network
 - [x] **Firewall Manager** — iptables rules, zones, active connections
-- [x] **LLM Manager** — Model installation, benchmarking, configuration
+- [x] **LLM Manager** — Full GPU model management with VRAM live bar, start/stop, benchmarks
+- [x] **WebUI Hub** — Open WebUI, n8n, VS Code Server, Grafana and 10+ WebUIs
 
 ### Deep Integration (Stufe 3)
 - [x] **Browser Migration** — Import bookmarks, history, passwords from Chrome/Firefox/Edge
@@ -224,6 +245,7 @@ cd frontend && npm install && npm run dev
 - [x] **Migration Runner** — Transactional SQL migrations with SHA256 checksums
 - [x] **Auto-Rollback** — Failed updates automatically revert to previous version
 - [x] **Ghost Updater Desktop App** — Visual update channel with "Ghost-Evolution verfügbar" banner
+- [x] **Ghost Mail** — E-Mail Client mit Ghost LLM Integration (compose, reply, improve via AI)
 
 ### Development Environment
 - [x] **Docker Compose** — PostgreSQL, Ghost-API, Dashboard-UI orchestrated
@@ -233,12 +255,119 @@ cd frontend && npm install && npm run dev
 
 ### Coming Soon
 - [ ] **Autonomous Coding** — Ghost writes its own SQL migrations
+- [ ] **Multi-GPU Parallel** — Split models across multiple GPUs
 - [ ] **Vision Integration** — Real-time video analysis in `media_metadata`
 - [ ] **Distributed Ghosts** — Multiple Ghost instances across nodes
+- [ ] **Model Marketplace** — Download and install GGUF models from HuggingFace directly
 
 ---
 
-## 📊 System at a Glance
+## � Multi-Architecture Support
+
+GhostShell OS is hardware-agnostic by design. The database is the kernel — and PostgreSQL runs everywhere.
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                    🧠 GhostShell OS — Universal Ghost              │
+├──────────────────────┬─────────────────────┬───────────────────────┤
+│    x86_64 (Tier 1)   │   ARM64 (Tier 2)    │   Portable Layer      │
+├──────────────────────┼─────────────────────┼───────────────────────┤
+│ • Gaming PCs         │ • Raspberry Pi 4/5  │ • PostgreSQL dump     │
+│ • Workstations       │ • Apple Silicon     │ • Schema migrations   │
+│ • Cloud VMs          │ • NVIDIA Jetson     │ • Config TOML         │
+│ • NVIDIA CUDA        │ • Pine64/Rock Pi    │ • Frontend (Browser)  │
+│ • AVX/AVX2 LLM accel │ • ARM NEON LLM      │ • Docker Multi-Arch   │
+│ • Bare-Metal ISO     │ • SD-Card .img      │ • pg_dump/pg_restore  │
+└──────────────────────┴─────────────────────┴───────────────────────┘
+```
+
+| Tier | Architecture | GPU Support | Install Method | LLM Performance |
+|------|-------------|-------------|----------------|----------------|
+| **Tier 1** | x86_64 (AMD/Intel) | NVIDIA CUDA, AMD ROCm | ISO → USB → GRUB | Full speed (AVX2 + CUDA) |
+| **Tier 2** | ARM64 (RPi, Apple M) | VideoCore, Neural Engine | IMG → SD-Card / SSD | Good (NEON, 7B-13B models) |
+
+### Cross-Architecture Portability
+
+```bash
+# Train your Ghost on a Raspberry Pi...
+pg_dump -U dbai_system dbai > ghost_brain.sql
+
+# ...and migrate it to a powerful x86 workstation
+psql -U dbai_system dbai < ghost_brain.sql
+# Your Ghost wakes up with all memories intact.
+```
+
+### Multi-Arch Docker Build
+
+```bash
+# Build for both architectures simultaneously
+docker buildx create --name ghostbuilder --use
+docker buildx build --platform linux/amd64,linux/arm64 \
+    -f dev/Dockerfile.api -t ghcr.io/repair-lab/ghostshell-api:latest --push .
+```
+
+### Hardware Detection (Runtime)
+
+The Ghost automatically detects its hardware environment:
+
+```python
+import platform
+arch = platform.machine()  # 'x86_64' or 'aarch64'
+
+if arch in ('aarch64', 'arm64'):
+    # ARM: Use NEON-optimized inference, skip NVIDIA
+    llm_backend = 'cpu'  # ARM NEON auto-enabled by llama-cpp
+elif arch == 'x86_64':
+    # x86: Check for NVIDIA GPU → CUDA, else AVX2
+    llm_backend = 'cuda' if has_nvidia() else 'cpu'
+
+# PostgreSQL doesn't care — it's the same on both.
+```
+
+### Slim Image (Thin Provisioning)
+
+For production and SD-card deployment, use the slim image builder:
+
+```bash
+# 4GB minimal image (expands to full SD-card size on first boot)
+sudo bash scripts/build-arm-image-slim.sh
+
+# Headless (no Chromium/X11, server-only)
+sudo bash scripts/build-arm-image-slim.sh --headless
+
+# Alpine Linux base (~50MB vs ~600MB Debian)
+sudo bash scripts/build-arm-image-slim.sh --base alpine
+
+# Custom size
+sudo bash scripts/build-arm-image-slim.sh --size 2G
+```
+
+**First-Boot Chain:**
+1. `ghostshell-expand` — Root partition auto-expands to full disk
+2. `ghostshell-setup` — Interactive wizard (language, WiFi, passwords)
+3. Python venv + pip install (from `requirements-slim.txt`)
+4. PostgreSQL init + 38 schemas loaded
+5. Frontend build (if not pre-built)
+6. `ghostshell-models` — Optional LLM model download
+
+**LLM Models (downloaded on demand, not in image):**
+| Model | Size | Use Case |
+|-------|------|----------|
+| TinyLlama 1.1B | 669 MB | Minimal, fast inference on RPi |
+| Phi-2 | 1.6 GB | Good quality, small footprint |
+| Mistral 7B | 4.1 GB | Best quality for ARM |
+| CodeLlama 7B | 4.1 GB | Code generation |
+
+```bash
+# On the running GhostShell system:
+ghostshell-models list                  # Show available models
+ghostshell-models download tinyllama    # Download smallest model
+ghostshell-models interactive           # TUI selection
+```
+
+---
+
+## �📊 System at a Glance
 
 ```sql
 SELECT 'GhostShell OS' AS system,
@@ -250,7 +379,7 @@ FROM pg_tables;
 
 --  system       | tables | apps | ghosts | fingerprints
 -- --------------+--------+------+--------+--------------
---  GhostShell OS|    130+|   32 |      6 |          176
+--  GhostShell OS|    152 |   36 |     18 |          176
 ```
 
 ---
@@ -331,30 +460,48 @@ See [SPONSOR.md](.github/SPONSOR.md) for full tier details and rewards.
 ```
 claw-in-the-shell/
 ├── web/                         # FastAPI backend (Neural Bridge)
-│   └── server.py                # 5000+ lines, 194 routes
+│   └── server.py                # 9000+ lines, 282 routes, GPU/LLM engine
 ├── frontend/                    # React Cyber-Deck UI
-│   └── src/components/apps/     # 32+ desktop applications
-├── schema/                      # PostgreSQL schemas (37 numbered files)
+│   └── src/components/apps/     # 36 desktop applications
+├── schema/                      # PostgreSQL schemas (69 numbered files)
 │   ├── 00-13                    # Core: extensions, tables, RLS, seeds
 │   ├── 14-27                    # Self-healing, ghost, desktop, hardware
-│   ├── 33-35                    # Stufe 3+4: RAG, synaptic, firewall
-│   └── 36-37                    # CI/CD + OTA update system
+│   ├── 28-45                    # AI Workshop, LLM, Stufe 3+4, Settings
+│   └── 46-67                    # Knowledge, Ghost Browser, Agent, LLM Mgr
 ├── bridge/                      # Hardware bridge (Python + C bindings)
 │   ├── gs_updater.py            # OTA Update Agent
 │   ├── migration_runner.py      # Transactional SQL migrations
 │   ├── rag_pipeline.py          # RAG across 7 DB sources
 │   ├── synaptic_pipeline.py     # Real-time event vectorization
-│   └── c_bindings/              # libhw_interrupts.so
+│   ├── hardware_scanner.py      # Multi-arch hardware detection
+│   └── c_bindings/              # libhw_interrupts.so (x86+ARM)
+├── scripts/                     # Build & deployment tools
+│   ├── build-iso.sh             # x86 ISO builder (Arch + Debian)
+│   ├── build-arm-image.sh       # ARM64 SD-card image builder (32GB)
+│   ├── build-arm-image-slim.sh  # ARM64 Slim image (4GB, thin provisioning)
+│   ├── installer.py             # Python TUI installer (BTRFS/EXT4/ZFS)
+│   ├── test-iso-qemu.sh         # QEMU VM test environment
+│   ├── flash-arm-usb.sh         # Flash ARM image to USB/SD
+│   ├── bootstrap.sh             # Database initialization
+│   └── backup.sh                # Backup & restore
+├── config/                      # System configuration
+│   ├── archiso/                 # Arch Linux ISO profile (mkarchiso)
+│   ├── systemd/                 # Service definitions
+│   ├── grub/                    # Bootloader config
+│   └── dbai.toml                # GhostShell main config
 ├── dev/                         # Development environment
-│   ├── docker-compose.yml       # PostgreSQL + API + UI containers
-│   ├── qemu/hw_simulator.py     # x86 hardware emulator
-│   └── setup_venv.sh            # Python venv setup
+│   ├── Dockerfile.api           # Ghost-API (Multi-Arch: x86+ARM)
+│   ├── Dockerfile.ui            # Dashboard-UI (Multi-Arch)
+│   ├── Dockerfile.qemu          # QEMU Simulator (Multi-Arch)
+│   └── qemu/hw_simulator.py     # Hardware emulator
+├── recovery/                    # Self-healing & panic recovery
+├── llm/                         # LLM bridge (llama.cpp)
 ├── .github/
-│   ├── workflows/ghost-ci.yml   # CI/CD pipeline
+│   ├── workflows/ghost-ci.yml   # CI/CD pipeline (Multi-Arch)
 │   ├── FUNDING.yml              # Sponsoring setup
 │   └── SPONSOR.md               # Tier details
-├── scripts/                     # Install, bootstrap, backup, build
 ├── docs/                        # 12-language documentation
+├── docker-compose.yml           # Dev orchestration
 └── README.md                    # You are here
 ```
 

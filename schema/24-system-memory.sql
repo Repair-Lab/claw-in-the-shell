@@ -24,7 +24,7 @@
 -- TABELLE: system_memory
 -- Langzeitgedächtnis des KI-Agenten — alles was zwischen Sessions überleben muss
 -- =============================================================================
-CREATE TABLE dbai_knowledge.system_memory (
+CREATE TABLE IF NOT EXISTS dbai_knowledge.system_memory (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     -- Wissenskategorie
     category        TEXT NOT NULL CHECK (category IN (
@@ -62,21 +62,22 @@ CREATE TABLE dbai_knowledge.system_memory (
     UNIQUE (category, title)
 );
 
+DROP TRIGGER IF EXISTS trg_sysmem_updated ON dbai_knowledge.system_memory;
 CREATE TRIGGER trg_sysmem_updated
     BEFORE UPDATE ON dbai_knowledge.system_memory
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
 
-CREATE INDEX idx_sysmem_category ON dbai_knowledge.system_memory(category);
-CREATE INDEX idx_sysmem_priority ON dbai_knowledge.system_memory(priority DESC);
-CREATE INDEX idx_sysmem_tags ON dbai_knowledge.system_memory USING GIN(tags);
-CREATE INDEX idx_sysmem_schemas ON dbai_knowledge.system_memory USING GIN(related_schemas);
-CREATE INDEX idx_sysmem_valid ON dbai_knowledge.system_memory(valid_from);
+CREATE INDEX IF NOT EXISTS idx_sysmem_category ON dbai_knowledge.system_memory(category);
+CREATE INDEX IF NOT EXISTS idx_sysmem_priority ON dbai_knowledge.system_memory(priority DESC);
+CREATE INDEX IF NOT EXISTS idx_sysmem_tags ON dbai_knowledge.system_memory USING GIN(tags);
+CREATE INDEX IF NOT EXISTS idx_sysmem_schemas ON dbai_knowledge.system_memory USING GIN(related_schemas);
+CREATE INDEX IF NOT EXISTS idx_sysmem_valid ON dbai_knowledge.system_memory(valid_from);
 
 -- =============================================================================
 -- TABELLE: agent_sessions
 -- Dokumentiert jede KI-Agent-Session die am Codebase gearbeitet hat
 -- =============================================================================
-CREATE TABLE dbai_knowledge.agent_sessions (
+CREATE TABLE IF NOT EXISTS dbai_knowledge.agent_sessions (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     session_date    DATE NOT NULL DEFAULT CURRENT_DATE,
     version_start   TEXT NOT NULL,          -- Version zu Beginn der Session
@@ -97,8 +98,8 @@ CREATE TABLE dbai_knowledge.agent_sessions (
     completed_at    TIMESTAMPTZ
 );
 
-CREATE INDEX idx_session_date ON dbai_knowledge.agent_sessions(session_date DESC);
-CREATE INDEX idx_session_version ON dbai_knowledge.agent_sessions(version_end);
+CREATE INDEX IF NOT EXISTS idx_session_date ON dbai_knowledge.agent_sessions(session_date DESC);
+CREATE INDEX IF NOT EXISTS idx_session_version ON dbai_knowledge.agent_sessions(version_end);
 
 -- =============================================================================
 -- VIEW: System Memory als Kontext-Block
@@ -209,15 +210,20 @@ $$ LANGUAGE plpgsql;
 ALTER TABLE dbai_knowledge.system_memory ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dbai_knowledge.agent_sessions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS sysmem_system_full ON dbai_knowledge.system_memory;
 CREATE POLICY sysmem_system_full ON dbai_knowledge.system_memory
     FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS sysmem_llm_read ON dbai_knowledge.system_memory;
 CREATE POLICY sysmem_llm_read ON dbai_knowledge.system_memory
     FOR SELECT TO dbai_llm USING (TRUE);
+DROP POLICY IF EXISTS sysmem_monitor_read ON dbai_knowledge.system_memory;
 CREATE POLICY sysmem_monitor_read ON dbai_knowledge.system_memory
     FOR SELECT TO dbai_monitor USING (TRUE);
 
+DROP POLICY IF EXISTS session_system_full ON dbai_knowledge.agent_sessions;
 CREATE POLICY session_system_full ON dbai_knowledge.agent_sessions
     FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS session_llm_read ON dbai_knowledge.agent_sessions;
 CREATE POLICY session_llm_read ON dbai_knowledge.agent_sessions
     FOR SELECT TO dbai_llm USING (TRUE);
 

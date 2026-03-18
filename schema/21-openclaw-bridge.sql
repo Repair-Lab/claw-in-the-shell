@@ -534,49 +534,64 @@ ORDER BY mj.created_at DESC;
 
 -- openclaw_skills
 ALTER TABLE dbai_core.openclaw_skills ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS openclaw_skills_system ON dbai_core.openclaw_skills;
 CREATE POLICY openclaw_skills_system ON dbai_core.openclaw_skills
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS openclaw_skills_monitor ON dbai_core.openclaw_skills;
 CREATE POLICY openclaw_skills_monitor ON dbai_core.openclaw_skills
     FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS openclaw_skills_llm ON dbai_core.openclaw_skills;
 CREATE POLICY openclaw_skills_llm ON dbai_core.openclaw_skills
     FOR SELECT TO dbai_llm USING (state = 'active');
 
 -- openclaw_memories
 ALTER TABLE dbai_vector.openclaw_memories ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS openclaw_memories_system ON dbai_vector.openclaw_memories;
 CREATE POLICY openclaw_memories_system ON dbai_vector.openclaw_memories
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS openclaw_memories_monitor ON dbai_vector.openclaw_memories;
 CREATE POLICY openclaw_memories_monitor ON dbai_vector.openclaw_memories
     FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS openclaw_memories_llm ON dbai_vector.openclaw_memories;
 CREATE POLICY openclaw_memories_llm ON dbai_vector.openclaw_memories
     FOR SELECT TO dbai_llm USING (is_integrated = TRUE);
 
 -- migration_jobs
 ALTER TABLE dbai_core.migration_jobs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS migration_jobs_system ON dbai_core.migration_jobs;
 CREATE POLICY migration_jobs_system ON dbai_core.migration_jobs
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS migration_jobs_monitor ON dbai_core.migration_jobs;
 CREATE POLICY migration_jobs_monitor ON dbai_core.migration_jobs
     FOR SELECT TO dbai_monitor USING (TRUE);
 
 -- telegram_bridge
 ALTER TABLE dbai_event.telegram_bridge ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS telegram_bridge_system ON dbai_event.telegram_bridge;
 CREATE POLICY telegram_bridge_system ON dbai_event.telegram_bridge
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS telegram_bridge_monitor ON dbai_event.telegram_bridge;
 CREATE POLICY telegram_bridge_monitor ON dbai_event.telegram_bridge
     FOR SELECT TO dbai_monitor USING (TRUE);
 
 -- app_streams
 ALTER TABLE dbai_ui.app_streams ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS app_streams_system ON dbai_ui.app_streams;
 CREATE POLICY app_streams_system ON dbai_ui.app_streams
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS app_streams_monitor ON dbai_ui.app_streams;
 CREATE POLICY app_streams_monitor ON dbai_ui.app_streams
     FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS app_streams_llm ON dbai_ui.app_streams;
 CREATE POLICY app_streams_llm ON dbai_ui.app_streams
     FOR SELECT TO dbai_llm USING (is_active = TRUE);
 
 -- openclaw_compat_map
 ALTER TABLE dbai_core.openclaw_compat_map ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS compat_map_system ON dbai_core.openclaw_compat_map;
 CREATE POLICY compat_map_system ON dbai_core.openclaw_compat_map
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS compat_map_all ON dbai_core.openclaw_compat_map;
 CREATE POLICY compat_map_all ON dbai_core.openclaw_compat_map
     FOR SELECT TO dbai_monitor, dbai_llm USING (TRUE);
 
@@ -664,7 +679,8 @@ INSERT INTO dbai_core.openclaw_compat_map
  'OpenClaw: Kein Hardware-Zugriff. DBAI: Kompletter Hardware Abstraction Layer mit '
  'GPU-Management, VRAM-Tracking, Fan-Control, Power-Profiles, Hotplug-Events.',
  '// OpenClaw\n// Keine Hardware-Integration',
- '-- TabulaOS\nSELECT * FROM dbai_system.vw_gpu_overview; -- Echtzeit GPU-Status');
+ '-- TabulaOS\nSELECT * FROM dbai_system.vw_gpu_overview; -- Echtzeit GPU-Status')
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 11. SEED: INITIALE APP-STREAMS
@@ -680,7 +696,8 @@ INSERT INTO dbai_ui.app_streams
 ('sql_console', 'SQL Console', 'native', NULL, NULL, FALSE),
 ('health_dashboard', 'Health Dashboard', 'native', 'dbai_system.health_checks', 'system_admin', TRUE),
 ('openclaw_import', 'OpenClaw Importer', 'openclaw_import', 'dbai_core.migration_jobs', NULL, FALSE),
-('gpu_dashboard', 'GPU Dashboard', 'native', 'dbai_system.gpu_devices', 'system_admin', FALSE);
+('gpu_dashboard', 'GPU Dashboard', 'native', 'dbai_system.gpu_devices', 'system_admin', FALSE)
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- FERTIG — OpenClaw Bridge ist bereit

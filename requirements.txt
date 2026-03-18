@@ -1,30 +1,44 @@
-# DBAI Python-Abhängigkeiten
-# ==========================
+# =============================================================================
+# DBAI Python-Abhängigkeiten — Multi-Arch (x86_64 + arm64)
+# =============================================================================
 
-# Datenbank
+# ─── Datenbank ────────────────────────────────────────────────────
 psycopg2-binary>=2.9.9
+asyncpg>=0.29.0
 
-# Hardware-Monitoring
+# ─── Hardware-Monitoring ──────────────────────────────────────────
 psutil>=5.9.0
 
-# LLM (llama.cpp Python-Bindings)
+# ─── LLM (llama.cpp — kompiliert automatisch für x86/ARM) ────────
+# llama-cpp-python erkennt automatisch:
+#   x86_64: AVX, AVX2, CUDA (wenn NVIDIA vorhanden)
+#   arm64:  NEON, Apple Neural Engine (wenn verfügbar)
 llama-cpp-python>=0.2.0
 
-# Konfiguration
+# ─── Konfiguration ───────────────────────────────────────────────
 toml>=0.10.2
 
-# GPU-Management (NVIDIA)
-nvidia-ml-py3>=12.535.0
+# ─── GPU-Management ──────────────────────────────────────────────
+# NVIDIA (nur x86_64 — auf ARM wird es ignoriert)
+pynvml>=12.0.0; platform_machine=="x86_64"
 
-# Web-Server (Ghost Desktop UI)
+# ─── Web-Server (Neural Bridge) ─────────────────────────────────
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 websockets>=12.0
+aiohttp>=3.9.0
+aiofiles>=23.0.0
+httpx>=0.27.0
 
-# Authentifizierung
+# ─── Authentifizierung ──────────────────────────────────────────
 PyJWT>=2.8.0
 bcrypt>=4.1.0
 
-# Tests
+# ─── Tests ───────────────────────────────────────────────────────
 pytest>=7.0.0
 pytest-cov>=4.0.0
+
+# ─── Plattform-Hinweise ─────────────────────────────────────────
+# x86_64:  CUDA/AVX beschleunigt LLM-Inferenz stark
+# arm64:   ARM NEON reicht für kleine Modelle (7B-13B)
+# Beide:   PostgreSQL + pgvector identisch

@@ -4,7 +4,7 @@
 -- =============================================================================
 
 -- KI-Erinnerungen: Langzeit-Speicher des LLM
-CREATE TABLE dbai_vector.memories (
+CREATE TABLE IF NOT EXISTS dbai_vector.memories (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     -- Vektor-Embedding (1536 Dimensionen, kompatibel mit gängigen Modellen)
@@ -32,13 +32,13 @@ CREATE TABLE dbai_vector.memories (
 );
 
 -- HNSW-Index für schnelle Ähnlichkeitssuche (Cosine-Distanz)
-CREATE INDEX idx_memories_embedding ON dbai_vector.memories
+CREATE INDEX IF NOT EXISTS idx_memories_embedding ON dbai_vector.memories
     USING hnsw (embedding vector_cosine_ops)
     WITH (m = 16, ef_construction = 200);
 
-CREATE INDEX idx_memories_type ON dbai_vector.memories(memory_type);
-CREATE INDEX idx_memories_relevance ON dbai_vector.memories(relevance DESC);
-CREATE INDEX idx_memories_ts ON dbai_vector.memories(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_memories_type ON dbai_vector.memories(memory_type);
+CREATE INDEX IF NOT EXISTS idx_memories_relevance ON dbai_vector.memories(relevance DESC);
+CREATE INDEX IF NOT EXISTS idx_memories_ts ON dbai_vector.memories(ts DESC);
 
 -- =============================================================================
 -- Ähnlichkeitssuche: Finde die nächsten N Erinnerungen zu einem Vektor
@@ -99,7 +99,7 @@ $$ LANGUAGE plpgsql;
 -- =============================================================================
 -- Wissens-Graphen: Beziehungen zwischen Konzepten
 -- =============================================================================
-CREATE TABLE dbai_vector.knowledge_edges (
+CREATE TABLE IF NOT EXISTS dbai_vector.knowledge_edges (
     id              BIGSERIAL PRIMARY KEY,
     source_id       UUID NOT NULL REFERENCES dbai_vector.memories(id),
     target_id       UUID NOT NULL REFERENCES dbai_vector.memories(id),
@@ -113,6 +113,6 @@ CREATE TABLE dbai_vector.knowledge_edges (
     UNIQUE(source_id, target_id, relation_type)
 );
 
-CREATE INDEX idx_knowledge_source ON dbai_vector.knowledge_edges(source_id);
-CREATE INDEX idx_knowledge_target ON dbai_vector.knowledge_edges(target_id);
-CREATE INDEX idx_knowledge_type ON dbai_vector.knowledge_edges(relation_type);
+CREATE INDEX IF NOT EXISTS idx_knowledge_source ON dbai_vector.knowledge_edges(source_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_target ON dbai_vector.knowledge_edges(target_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_type ON dbai_vector.knowledge_edges(relation_type);

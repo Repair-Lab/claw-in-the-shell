@@ -433,7 +433,8 @@ INSERT INTO dbai_knowledge.changelog
  'Sentinel, Muse) als CSS-Grid-Karten mit individuellen Farben, Glows und Hover-Effekten. ' ||
  'Auswahl setzt ghostAvatar und schlägt passenden Ghost-Namen vor.',
  ARRAY['frontend/src/components/apps/SetupWizard.jsx'],
- 'agent');
+ 'agent')
+ON CONFLICT DO NOTHING;
 
 
 -- ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -507,7 +508,8 @@ INSERT INTO dbai_knowledge.known_issues
  'Avatar wird als Teil des JSON-Blobs an setupComplete geschickt. Backend-Erweiterung nötig: ' ||
  'db_execute("UPDATE dbai_system.ghost_config SET avatar = $1", ghostAvatar) ' ||
  'oder als JSONB-Key in der bestehenden metadata-Spalte.',
- '{"frontend_ready": true, "backend_ready": false, "settings_key": "ghostAvatar"}'::JSONB);
+ '{"frontend_ready": true, "backend_ready": false, "settings_key": "ghostAvatar"}'::JSONB)
+ON CONFLICT DO NOTHING;
 
 
 -- ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -529,7 +531,8 @@ INSERT INTO dbai_knowledge.build_log
    "node_version": "v22.x",
    "date": "2026-03-16",
    "stufe1_items": ["systemd","grub","kiosk","iso","packages"],
-   "stufe2_items": ["taskbar-stats","theatrical-install","avatar-selector"]}'::JSONB);
+   "stufe2_items": ["taskbar-stats","theatrical-install","avatar-selector"]}'::JSONB)
+ON CONFLICT DO NOTHING;
 
 
 -- ╔═══════════════════════════════════════════════════════════════════════════╗

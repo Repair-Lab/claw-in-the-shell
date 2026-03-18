@@ -5,7 +5,7 @@
 -- =============================================================================
 
 -- Notfall-Treiber: Minimaler Satz an Treibern für Reparatur
-CREATE TABLE dbai_panic.emergency_drivers (
+CREATE TABLE IF NOT EXISTS dbai_panic.emergency_drivers (
     id              SERIAL PRIMARY KEY,
     name            TEXT NOT NULL UNIQUE,
     driver_type     TEXT NOT NULL CHECK (driver_type IN (
@@ -24,7 +24,7 @@ CREATE TABLE dbai_panic.emergency_drivers (
 );
 
 -- Notfall-Konfiguration: Minimale Boot-Parameter
-CREATE TABLE dbai_panic.boot_config (
+CREATE TABLE IF NOT EXISTS dbai_panic.boot_config (
     key             TEXT PRIMARY KEY,
     value           JSONB NOT NULL,
     description     TEXT NOT NULL,
@@ -32,7 +32,7 @@ CREATE TABLE dbai_panic.boot_config (
 );
 
 -- Notfall-Reparatur-Skripte
-CREATE TABLE dbai_panic.repair_scripts (
+CREATE TABLE IF NOT EXISTS dbai_panic.repair_scripts (
     id              SERIAL PRIMARY KEY,
     name            TEXT NOT NULL UNIQUE,
     description     TEXT NOT NULL,
@@ -47,7 +47,7 @@ CREATE TABLE dbai_panic.repair_scripts (
 );
 
 -- Notfall-Log: Dokumentiert Panic-Ereignisse
-CREATE TABLE dbai_panic.panic_log (
+CREATE TABLE IF NOT EXISTS dbai_panic.panic_log (
     id              BIGSERIAL PRIMARY KEY,
     ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     panic_type      TEXT NOT NULL CHECK (panic_type IN (
@@ -85,6 +85,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_panic_log_protect ON dbai_panic.panic_log;
 CREATE TRIGGER trg_panic_log_protect
     BEFORE UPDATE OR DELETE ON dbai_panic.panic_log
     FOR EACH ROW EXECUTE FUNCTION dbai_panic.protect_panic_log();
@@ -108,10 +109,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_emergency_drivers_lock ON dbai_panic.emergency_drivers;
 CREATE TRIGGER trg_emergency_drivers_lock
     BEFORE INSERT OR UPDATE OR DELETE ON dbai_panic.emergency_drivers
     FOR EACH ROW EXECUTE FUNCTION dbai_panic.lock_after_init();
 
+DROP TRIGGER IF EXISTS trg_repair_scripts_lock ON dbai_panic.repair_scripts;
 CREATE TRIGGER trg_repair_scripts_lock
     BEFORE INSERT OR UPDATE OR DELETE ON dbai_panic.repair_scripts
     FOR EACH ROW EXECUTE FUNCTION dbai_panic.lock_after_init();
@@ -166,7 +169,8 @@ INSERT INTO dbai_panic.boot_config (key, value, description, checksum) VALUES
      md5('{"db_port": 5432, "db_name": "dbai", "listen": "127.0.0.1"}')),
     ('recovery_mode', '{"active": false, "reason": null, "since": null}'::JSONB,
      'Recovery-Modus Status',
-     md5('{"active": false, "reason": null, "since": null}'));
+     md5('{"active": false, "reason": null, "since": null}'))
+ON CONFLICT DO NOTHING;
 
 -- Initiale Reparatur-Skripte
 INSERT INTO dbai_panic.repair_scripts (name, description, script_sql, execution_order, trigger_condition, checksum) VALUES
@@ -188,4 +192,5 @@ INSERT INTO dbai_panic.repair_scripts (name, description, script_sql, execution_
 
     ('reset_stuck_locks', 'Setzt blockierte Advisory Locks zurück',
      $$SELECT pg_advisory_unlock_all()$$,
-     4, 'deadlock_cascade', md5('reset_stuck_locks'));
+     4, 'deadlock_cascade', md5('reset_stuck_locks'))
+ON CONFLICT DO NOTHING;

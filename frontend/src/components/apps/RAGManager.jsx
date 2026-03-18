@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 export default function RAGManager() {
+  const { settings, schema, update, reset } = useAppSettings('rag_manager')
+  const [showSettings, setShowSettings] = useState(false)
   const [stats, setStats] = useState(null)
   const [sources, setSources] = useState([])
   const [query, setQuery] = useState('')
@@ -44,6 +48,19 @@ export default function RAGManager() {
     } catch { /* ignore */ }
   }
 
+  const [showAddSource, setShowAddSource] = useState(false)
+  const [newSource, setNewSource] = useState({ name: '', type: 'file', path: '' })
+
+  const addSource = async () => {
+    if (!newSource.name) return
+    try { await api.ragAddSource(newSource.name, newSource.type, newSource.path); setShowAddSource(false); setNewSource({ name: '', type: 'file', path: '' }); loadData() } catch { /* */ }
+  }
+
+  const deleteSource = async (name) => {
+    if (!confirm(`Quelle '${name}' wirklich löschen?`)) return
+    try { await api.ragDeleteSource(name); loadData() } catch { /* */ }
+  }
+
   const S = {
     container: { display: 'flex', flexDirection: 'column', height: '100%', background: '#0a0a14', color: '#c8d6e5', padding: '16px', overflow: 'auto' },
     h: { color: '#00ffcc', fontSize: '18px', fontWeight: 700, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' },
@@ -56,7 +73,11 @@ export default function RAGManager() {
 
   return (
     <div style={S.container}>
-      <div style={S.h}><span>🔗</span> RAG Pipeline</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={S.h}>🔗 RAG Pipeline</div>
+        <button style={{ ...S.btn, padding: '4px 10px' }} onClick={() => setShowSettings(!showSettings)}>⚙️</button>
+      </div>
+      {showSettings && <AppSettingsPanel settings={settings} schema={schema} onUpdate={update} onReset={reset} />}
       <p style={{ color: '#556', fontSize: '13px', marginBottom: '16px' }}>
         Retrieval-Augmented-Generation: Relevante Chunks aus der Wissensbasis in Ghost-Prompts injizieren.
       </p>
@@ -69,6 +90,20 @@ export default function RAGManager() {
 
       {view === 'sources' && (
         <>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+            <button style={S.btn} onClick={() => setShowAddSource(!showAddSource)}>+ Quelle</button>
+            <button style={{ ...S.btn, borderColor: '#556', color: '#556' }} onClick={loadData}>🔄</button>
+          </div>
+          {showAddSource && (
+            <div style={{ ...S.card, display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input style={{ ...S.input, flex: 'none', width: '120px' }} value={newSource.name} onChange={e => setNewSource({ ...newSource, name: e.target.value })} placeholder="Name" />
+              <select style={{ padding: '6px', background: '#0f1520', border: '1px solid #1a2a3a', borderRadius: '6px', color: '#d4d4d4', fontSize: '12px' }} value={newSource.type} onChange={e => setNewSource({ ...newSource, type: e.target.value })}>
+                <option value="file">Datei</option><option value="directory">Verzeichnis</option><option value="url">URL</option><option value="database">Datenbank</option>
+              </select>
+              <input style={S.input} value={newSource.path} onChange={e => setNewSource({ ...newSource, path: e.target.value })} placeholder="Pfad/URL" />
+              <button style={S.btn} onClick={addSource}>✓</button>
+            </div>
+          )}
           {sources.map((s, i) => (
             <div key={i} style={{ ...S.card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: s.enabled ? 1 : 0.5 }}>
               <div>
@@ -95,6 +130,12 @@ export default function RAGManager() {
                   onClick={() => reindex(s.source_name)}
                 >
                   ↻ Reindex
+                </button>
+                <button
+                  style={{ ...S.btn, fontSize: '11px', padding: '3px 8px', borderColor: '#ff4444', color: '#ff4444' }}
+                  onClick={() => deleteSource(s.source_name)}
+                >
+                  🗑
                 </button>
               </div>
             </div>

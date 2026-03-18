@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 /**
  * Terminal v1 — Feature 23
@@ -61,6 +63,8 @@ function TerminalLine({ line }) {
 }
 
 export default function Terminal() {
+  const { settings, schema, update: updateSetting, reset: resetSettings } = useAppSettings('terminal')
+  const [showSettings, setShowSettings] = useState(false)
   const [tabs, setTabs] = useState([{ id: 1, name: 'Terminal 1', output: [], cwd: '~', history: [], historyIndex: -1 }])
   const [activeTab, setActiveTab] = useState(1)
   const [input, setInput] = useState('')
@@ -68,6 +72,11 @@ export default function Terminal() {
   const outputRef = useRef(null)
   const inputRef = useRef(null)
   const tabIdCounter = useRef(2)
+
+  const fontSize = settings?.font_size ?? 13
+  const fontFamily = settings?.font_family ?? "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace"
+  const scrollbackLines = settings?.scrollback_lines ?? 5000
+  const showStatusBar = settings?.show_status_bar !== false
 
   const currentTab = tabs.find(t => t.id === activeTab) || tabs[0]
 
@@ -86,7 +95,7 @@ export default function Terminal() {
   const appendOutput = useCallback((tabId, lines) => {
     setTabs(prev => prev.map(t => {
       if (t.id !== tabId) return t
-      const newOutput = [...t.output, ...lines].slice(-5000) // Max 5000 Zeilen
+      const newOutput = [...t.output, ...lines].slice(-scrollbackLines) // Max scrollback
       return { ...t, output: newOutput }
     }))
   }, [])
@@ -238,11 +247,20 @@ export default function Terminal() {
     }
   }
 
+  if (showSettings) {
+    return (
+      <div style={{ padding: '16px', height: '100%', overflow: 'auto', background: '#0a0a14' }}>
+        <button onClick={() => setShowSettings(false)} style={{ marginBottom: '12px', padding: '4px 12px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '11px' }}>← Zurück</button>
+        <AppSettingsPanel schema={schema} settings={settings} onUpdate={updateSetting} onReset={resetSettings} title="Terminal" />
+      </div>
+    )
+  }
+
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', height: '100%',
-      background: '#0a0a14', fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-      fontSize: '13px', color: '#d4d4d4',
+      background: '#0a0a14', fontFamily: fontFamily,
+      fontSize: `${fontSize}px`, color: '#d4d4d4',
     }}>
       {/* Tab-Leiste */}
       <div style={{
@@ -290,6 +308,16 @@ export default function Terminal() {
           title="Neues Terminal"
         >
           +
+        </div>
+        <div style={{ flex: 1 }} />
+        <div
+          onClick={() => setShowSettings(true)}
+          style={{ padding: '4px 8px', cursor: 'pointer', color: '#446', fontSize: '14px' }}
+          onMouseEnter={e => e.target.style.color = '#00ffcc'}
+          onMouseLeave={e => e.target.style.color = '#446'}
+          title="Einstellungen"
+        >
+          ⚙️
         </div>
       </div>
 
@@ -340,6 +368,7 @@ export default function Terminal() {
       </div>
 
       {/* Status-Leiste */}
+      {showStatusBar && (
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         background: '#0f0f1a', borderTop: '1px solid #1a2a3a',
@@ -349,6 +378,7 @@ export default function Terminal() {
         <span>{currentTab.output.length} Zeilen</span>
         <span>Tab {tabs.findIndex(t => t.id === activeTab) + 1}/{tabs.length}</span>
       </div>
+      )}
     </div>
   )
 }

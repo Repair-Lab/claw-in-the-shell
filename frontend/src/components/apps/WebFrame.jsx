@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 // Externe Domains, die iframe-Einbettung per X-Frame-Options / CSP blockieren
 const EXTERNAL_BLOCKED_DOMAINS = [
@@ -52,7 +54,9 @@ function getDomainInfo(url) {
  * Erkennt blockierte Seiten und bietet "In neuem Tab öffnen" an.
  */
 export default function WebFrame({ windowId, extra }) {
-  const initialUrl = extra?.url || 'about:blank'
+  const { settings, schema, update: updateSetting, reset: resetSettings } = useAppSettings('web-frame')
+  const [showSettings, setShowSettings] = useState(false)
+  const initialUrl = extra?.url || settings?.default_url || 'about:blank'
   const title = extra?.title || 'Web Browser'
   const [url, setUrl] = useState(initialUrl)
   const [inputUrl, setInputUrl] = useState(initialUrl)
@@ -130,6 +134,7 @@ export default function WebFrame({ windowId, extra }) {
         </div>
 
         <button onClick={() => navigate(inputUrl)} style={sx.goBtn}>↗️</button>
+        <button onClick={() => setShowSettings(true)} style={sx.navBtn} title="Einstellungen">⚙️</button>
         <button onClick={() => window.open(url, '_blank')} style={sx.navBtn} title="Extern öffnen">🔗</button>
       </div>
 
@@ -141,9 +146,14 @@ export default function WebFrame({ windowId, extra }) {
         </div>
       )}
 
-      {/* iframe / Blockiert-Hinweis */}
+      {/* iframe / settings / Blockiert-Hinweis */}
       <div style={sx.iframeContainer}>
-        {(iframeBlocked || blocked) ? (
+        {showSettings ? (
+          <div style={{ padding: '16px', overflow: 'auto', height: '100%' }}>
+            <button onClick={() => setShowSettings(false)} style={{ marginBottom: '12px', padding: '4px 12px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '11px' }}>← Zurück</button>
+            <AppSettingsPanel schema={schema} settings={settings} onUpdate={updateSetting} onReset={resetSettings} title="Web Browser" />
+          </div>
+        ) : (iframeBlocked || blocked) ? (
           <div style={sx.blockedState}>
             <div style={{
               width: 80, height: 80, borderRadius: '50%',

@@ -5,7 +5,7 @@
 
 -- Objekt-Registry: JEDE Ressource bekommt eine UUID statt einem Dateipfad
 -- No-Go: Niemals manuelle Dateipfade benutzen — immer eine ID aus dieser Tabelle
-CREATE TABLE dbai_core.objects (
+CREATE TABLE IF NOT EXISTS dbai_core.objects (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     object_type     TEXT NOT NULL CHECK (object_type IN (
                         'file', 'config', 'model', 'driver',
@@ -30,10 +30,10 @@ CREATE TABLE dbai_core.objects (
     deleted_at      TIMESTAMPTZ
 );
 
-CREATE INDEX idx_objects_type ON dbai_core.objects(object_type);
-CREATE INDEX idx_objects_name ON dbai_core.objects(name);
-CREATE INDEX idx_objects_hash ON dbai_core.objects(storage_hash);
-CREATE INDEX idx_objects_metadata ON dbai_core.objects USING GIN(metadata);
+CREATE INDEX IF NOT EXISTS idx_objects_type ON dbai_core.objects(object_type);
+CREATE INDEX IF NOT EXISTS idx_objects_name ON dbai_core.objects(name);
+CREATE INDEX IF NOT EXISTS idx_objects_hash ON dbai_core.objects(storage_hash);
+CREATE INDEX IF NOT EXISTS idx_objects_metadata ON dbai_core.objects USING GIN(metadata);
 
 -- Trigger: updated_at automatisch setzen
 CREATE OR REPLACE FUNCTION dbai_core.update_timestamp()
@@ -44,6 +44,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_objects_updated ON dbai_core.objects;
 CREATE TRIGGER trg_objects_updated
     BEFORE UPDATE ON dbai_core.objects
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
@@ -51,7 +52,7 @@ CREATE TRIGGER trg_objects_updated
 -- =============================================================================
 -- Prozess-Tabelle: Laufende Systemdienste und Aufgaben
 -- =============================================================================
-CREATE TABLE dbai_core.processes (
+CREATE TABLE IF NOT EXISTS dbai_core.processes (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     pid             INTEGER,
     name            TEXT NOT NULL,
@@ -75,14 +76,14 @@ CREATE TABLE dbai_core.processes (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_processes_state ON dbai_core.processes(state);
-CREATE INDEX idx_processes_type ON dbai_core.processes(process_type);
-CREATE INDEX idx_processes_priority ON dbai_core.processes(priority);
+CREATE INDEX IF NOT EXISTS idx_processes_state ON dbai_core.processes(state);
+CREATE INDEX IF NOT EXISTS idx_processes_type ON dbai_core.processes(process_type);
+CREATE INDEX IF NOT EXISTS idx_processes_priority ON dbai_core.processes(priority);
 
 -- =============================================================================
 -- Konfigurations-Tabelle: Schlüssel-Wert-Paare statt Config-Dateien
 -- =============================================================================
-CREATE TABLE dbai_core.config (
+CREATE TABLE IF NOT EXISTS dbai_core.config (
     key             TEXT PRIMARY KEY,
     value           JSONB NOT NULL,
     category        TEXT NOT NULL DEFAULT 'general',
@@ -95,6 +96,7 @@ CREATE TABLE dbai_core.config (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+DROP TRIGGER IF EXISTS trg_config_updated ON dbai_core.config;
 CREATE TRIGGER trg_config_updated
     BEFORE UPDATE ON dbai_core.config
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
@@ -110,6 +112,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_config_readonly ON dbai_core.config;
 CREATE TRIGGER trg_config_readonly
     BEFORE UPDATE ON dbai_core.config
     FOR EACH ROW EXECUTE FUNCTION dbai_core.protect_readonly_config();
@@ -117,7 +120,7 @@ CREATE TRIGGER trg_config_readonly
 -- =============================================================================
 -- Treiber-Registry: Alle Hardware-Treiber als Tabelleneinträge
 -- =============================================================================
-CREATE TABLE dbai_core.drivers (
+CREATE TABLE IF NOT EXISTS dbai_core.drivers (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name            TEXT NOT NULL UNIQUE,
     driver_type     TEXT NOT NULL CHECK (driver_type IN (
@@ -139,5 +142,5 @@ CREATE TABLE dbai_core.drivers (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_drivers_state ON dbai_core.drivers(state);
-CREATE INDEX idx_drivers_type ON dbai_core.drivers(driver_type);
+CREATE INDEX IF NOT EXISTS idx_drivers_state ON dbai_core.drivers(state);
+CREATE INDEX IF NOT EXISTS idx_drivers_type ON dbai_core.drivers(driver_type);

@@ -1,13 +1,19 @@
 import React, { useState, useEffect } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 /**
  * ProcessManager — Laufende Prozesse verwalten
  */
 export default function ProcessManager({ windowId }) {
+  const { settings, schema, update: updateSetting, reset: resetSettings } = useAppSettings('process-manager')
+  const [showSettings, setShowSettings] = useState(false)
   const [processes, setProcesses] = useState([])
   const [loading, setLoading] = useState(true)
-  const [sortBy, setSortBy] = useState('pid')
+  const [sortBy, setSortBy] = useState(settings?.default_sort || 'pid')
+
+  const refreshInterval = settings?.refresh_interval ?? 5000
 
   const refresh = async () => {
     try {
@@ -22,9 +28,9 @@ export default function ProcessManager({ windowId }) {
 
   useEffect(() => {
     refresh()
-    const interval = setInterval(refresh, 5000)
+    const interval = setInterval(refresh, refreshInterval)
     return () => clearInterval(interval)
-  }, [])
+  }, [refreshInterval])
 
   const sorted = [...processes].sort((a, b) => {
     if (sortBy === 'pid') return (a.pid || 0) - (b.pid || 0)
@@ -43,6 +49,15 @@ export default function ProcessManager({ windowId }) {
     userSelect: 'none'
   })
 
+  if (showSettings) {
+    return (
+      <div style={{ padding: '16px' }}>
+        <button onClick={() => setShowSettings(false)} style={{ marginBottom: '12px', padding: '4px 12px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '11px' }}>← Zurück</button>
+        <AppSettingsPanel schema={schema} settings={settings} onUpdate={updateSetting} onReset={resetSettings} title="Prozess-Manager" />
+      </div>
+    )
+  }
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
       {/* Toolbar */}
@@ -53,16 +68,19 @@ export default function ProcessManager({ windowId }) {
         <span style={{ color: 'var(--text-secondary)' }}>
           {processes.length} Prozesse
         </span>
-        <button
-          onClick={refresh}
-          style={{
-            padding: '4px 12px', background: 'var(--bg-elevated)',
-            border: '1px solid var(--border)', borderRadius: '4px',
-            color: 'var(--text-primary)', cursor: 'pointer', fontSize: '11px'
-          }}
-        >
-          ↻ Aktualisieren
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={refresh}
+            style={{
+              padding: '4px 12px', background: 'var(--bg-elevated)',
+              border: '1px solid var(--border)', borderRadius: '4px',
+              color: 'var(--text-primary)', cursor: 'pointer', fontSize: '11px'
+            }}
+          >
+            ↻ Aktualisieren
+          </button>
+          <button onClick={() => setShowSettings(true)} style={{ padding: '4px 12px', background: 'transparent', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '11px' }}>⚙️</button>
+        </div>
       </div>
 
       {/* Table */}

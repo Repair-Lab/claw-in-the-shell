@@ -469,7 +469,8 @@ INSERT INTO dbai_knowledge.system_memory
  '- Multi-User: Mehrere Benutzer mit eigenen Ghosts und Desktop-Configs. ' ||
  '- Plugin-System: Apps als registrierte Module mit eigenen Schemas. ' ||
  '- Mobile: Telegram/Signal als Remote-Terminal für unterwegs.',
- 60, ARRAY['roadmap', 'future', 'planned'], '0.7.0', ARRAY[]::TEXT[]);
+ 60, ARRAY['roadmap', 'future', 'planned'], '0.7.0', ARRAY[]::TEXT[])
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- 11. AGENT-SESSIONS — Dokumentierte Arbeitssitzungen
@@ -561,7 +562,8 @@ INSERT INTO dbai_knowledge.agent_sessions
  ARRAY['24', '25'],
  127, NULL,  -- Tests werden noch gezählt
  ARRAY['Alles Wissen persistent machen', 'Neue KI-Session kann sofort loslegen', 'Kein Kontext geht verloren'],
- ARRAY['system_memory Tabelle für Meta-Wissen', 'agent_sessions für Session-Dokumentation', 'get_agent_context() für Kontext-Abruf']);
+ ARRAY['system_memory Tabelle für Meta-Wissen', 'agent_sessions für Session-Dokumentation', 'get_agent_context() für Kontext-Abruf'])
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- FERTIG — Das vollständige Gehirn liegt jetzt in der Datenbank.

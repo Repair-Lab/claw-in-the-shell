@@ -4,7 +4,7 @@
 -- =============================================================================
 
 -- Lock-Registry: Alle aktiven Sperren
-CREATE TABLE dbai_system.lock_registry (
+CREATE TABLE IF NOT EXISTS dbai_system.lock_registry (
     id              BIGSERIAL PRIMARY KEY,
     ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     lock_type       TEXT NOT NULL CHECK (lock_type IN (
@@ -28,11 +28,11 @@ CREATE TABLE dbai_system.lock_registry (
     released_at     TIMESTAMPTZ
 );
 
-CREATE INDEX idx_locks_active ON dbai_system.lock_registry(state)
+CREATE INDEX IF NOT EXISTS idx_locks_active ON dbai_system.lock_registry(state)
     WHERE state IN ('active', 'waiting');
-CREATE INDEX idx_locks_holder ON dbai_system.lock_registry(holder_pid);
-CREATE INDEX idx_locks_table ON dbai_system.lock_registry(schema_name, table_name);
-CREATE INDEX idx_locks_expires ON dbai_system.lock_registry(expires_at)
+CREATE INDEX IF NOT EXISTS idx_locks_holder ON dbai_system.lock_registry(holder_pid);
+CREATE INDEX IF NOT EXISTS idx_locks_table ON dbai_system.lock_registry(schema_name, table_name);
+CREATE INDEX IF NOT EXISTS idx_locks_expires ON dbai_system.lock_registry(expires_at)
     WHERE state = 'active';
 
 -- =============================================================================
@@ -253,4 +253,5 @@ INSERT INTO dbai_core.config (key, value, category, description, is_readonly, re
     ('sync.priority.user_task', '9'::JSONB, 'sync',
      'Benutzer-Aufgaben Priorität', TRUE, ARRAY['dbai_system', 'dbai_llm']),
     ('sync.priority.background', '10'::JSONB, 'sync',
-     'Niedrigste Priorität: Hintergrund-Aufgaben', TRUE, ARRAY['dbai_system']);
+     'Niedrigste Priorität: Hintergrund-Aufgaben', TRUE, ARRAY['dbai_system'])
+ON CONFLICT DO NOTHING;

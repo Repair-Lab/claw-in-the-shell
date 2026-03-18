@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS dbai_llm.ghost_models (
 COMMENT ON TABLE dbai_llm.ghost_models IS
     'Alle verfügbaren KI-Modelle (Ghosts). Jedes Modell kann als Ghost aktiviert werden.';
 
+DROP TRIGGER IF EXISTS trg_ghost_models_updated ON dbai_llm.ghost_models;
 CREATE TRIGGER trg_ghost_models_updated
     BEFORE UPDATE ON dbai_llm.ghost_models
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
@@ -95,6 +96,7 @@ CREATE TABLE IF NOT EXISTS dbai_llm.ghost_roles (
 COMMENT ON TABLE dbai_llm.ghost_roles IS
     'Definiert Rollen die ein Ghost übernehmen kann: Sysadmin, Coder, Security, Creative, etc.';
 
+DROP TRIGGER IF EXISTS trg_ghost_roles_updated ON dbai_llm.ghost_roles;
 CREATE TRIGGER trg_ghost_roles_updated
     BEFORE UPDATE ON dbai_llm.ghost_roles
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
@@ -168,6 +170,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_protect_ghost_history ON dbai_llm.ghost_history;
 CREATE TRIGGER trg_protect_ghost_history
     BEFORE UPDATE OR DELETE ON dbai_llm.ghost_history
     FOR EACH ROW EXECUTE FUNCTION dbai_llm.protect_ghost_history();
@@ -406,25 +409,37 @@ COMMENT ON TABLE dbai_llm.ghost_compatibility IS
 -- =============================================================================
 
 ALTER TABLE dbai_llm.ghost_models ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ghost_models_system ON dbai_llm.ghost_models;
 CREATE POLICY ghost_models_system ON dbai_llm.ghost_models FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS ghost_models_llm_read ON dbai_llm.ghost_models;
 CREATE POLICY ghost_models_llm_read ON dbai_llm.ghost_models FOR SELECT TO dbai_llm USING (TRUE);
+DROP POLICY IF EXISTS ghost_models_monitor ON dbai_llm.ghost_models;
 CREATE POLICY ghost_models_monitor ON dbai_llm.ghost_models FOR SELECT TO dbai_monitor USING (TRUE);
 
 ALTER TABLE dbai_llm.ghost_roles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ghost_roles_system ON dbai_llm.ghost_roles;
 CREATE POLICY ghost_roles_system ON dbai_llm.ghost_roles FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS ghost_roles_llm_read ON dbai_llm.ghost_roles;
 CREATE POLICY ghost_roles_llm_read ON dbai_llm.ghost_roles FOR SELECT TO dbai_llm USING (TRUE);
 
 ALTER TABLE dbai_llm.active_ghosts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS active_ghosts_system ON dbai_llm.active_ghosts;
 CREATE POLICY active_ghosts_system ON dbai_llm.active_ghosts FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS active_ghosts_llm_read ON dbai_llm.active_ghosts;
 CREATE POLICY active_ghosts_llm_read ON dbai_llm.active_ghosts FOR SELECT TO dbai_llm USING (TRUE);
+DROP POLICY IF EXISTS active_ghosts_monitor ON dbai_llm.active_ghosts;
 CREATE POLICY active_ghosts_monitor ON dbai_llm.active_ghosts FOR SELECT TO dbai_monitor USING (TRUE);
 
 ALTER TABLE dbai_llm.ghost_history ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ghost_history_system ON dbai_llm.ghost_history;
 CREATE POLICY ghost_history_system ON dbai_llm.ghost_history FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS ghost_history_monitor ON dbai_llm.ghost_history;
 CREATE POLICY ghost_history_monitor ON dbai_llm.ghost_history FOR SELECT TO dbai_monitor USING (TRUE);
 
 ALTER TABLE dbai_llm.ghost_compatibility ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ghost_compat_system ON dbai_llm.ghost_compatibility;
 CREATE POLICY ghost_compat_system ON dbai_llm.ghost_compatibility FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS ghost_compat_llm ON dbai_llm.ghost_compatibility;
 CREATE POLICY ghost_compat_llm ON dbai_llm.ghost_compatibility FOR SELECT TO dbai_llm USING (TRUE);
 
 -- Grants

@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 export default function FirewallManager() {
+  const { settings, schema, update, reset } = useAppSettings('firewall_manager')
+  const [showSettings, setShowSettings] = useState(false)
   const [rules, setRules] = useState([])
   const [zones, setZones] = useState([])
   const [connections, setConnections] = useState([])
@@ -29,6 +33,11 @@ export default function FirewallManager() {
     try { await api.firewallApply(); alert('Firewall-Regeln angewendet!') } catch { /* */ }
   }
 
+  const deleteRule = async (id) => {
+    if (!confirm('Regel wirklich löschen?')) return
+    try { await api.firewallDeleteRule(id); await load() } catch { /* */ }
+  }
+
   const actionColors = { ACCEPT: '#00ffcc', DROP: '#ff4444', REJECT: '#ffaa00', LOG: '#4488ff' }
 
   const S = {
@@ -47,7 +56,11 @@ export default function FirewallManager() {
 
   return (
     <div style={S.container}>
-      <div style={S.h}><span>🔥</span> Firewall & Netzwerk-Policy</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={S.h}>🔥 Firewall & Netzwerk-Policy</div>
+        <button style={{ ...S.btn, padding: '4px 10px' }} onClick={() => setShowSettings(!showSettings)}>⚙️</button>
+      </div>
+      {showSettings && <AppSettingsPanel settings={settings} schema={schema} onUpdate={update} onReset={reset} />}
 
       <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
         {[['rules', '📜 Regeln'], ['zones', '🌐 Zonen'], ['connections', '🔌 Verbindungen']].map(([k, l]) => (
@@ -83,7 +96,7 @@ export default function FirewallManager() {
 
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr>{['#', 'Chain', 'Proto', 'Port', 'Quelle', 'Aktion', 'Beschreibung'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr>
+              <tr>{['#', 'Chain', 'Proto', 'Port', 'Quelle', 'Aktion', 'Beschreibung', ''].map(h => <th key={h} style={S.th}>{h}</th>)}</tr>
             </thead>
             <tbody>
               {rules.map((r, i) => (
@@ -95,6 +108,7 @@ export default function FirewallManager() {
                   <td style={{ ...S.td, fontFamily: 'monospace' }}>{r.source_ip || '*'}</td>
                   <td style={{ ...S.td, color: actionColors[r.action] || '#d4d4d4', fontWeight: 600 }}>{r.action}</td>
                   <td style={{ ...S.td, color: '#556' }}>{r.description}</td>
+                  <td style={S.td}><button style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '14px' }} onClick={() => deleteRule(r.id)} title="Löschen">🗑</button></td>
                 </tr>
               ))}
             </tbody>

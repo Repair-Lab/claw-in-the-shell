@@ -4,7 +4,7 @@
 -- =============================================================================
 
 -- Vacuum-Status-Tabelle: Dokumentiert alle Vacuum-Läufe
-CREATE TABLE dbai_system.vacuum_log (
+CREATE TABLE IF NOT EXISTS dbai_system.vacuum_log (
     id              BIGSERIAL PRIMARY KEY,
     ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     schema_name     TEXT NOT NULL,
@@ -23,13 +23,13 @@ CREATE TABLE dbai_system.vacuum_log (
     error_message       TEXT
 );
 
-CREATE INDEX idx_vacuum_log_ts ON dbai_system.vacuum_log(ts DESC);
-CREATE INDEX idx_vacuum_log_table ON dbai_system.vacuum_log(schema_name, table_name);
+CREATE INDEX IF NOT EXISTS idx_vacuum_log_ts ON dbai_system.vacuum_log(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_vacuum_log_table ON dbai_system.vacuum_log(schema_name, table_name);
 
 -- =============================================================================
 -- Tabellen-spezifische Vacuum-Konfiguration
 -- =============================================================================
-CREATE TABLE dbai_system.vacuum_config (
+CREATE TABLE IF NOT EXISTS dbai_system.vacuum_config (
     id              SERIAL PRIMARY KEY,
     schema_name     TEXT NOT NULL,
     table_name      TEXT NOT NULL,
@@ -65,7 +65,8 @@ INSERT INTO dbai_system.vacuum_config
     ('dbai_vector', 'memories', '0 */6 * * *', 50, 6),
     -- Journal: KEIN Vacuum (Append-Only, aber Analyze erlaubt)
     ('dbai_journal', 'change_log', '0 */12 * * *', 99999999, 8),
-    ('dbai_journal', 'event_log', '0 */12 * * *', 99999999, 8);
+    ('dbai_journal', 'event_log', '0 */12 * * *', 99999999, 8)
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- Intelligente Vacuum-Funktion
@@ -110,7 +111,8 @@ BEGIN
                  dead_tuples_before, duration_ms)
             VALUES
                 (v_record.schema_name, v_record.table_name, 'auto',
-                 v_dead_tuples, v_duration);
+                 v_dead_tuples, v_duration)
+ON CONFLICT DO NOTHING;
 
             vacuumed_table := v_record.schema_name || '.' || v_record.table_name;
             dead_tuples := v_dead_tuples;

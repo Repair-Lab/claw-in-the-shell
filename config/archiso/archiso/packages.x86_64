@@ -1,0 +1,79 @@
+# =============================================================================
+# GhostShell OS — Archiso Paketliste
+# =============================================================================
+
+# --- Basis ---
+base
+linux
+linux-firmware
+mkinitcpio
+mkinitcpio-archiso
+
+# --- Bootloader ---
+grub
+efibootmgr
+syslinux
+
+# --- Dateisysteme ---
+btrfs-progs
+dosfstools
+e2fsprogs
+xfsprogs
+zfs-utils
+parted
+gptfdisk
+
+# --- Netzwerk ---
+networkmanager
+openssh
+iwd
+iproute2
+nftables
+
+# --- PostgreSQL ---
+postgresql
+postgresql-libs
+
+# --- Python ---
+python
+python-pip
+python-psycopg2
+python-psutil
+
+# --- Node.js (für Frontend-Build) ---
+nodejs
+npm
+
+# --- Display / Kiosk ---
+xorg-server
+xorg-xinit
+xorg-xset
+xorg-xrandr
+openbox
+chromium
+unclutter
+
+# --- Installer TUI ---
+python-urwid
+dialog
+
+# --- Werkzeuge ---
+sudo
+curl
+wget
+git
+rsync
+htop
+nano
+lm_sensors
+pciutils
+usbutils
+smartmontools
+
+# --- Compression ---
+squashfs-tools
+zstd
+
+# --- Hardware ---
+linux-firmware
+fwupd

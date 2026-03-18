@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS dbai_ui.users (
 COMMENT ON TABLE dbai_ui.users IS
     'System-Benutzer. Login-Daten werden gegen diese Tabelle geprüft. Passwörter via pgcrypto/bcrypt.';
 
+DROP TRIGGER IF EXISTS trg_users_updated ON dbai_ui.users;
 CREATE TRIGGER trg_users_updated
     BEFORE UPDATE ON dbai_ui.users
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
@@ -174,6 +175,7 @@ CREATE TABLE IF NOT EXISTS dbai_ui.desktop_config (
 COMMENT ON TABLE dbai_ui.desktop_config IS
     'Desktop-Layout pro User: Hintergrund, Icons, Taskbar, Theme.';
 
+DROP TRIGGER IF EXISTS trg_desktop_updated ON dbai_ui.desktop_config;
 CREATE TRIGGER trg_desktop_updated
     BEFORE UPDATE ON dbai_ui.desktop_config
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
@@ -251,6 +253,7 @@ CREATE TABLE IF NOT EXISTS dbai_ui.windows (
 COMMENT ON TABLE dbai_ui.windows IS
     'Offene Fenster pro Session. Jede Zeile = ein Fenster im Browser. Position/Größe werden bei Drag gespeichert.';
 
+DROP TRIGGER IF EXISTS trg_windows_updated ON dbai_ui.windows;
 CREATE TRIGGER trg_windows_updated
     BEFORE UPDATE ON dbai_ui.windows
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
@@ -552,28 +555,39 @@ COMMENT ON FUNCTION dbai_ui.get_desktop_state IS
 -- =============================================================================
 
 ALTER TABLE dbai_ui.users ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS users_system ON dbai_ui.users;
 CREATE POLICY users_system ON dbai_ui.users FOR ALL TO dbai_system USING (TRUE);
 
 ALTER TABLE dbai_ui.sessions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS sessions_system ON dbai_ui.sessions;
 CREATE POLICY sessions_system ON dbai_ui.sessions FOR ALL TO dbai_system USING (TRUE);
 
 ALTER TABLE dbai_ui.themes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS themes_system ON dbai_ui.themes;
 CREATE POLICY themes_system ON dbai_ui.themes FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS themes_read ON dbai_ui.themes;
 CREATE POLICY themes_read ON dbai_ui.themes FOR SELECT TO dbai_monitor USING (TRUE);
 
 ALTER TABLE dbai_ui.desktop_config ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS desktop_system ON dbai_ui.desktop_config;
 CREATE POLICY desktop_system ON dbai_ui.desktop_config FOR ALL TO dbai_system USING (TRUE);
 
 ALTER TABLE dbai_ui.apps ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS apps_system ON dbai_ui.apps;
 CREATE POLICY apps_system ON dbai_ui.apps FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS apps_read ON dbai_ui.apps;
 CREATE POLICY apps_read ON dbai_ui.apps FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS apps_llm_read ON dbai_ui.apps;
 CREATE POLICY apps_llm_read ON dbai_ui.apps FOR SELECT TO dbai_llm USING (TRUE);
 
 ALTER TABLE dbai_ui.windows ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS windows_system ON dbai_ui.windows;
 CREATE POLICY windows_system ON dbai_ui.windows FOR ALL TO dbai_system USING (TRUE);
 
 ALTER TABLE dbai_ui.notifications ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS notifs_system ON dbai_ui.notifications;
 CREATE POLICY notifs_system ON dbai_ui.notifications FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS notifs_read ON dbai_ui.notifications;
 CREATE POLICY notifs_read ON dbai_ui.notifications FOR SELECT TO dbai_monitor USING (TRUE);
 
 -- Grants

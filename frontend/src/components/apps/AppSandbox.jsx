@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 export default function AppSandbox() {
+  const { settings, schema, update, reset } = useAppSettings('app_sandbox')
+  const [showSettings, setShowSettings] = useState(false)
   const [profiles, setProfiles] = useState([])
   const [running, setRunning] = useState([])
   const [appName, setAppName] = useState('')
@@ -44,7 +48,11 @@ export default function AppSandbox() {
 
   return (
     <div style={S.container}>
-      <div style={S.h}><span>📦</span> App Sandboxing</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={S.h}>📦 App Sandboxing</div>
+        <button style={{ ...S.btn, padding: '4px 10px' }} onClick={() => setShowSettings(!showSettings)}>⚙️</button>
+      </div>
+      {showSettings && <AppSettingsPanel settings={settings} schema={schema} onUpdate={update} onReset={reset} />}
       <p style={{ color: '#556', fontSize: '13px', marginBottom: '16px' }}>Firejail/cgroup-basierte Isolation für Anwendungen.</p>
 
       {/* Launch Form */}

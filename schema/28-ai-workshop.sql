@@ -371,14 +371,18 @@ INSERT INTO dbai_ui.apps (
     default_width = EXCLUDED.default_width,
     default_height = EXCLUDED.default_height;
 
--- Desktop-Icon
-INSERT INTO dbai_ui.desktop_icons (desktop_config_id, app_id, label, position_x, position_y)
-SELECT dc.id, 'ai-workshop', 'KI Werkstatt', 0, 0
-FROM dbai_ui.desktop_config dc
-WHERE NOT EXISTS (
-    SELECT 1 FROM dbai_ui.desktop_icons di
-    WHERE di.desktop_config_id = dc.id AND di.app_id = 'ai-workshop'
-);
+-- Desktop-Icon (optional — desktop_icons existiert nur in älteren Versionen)
+DO $$ BEGIN
+    INSERT INTO dbai_ui.desktop_icons (desktop_config_id, app_id, label, position_x, position_y)
+    SELECT dc.id, 'ai-workshop', 'KI Werkstatt', 0, 0
+    FROM dbai_ui.desktop_config dc
+    WHERE NOT EXISTS (
+        SELECT 1 FROM dbai_ui.desktop_icons di
+        WHERE di.desktop_config_id = dc.id AND di.app_id = 'ai-workshop'
+    );
+EXCEPTION WHEN undefined_table THEN
+    RAISE NOTICE 'desktop_icons existiert nicht — Icon-Registrierung übersprungen';
+END $$;
 
 -- =============================================================================
 -- 13. VORLAGEN SEED-DATEN

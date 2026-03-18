@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 /**
  * Netzwerk Scanner — Web-UIs im lokalen Netzwerk entdecken
  * Router, NAS, Drucker, Kameras, Smart Home, Roboter, AI-Server…
  */
 export default function NetworkScanner() {
+  const { settings, schema, update: updateSetting, reset: resetSettings } = useAppSettings('network-scanner')
+  const [showSettings, setShowSettings] = useState(false)
   const [devices, setDevices] = useState([])
   const [scanning, setScanning] = useState(false)
   const [lastScan, setLastScan] = useState(null)
@@ -77,7 +81,8 @@ export default function NetworkScanner() {
           ))}
         </select>
 
-        <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 'auto' }}>
+        <button onClick={() => setShowSettings(!showSettings)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius, 6px)', color: 'var(--text-secondary)', cursor: 'pointer', padding: '4px 10px', fontSize: 13, marginLeft: 'auto' }} title="Einstellungen">⚙️</button>
+        <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
           {devices.length} Geräte bekannt
         </span>
       </div>
@@ -170,6 +175,12 @@ export default function NetworkScanner() {
           </div>
         )}
       </div>
+
+      {showSettings && (
+        <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+          <AppSettingsPanel schema={schema} settings={settings} onUpdate={updateSetting} onReset={resetSettings} title="Netzwerk-Scanner" />
+        </div>
+      )}
     </div>
   )
 }

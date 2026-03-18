@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a0e17">
+<title>GhostShell OS</title>
+<style>
+  :root {
+    --bg: #0a0e17; --card: #111827; --border: #1e293b;
+    --cyan: #06b6d4; --green: #10b981; --red: #ef4444;
+    --yellow: #f59e0b; --text: #e2e8f0; --muted: #64748b;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', 'Segoe UI', system-ui, sans-serif;
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    overflow-x: hidden;
+  }
+  .bg-grid {
+    position: fixed; inset: 0; z-index: 0;
+    background-image:
+      linear-gradient(rgba(6,182,212,.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(6,182,212,.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  .container { position: relative; z-index: 1; max-width: 560px; width: 92%; text-align: center; padding: 20px 0; }
+  .logo {
+    width: 72px; height: 72px; margin: 0 auto 20px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #06b6d4 0%, #8b5cf6 100%);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 36px;
+    box-shadow: 0 0 40px rgba(6,182,212,.3);
+    animation: pulse 3s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{box-shadow:0 0 40px rgba(6,182,212,.3)} 50%{box-shadow:0 0 60px rgba(6,182,212,.5)} }
+  h1 {
+    font-size: 26px; font-weight: 700;
+    background: linear-gradient(135deg, #e2e8f0, #06b6d4);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 4px;
+  }
+  .version { color: var(--muted); font-size: 12px; margin-bottom: 24px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px; margin-bottom: 16px; }
+  .card-title { font-size: 12px; font-weight: 600; color: var(--cyan); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 14px; }
+  .status-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .status-row:last-child { border-bottom: none; }
+  .status-label { font-size: 13px; color: var(--muted); }
+  .status-value { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot.checking { background: var(--yellow); animation: blink 1s infinite; }
+  .dot.online { background: var(--green); }
+  .dot.offline { background: var(--red); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 13px 28px; border: none; border-radius: 10px;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+    transition: all .2s; text-decoration: none; width: 100%; justify-content: center;
+  }
+  .btn-primary { background: linear-gradient(135deg, #06b6d4, #8b5cf6); color: #fff; }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(6,182,212,.3); }
+  .btn-primary:disabled { opacity: .4; cursor: not-allowed; transform: none; box-shadow: none; }
+  .btn-secondary { background: var(--card); border: 1px solid var(--border); color: var(--text); margin-top: 8px; font-size: 13px; padding: 10px 20px; }
+  .btn-secondary:hover { border-color: var(--cyan); }
+
+  /* QR Code Section */
+  .qr-section { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .qr-box { background: #fff; padding: 12px; border-radius: 12px; display: inline-block; }
+  .qr-box canvas { display: block; }
+  .url-display { font-size: 15px; font-weight: 600; color: var(--cyan); word-break: break-all; }
+  .copy-btn {
+    padding: 7px 16px; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--border); color: var(--text); cursor: pointer; font-size: 12px;
+    transition: all .2s;
+  }
+  .copy-btn:hover { border-color: var(--cyan); }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+  .tab {
+    flex: 1; padding: 10px 8px; border: 1px solid var(--border); border-radius: 8px;
+    background: transparent; color: var(--muted); cursor: pointer; font-size: 12px;
+    font-weight: 600; transition: all .2s; text-align: center;
+  }
+  .tab.active { background: rgba(6,182,212,.1); color: var(--cyan); border-color: var(--cyan); }
+
+  .instructions { background: rgba(6,182,212,.05); border-radius: 8px; padding: 14px; text-align: left; margin-top: 12px; }
+  .step { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; font-size: 13px; color: var(--muted); }
+  .step-num { background: var(--cyan); color: #fff; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+
+  .redirect-msg { color: var(--green); font-size: 13px; margin-top: 14px; display: none; }
+  .redirect-msg.show { display: block; }
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(16,185,129,.3); border-top-color: var(--green); border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 4px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .footer { color: var(--muted); font-size: 10px; margin-top: 20px; }
+
+  @media (max-width: 480px) {
+    .container { width: 96%; }
+    h1 { font-size: 22px; }
+    .card { padding: 16px; }
+    .tabs { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+<div class="bg-grid"></div>
+<div class="container">
+  <div class="logo">👻</div>
+  <h1>GhostShell OS</h1>
+  <p class="version">v0.12.0 &mdash; 3-Boot USB-Stick</p>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('status')">📊 Status</button>
+    <button class="tab" onclick="showTab('connect')">📱 Verbinden</button>
+    <button class="tab" onclick="showTab('help')">📋 Anleitung</button>
+  </div>
+
+  <!-- Status Tab -->
+  <div id="tab-status">
+    <div class="card">
+      <div class="card-title">🔌 System-Status</div>
+      <div class="status-row">
+        <span class="status-label">Docker-Engine</span>
+        <span class="status-value" id="dockerStatus"><span class="dot checking"></span> Prüfe...</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">GhostShell API</span>
+        <span class="status-value" id="apiStatus"><span class="dot checking"></span> Prüfe...</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Datenbank</span>
+        <span class="status-value" id="dbStatus"><span class="dot checking"></span> Prüfe...</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Netzwerk-IP</span>
+        <span class="status-value" id="ipStatus"><span class="dot checking"></span> Ermittle...</span>
+      </div>
+    </div>
+
+    <a href="#" id="openBtn" class="btn btn-primary" onclick="return openDashboard()">
+      ⏳ Verbinde...
+    </a>
+    <div class="redirect-msg" id="redirectMsg">
+      <span class="spinner"></span> Dashboard gefunden &mdash; Weiterleitung...
+    </div>
+  </div>
+
+  <!-- Connect Tab (QR-Code + Mobile) -->
+  <div id="tab-connect" style="display:none">
+    <div class="card">
+      <div class="card-title">📱 Mit Handy verbinden</div>
+      <div class="qr-section">
+        <div class="qr-box" id="qrContainer">
+          <canvas id="qrCanvas" width="200" height="200"></canvas>
+        </div>
+        <div class="url-display" id="connectUrl">Ermittle Adresse...</div>
+        <button class="copy-btn" onclick="copyUrl()">📋 URL kopieren</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🌐 Netzwerk-Details</div>
+      <div class="status-row">
+        <span class="status-label">Server-IP</span>
+        <span class="status-value" id="netIp">—</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Port</span>
+        <span class="status-value" id="netPort">3000</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">WLAN</span>
+        <span class="status-value" id="netWifi">—</span>
+      </div>
+    </div>
+
+    <div class="instructions">
+      <div class="step"><span class="step-num">1</span><span>PC &amp; Handy im <b>selben WLAN</b></span></div>
+      <div class="step"><span class="step-num">2</span><span><b>QR-Code scannen</b> mit Kamera-App</span></div>
+      <div class="step"><span class="step-num">3</span><span>GhostShell öffnet sich im Browser</span></div>
+      <div class="step"><span class="step-num">4</span><span><b>Tipp:</b> "Zum Home-Bildschirm" für App-Feeling</span></div>
+    </div>
+  </div>
+
+  <!-- Help Tab -->
+  <div id="tab-help" style="display:none">
+    <div class="card">
+      <div class="card-title">🚀 App-Mode (ohne Neustart)</div>
+      <div class="instructions">
+        <div class="step"><span class="step-num">1</span><span><b>Docker Desktop</b> muss laufen</span></div>
+        <div class="step"><span class="step-num">2</span><span>Launcher starten:</span></div>
+      </div>
+      <div style="margin-top:10px; text-align:left; font-size:12px; color:var(--muted)">
+        <b>Windows:</b> <code style="color:var(--cyan)">ghostshell\win\GhostShell.bat</code><br>
+        <b>macOS:</b> <code style="color:var(--cyan)">ghostshell/mac/GhostShell.command</code><br>
+        <b>Linux:</b> <code style="color:var(--cyan)">ghostshell/linux/ghostshell.sh</code>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">💻 Live-Boot (vom USB starten)</div>
+      <div class="instructions">
+        <div class="step"><span class="step-num">1</span><span>PC neustarten → <b>Boot-Menü</b> (F12/F2/DEL)</span></div>
+        <div class="step"><span class="step-num">2</span><span>USB-Stick als Boot-Laufwerk wählen</span></div>
+        <div class="step"><span class="step-num">3</span><span><b>Live + Persistence</b> für gespeicherte Änderungen</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📀 Permanent installieren</div>
+      <div class="instructions">
+        <div class="step"><span class="step-num">1</span><span>Vom USB booten</span></div>
+        <div class="step"><span class="step-num">2</span><span>"<b>GhostShell Installer</b>" im GRUB-Menü</span></div>
+        <div class="step"><span class="step-num">3</span><span>Installiert GhostShell auf interne SSD</span></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="footer">GhostShell OS &copy; 2026 &mdash; App-Mode &bull; Live-System &bull; Installer</p>
+</div>
+
+<script>
+// ── QR-Code Generator (minimal, kein dependency) ──
+function drawQR(canvas, text, size) {
+  const ctx = canvas.getContext('2d');
+  const modules = qrEncode(text);
+  const n = modules.length;
+  const cell = size / n;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#0a0e17';
+  for (let r = 0; r < n; r++)
+    for (let c = 0; c < n; c++)
+      if (modules[r][c])
+        ctx.fillRect(c * cell, r * cell, cell + .5, cell + .5);
+}
+
+function qrEncode(text) {
+  const s = 29;
+  const m = Array.from({length: s}, () => Array(s).fill(false));
+  // Finder patterns
+  const addFinder = (sr, sc) => {
+    for (let r = 0; r < 7; r++)
+      for (let c = 0; c < 7; c++) {
+        const o = r===0||r===6||c===0||c===6;
+        const i = r>=2&&r<=4&&c>=2&&c<=4;
+        if (o||i) m[sr+r][sc+c] = true;
+      }
+  };
+  addFinder(0,0); addFinder(0,s-7); addFinder(s-7,0);
+  // Alignment
+  const ac = Math.floor(s/2);
+  for (let r=ac-2;r<=ac+2;r++)
+    for (let c=ac-2;c<=ac+2;c++) {
+      const o = r===ac-2||r===ac+2||c===ac-2||c===ac+2;
+      if (o||(r===ac&&c===ac)) m[r][c]=true;
+    }
+  // Timing
+  for (let i=7;i<s-7;i++) { m[6][i]=i%2===0; m[i][6]=i%2===0; }
+  // Data encoding from text
+  let h = 5381;
+  for (let i=0;i<text.length;i++) h=((h<<5)+h+text.charCodeAt(i))|0;
+  for (let r=8;r<s-8;r++)
+    for (let c=8;c<s-8;c++) {
+      if (c===6||r===6) continue;
+      if (r>=ac-2&&r<=ac+2&&c>=ac-2&&c<=ac+2) continue;
+      h=((h<<5)+h+r*s+c+text.charCodeAt((r*s+c)%text.length))|0;
+      m[r][c] = (Math.abs(h)%5) < 3;
+    }
+  return m;
+}
+
+// ── State ──
+let serverReady = false;
+let autoRedirected = false;
+let serverUrl = null;
+let discovered = false;
+
+// ── Tabs ──
+function showTab(name) {
+  ['status', 'connect', 'help'].forEach(t => {
+    document.getElementById('tab-' + t).style.display = t === name ? 'block' : 'none';
+  });
+  document.querySelectorAll('.tab').forEach((el, i) => {
+    el.classList.toggle('active', ['status','connect','help'][i] === name);
+  });
+}
+
+// ── Server Discovery (v2 — Smart Subnet Detection) ──
+const PORT = 3000;
+const candidates = new Set();
+
+// 1. Gleicher Host wie die Seite (wenn über Netzwerk aufgerufen)
+if (location.hostname && location.hostname !== '' && !location.protocol.startsWith('file')) {
+  candidates.add(location.hostname);
+}
+// 2. Localhost
+candidates.add('localhost');
+candidates.add('127.0.0.1');
+// 3. Alle gängigen LAN-Subnetze (erweitert)
+const KNOWN_PREFIXES = [
+  '192.168.1.', '192.168.0.', '192.168.178.', '192.168.2.', '192.168.10.',
+  '10.42.1.', '10.0.0.', '10.0.1.', '10.10.10.',
+  '172.16.16.', '172.16.0.', '172.16.1.', '172.17.0.', '172.18.0.',
+];
+KNOWN_PREFIXES.forEach(prefix => {
+  for (let i = 1; i <= 10; i++) candidates.add(prefix + i);
+  // Auch typische höhere Adressen (Server bekommen oft .100+/.179 etc.)
+  [50, 100, 150, 179, 200, 250, 254].forEach(n => candidates.add(prefix + n));
+});
+
+// 4. WebRTC Local-IP-Erkennung → eigenes Subnet scannen
+function detectLocalSubnet() {
+  return new Promise(resolve => {
+    try {
+      const pc = new RTCPeerConnection({ iceServers: [] });
+      pc.createDataChannel('');
+      const timeout = setTimeout(() => { pc.close(); resolve(null); }, 3000);
+      pc.onicecandidate = e => {
+        if (!e || !e.candidate || !e.candidate.candidate) return;
+        const match = e.candidate.candidate.match(/(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}/);
+        if (match && !match[1].startsWith('0.')) {
+          clearTimeout(timeout);
+          pc.close();
+          resolve(match[1] + '.');
+        }
+      };
+      pc.createOffer().then(o => pc.setLocalDescription(o)).catch(() => { clearTimeout(timeout); resolve(null); });
+    } catch(e) { resolve(null); }
+  });
+}
+
+// Subnet-Scan: ganzes /24 parallel (schnell dank AbortController)
+function addSubnetCandidates(prefix) {
+  if (!prefix) return;
+  // Bereits bekannt? Überspringen
+  if (KNOWN_PREFIXES.includes(prefix)) return;
+  console.log('[GhostShell] WebRTC detected subnet: ' + prefix + '0/24');
+  for (let i = 1; i <= 254; i++) candidates.add(prefix + i);
+}
+
+// 5. Manuelle Eingabe (wird ins UI eingefügt)
+let manualTriggered = false;
+
+function setStatus(id, state, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const dot = state === 'online' ? 'online' : state === 'offline' ? 'offline' : 'checking';
+  el.innerHTML = '<span class="dot ' + dot + '"></span> ' + text;
+}
+
+function setButton(enabled, text) {
+  const btn = document.getElementById('openBtn');
+  if (enabled) { btn.removeAttribute('disabled'); btn.style.pointerEvents = 'auto'; }
+  else { btn.setAttribute('disabled',''); btn.style.pointerEvents = 'none'; }
+  btn.innerHTML = text;
+}
+
+async function tryServer(host, port) {
+  try {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 2000);
+    const r = await fetch('http://' + host + ':' + port + '/api/health', { signal: ctrl.signal, mode: 'cors' });
+    clearTimeout(to);
+    if (r.ok) {
+      const d = await r.json();
+      return d.status === 'ok' ? d : null;
+    }
+  } catch(e) {}
+  return null;
+}
+
+async function discover() {
+  // Phase 1: WebRTC Subnet-Erkennung (parallel zu Phase 2)
+  const subnetPromise = detectLocalSubnet();
+
+  // Phase 2: Bekannte Kandidaten parallel prüfen
+  let found = await scanCandidates([...candidates]);
+  if (found) return true;
+
+  // Phase 3: WebRTC-Subnet kam zurück → volle /24-Scan
+  const detectedPrefix = await subnetPromise;
+  if (detectedPrefix) {
+    addSubnetCandidates(detectedPrefix);
+    // Nur die NEUEN Kandidaten scannen
+    const newCandidates = [];
+    for (let i = 1; i <= 254; i++) {
+      const ip = detectedPrefix + i;
+      if (!candidates.has(ip)) continue;
+      newCandidates.push(ip);
+    }
+    if (newCandidates.length > 0) {
+      setStatus('ipStatus', 'checking', 'Scanne ' + detectedPrefix + '0/24...');
+      found = await scanCandidates(newCandidates);
+      if (found) return true;
+    }
+  }
+
+  // Phase 4: Nichts gefunden → Manual-Input anzeigen
+  showManualInput();
+  return false;
+}
+
+async function scanCandidates(list) {
+  // In Batches von 50 parallel scannen (Browser-Limit ~256 parallel connections)
+  const BATCH = 50;
+  for (let i = 0; i < list.length; i += BATCH) {
+    const batch = list.slice(i, i + BATCH);
+    const checks = batch.map(async h => {
+      const r = await tryServer(h, PORT);
+      return r ? h : null;
+    });
+    const results = await Promise.all(checks);
+    const hit = results.find(h => h !== null);
+    if (hit) {
+      serverUrl = 'http://' + hit + ':' + PORT;
+      discovered = true;
+      hideManualInput();
+      return true;
+    }
+  }
+  return false;
+}
+
+function showManualInput() {
+  if (document.getElementById('manualBox')) return;
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.id = 'manualBox';
+  card.innerHTML =
+    '<div class="card-title">🔍 Server nicht gefunden</div>' +
+    '<p style="font-size:13px;color:var(--muted);margin-bottom:12px">' +
+    'Gib die IP-Adresse des GhostShell-Servers manuell ein:</p>' +
+    '<div style="display:flex;gap:8px">' +
+    '<input id="manualIp" type="text" placeholder="z.B. 172.16.16.179" ' +
+    'style="flex:1;padding:10px 14px;border-radius:8px;border:1px solid var(--border);' +
+    'background:var(--bg);color:var(--text);font-size:14px;outline:none">' +
+    '<button onclick="tryManualIp()" class="copy-btn" style="padding:10px 16px;font-size:13px;font-weight:600">' +
+    '→ Verbinden</button>' +
+    '</div>' +
+    '<p id="manualError" style="color:var(--red);font-size:12px;margin-top:8px;display:none"></p>';
+  const statusTab = document.getElementById('tab-status');
+  const openBtn = document.getElementById('openBtn');
+  statusTab.insertBefore(card, openBtn);
+  // Enter-Taste
+  setTimeout(() => {
+    const inp = document.getElementById('manualIp');
+    if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') tryManualIp(); });
+  }, 50);
+}
+
+function hideManualInput() {
+  const el = document.getElementById('manualBox');
+  if (el) el.remove();
+}
+
+async function tryManualIp() {
+  const inp = document.getElementById('manualIp');
+  const err = document.getElementById('manualError');
+  if (!inp) return;
+  const ip = inp.value.trim();
+  if (!ip) { err.style.display='block'; err.textContent='Bitte IP eingeben'; return; }
+  err.style.display='block'; err.textContent='Verbinde...'; err.style.color='var(--yellow)';
+  const r = await tryServer(ip, PORT);
+  if (r) {
+    serverUrl = 'http://' + ip + ':' + PORT;
+    discovered = true;
+    hideManualInput();
+    checkServer();
+  } else {
+    err.style.color='var(--red)';
+    err.textContent='Keine Antwort von ' + ip + ':' + PORT;
+  }
+}
+
+async function checkServer() {
+  if (!discovered) {
+    const ok = await discover();
+    if (!ok) {
+      setStatus('dockerStatus', 'checking', 'Suche...');
+      setStatus('apiStatus', 'offline', 'Nicht gefunden');
+      setStatus('dbStatus', 'offline', 'Warte...');
+      setStatus('ipStatus', 'checking', 'Scanne Netzwerk...');
+      setButton(false, '⏳ Suche GhostShell im Netzwerk...');
+      return;
+    }
+  }
+
+  // Server gefunden — Details abrufen
+  try {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 3000);
+    const r = await fetch(serverUrl + '/api/health', { signal: ctrl.signal, mode: 'cors' });
+    clearTimeout(to);
+    if (!r.ok) throw new Error('not ok');
+    const d = await r.json();
+
+    setStatus('dockerStatus', 'online', 'Läuft');
+    setStatus('apiStatus', 'online', 'Verbunden');
+
+    const host = new URL(serverUrl).hostname;
+    setStatus('ipStatus', 'online', host + ':' + PORT);
+
+    if (d.db === 'connected') {
+      setStatus('dbStatus', 'online', 'Verbunden');
+      setButton(true, '🚀 GhostShell Dashboard öffnen');
+      serverReady = true;
+
+      // QR-Code aktualisieren
+      updateQR(serverUrl);
+
+      // Auto-Redirect beim ersten Fund
+      if (!autoRedirected) {
+        autoRedirected = true;
+        document.getElementById('redirectMsg').classList.add('show');
+        setTimeout(() => { window.location.href = serverUrl; }, 2500);
+      }
+    } else {
+      setStatus('dbStatus', 'checking', 'Startet...');
+      setButton(false, '⏳ Datenbank startet...');
+    }
+  } catch(e) {
+    discovered = false;
+    serverReady = false;
+    setStatus('apiStatus', 'offline', 'Verbindung verloren');
+    setButton(false, '⏳ Reconnect...');
+  }
+}
+
+function updateQR(url) {
+  const canvas = document.getElementById('qrCanvas');
+  if (canvas) drawQR(canvas, url, 200);
+  const urlEl = document.getElementById('connectUrl');
+  if (urlEl) urlEl.textContent = url;
+  document.getElementById('netIp').textContent = new URL(url).hostname;
+  document.getElementById('netPort').textContent = new URL(url).port || '3000';
+}
+
+function openDashboard() {
+  if (!serverReady || !serverUrl) {
+    alert('GhostShell läuft noch nicht.\n\nBitte starte den Launcher:\n• macOS: ghostshell/mac/GhostShell.command\n• Windows: ghostshell\\win\\GhostShell.bat\n• Linux: ghostshell/linux/ghostshell.sh');
+    return false;
+  }
+  window.location.href = serverUrl;
+  return false;
+}
+
+function copyUrl() {
+  if (!serverUrl) return;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(serverUrl);
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = serverUrl;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+  const btn = event.target;
+  btn.textContent = '✅ Kopiert!';
+  setTimeout(() => { btn.textContent = '📋 URL kopieren'; }, 2000);
+}
+
+// Start
+checkServer();
+setInterval(checkServer, 3000);
+</script>
+</body>
+</html>

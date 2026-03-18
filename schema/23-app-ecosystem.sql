@@ -649,65 +649,85 @@ ORDER BY ch.created_at DESC;
 
 -- software_catalog
 ALTER TABLE dbai_core.software_catalog ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS software_system ON dbai_core.software_catalog;
 CREATE POLICY software_system ON dbai_core.software_catalog
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS software_llm ON dbai_core.software_catalog;
 CREATE POLICY software_llm ON dbai_core.software_catalog
     FOR SELECT TO dbai_llm USING (TRUE);
+DROP POLICY IF EXISTS software_monitor ON dbai_core.software_catalog;
 CREATE POLICY software_monitor ON dbai_core.software_catalog
     FOR SELECT TO dbai_monitor USING (TRUE);
 
 -- browser_sessions
 ALTER TABLE dbai_core.browser_sessions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS browser_system ON dbai_core.browser_sessions;
 CREATE POLICY browser_system ON dbai_core.browser_sessions
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS browser_llm ON dbai_core.browser_sessions;
 CREATE POLICY browser_llm ON dbai_core.browser_sessions
     FOR ALL TO dbai_llm USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS browser_monitor ON dbai_core.browser_sessions;
 CREATE POLICY browser_monitor ON dbai_core.browser_sessions
     FOR SELECT TO dbai_monitor USING (TRUE);
 
 -- email_accounts
 ALTER TABLE dbai_event.email_accounts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS email_acc_system ON dbai_event.email_accounts;
 CREATE POLICY email_acc_system ON dbai_event.email_accounts
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS email_acc_monitor ON dbai_event.email_accounts;
 CREATE POLICY email_acc_monitor ON dbai_event.email_accounts
     FOR SELECT TO dbai_monitor USING (TRUE);
 
 -- inbox
 ALTER TABLE dbai_event.inbox ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS inbox_system ON dbai_event.inbox;
 CREATE POLICY inbox_system ON dbai_event.inbox
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS inbox_llm ON dbai_event.inbox;
 CREATE POLICY inbox_llm ON dbai_event.inbox
     FOR SELECT TO dbai_llm USING (NOT is_deleted);
+DROP POLICY IF EXISTS inbox_monitor ON dbai_event.inbox;
 CREATE POLICY inbox_monitor ON dbai_event.inbox
     FOR SELECT TO dbai_monitor USING (TRUE);
 
 -- outbox
 ALTER TABLE dbai_event.outbox ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS outbox_system ON dbai_event.outbox;
 CREATE POLICY outbox_system ON dbai_event.outbox
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS outbox_llm ON dbai_event.outbox;
 CREATE POLICY outbox_llm ON dbai_event.outbox
     FOR ALL TO dbai_llm USING (TRUE) WITH CHECK (TRUE);
 
 -- oauth_connections
 ALTER TABLE dbai_core.oauth_connections ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS oauth_system ON dbai_core.oauth_connections;
 CREATE POLICY oauth_system ON dbai_core.oauth_connections
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS oauth_monitor ON dbai_core.oauth_connections;
 CREATE POLICY oauth_monitor ON dbai_core.oauth_connections
     FOR SELECT TO dbai_monitor USING (TRUE);
 
 -- workspace_sync
 ALTER TABLE dbai_core.workspace_sync ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS wsync_system ON dbai_core.workspace_sync;
 CREATE POLICY wsync_system ON dbai_core.workspace_sync
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS wsync_monitor ON dbai_core.workspace_sync;
 CREATE POLICY wsync_monitor ON dbai_core.workspace_sync
     FOR SELECT TO dbai_monitor USING (TRUE);
 
 -- command_history
 ALTER TABLE dbai_llm.command_history ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS cmd_system ON dbai_llm.command_history;
 CREATE POLICY cmd_system ON dbai_llm.command_history
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS cmd_llm ON dbai_llm.command_history;
 CREATE POLICY cmd_llm ON dbai_llm.command_history
     FOR ALL TO dbai_llm USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS cmd_monitor ON dbai_llm.command_history;
 CREATE POLICY cmd_monitor ON dbai_llm.command_history
     FOR SELECT TO dbai_monitor USING (TRUE);
 

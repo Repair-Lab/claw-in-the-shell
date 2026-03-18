@@ -5,7 +5,7 @@
 -- =============================================================================
 
 -- CPU-Auslastung (Live)
-CREATE TABLE dbai_system.cpu (
+CREATE TABLE IF NOT EXISTS dbai_system.cpu (
     id              BIGSERIAL PRIMARY KEY,
     ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     core_id         SMALLINT NOT NULL,
@@ -20,11 +20,11 @@ CREATE TABLE dbai_system.cpu (
 
 -- Partitionierung nach Zeit für effizientes Cleanup
 -- Alte Werte werden nach 24h automatisch gelöscht
-CREATE INDEX idx_cpu_ts ON dbai_system.cpu(ts DESC);
-CREATE INDEX idx_cpu_core ON dbai_system.cpu(core_id);
+CREATE INDEX IF NOT EXISTS idx_cpu_ts ON dbai_system.cpu(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_cpu_core ON dbai_system.cpu(core_id);
 
 -- RAM-Belegung (Live)
-CREATE TABLE dbai_system.memory (
+CREATE TABLE IF NOT EXISTS dbai_system.memory (
     id              BIGSERIAL PRIMARY KEY,
     ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     total_mb        INTEGER NOT NULL,
@@ -40,11 +40,11 @@ CREATE TABLE dbai_system.memory (
                     ))
 );
 
-CREATE INDEX idx_memory_ts ON dbai_system.memory(ts DESC);
-CREATE INDEX idx_memory_pressure ON dbai_system.memory(pressure_level);
+CREATE INDEX IF NOT EXISTS idx_memory_ts ON dbai_system.memory(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_pressure ON dbai_system.memory(pressure_level);
 
 -- Festplatten-Status (Live)
-CREATE TABLE dbai_system.disk (
+CREATE TABLE IF NOT EXISTS dbai_system.disk (
     id              BIGSERIAL PRIMARY KEY,
     ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     device          TEXT NOT NULL,
@@ -66,12 +66,12 @@ CREATE TABLE dbai_system.disk (
                     ))
 );
 
-CREATE INDEX idx_disk_ts ON dbai_system.disk(ts DESC);
-CREATE INDEX idx_disk_device ON dbai_system.disk(device);
-CREATE INDEX idx_disk_health ON dbai_system.disk(health_state);
+CREATE INDEX IF NOT EXISTS idx_disk_ts ON dbai_system.disk(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_disk_device ON dbai_system.disk(device);
+CREATE INDEX IF NOT EXISTS idx_disk_health ON dbai_system.disk(health_state);
 
 -- Temperatur-Sensoren (Live)
-CREATE TABLE dbai_system.temperature (
+CREATE TABLE IF NOT EXISTS dbai_system.temperature (
     id              BIGSERIAL PRIMARY KEY,
     ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     sensor_name     TEXT NOT NULL,
@@ -86,11 +86,11 @@ CREATE TABLE dbai_system.temperature (
                     ))
 );
 
-CREATE INDEX idx_temp_ts ON dbai_system.temperature(ts DESC);
-CREATE INDEX idx_temp_state ON dbai_system.temperature(state);
+CREATE INDEX IF NOT EXISTS idx_temp_ts ON dbai_system.temperature(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_temp_state ON dbai_system.temperature(state);
 
 -- Netzwerk-Status (Live)
-CREATE TABLE dbai_system.network (
+CREATE TABLE IF NOT EXISTS dbai_system.network (
     id              BIGSERIAL PRIMARY KEY,
     ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     interface       TEXT NOT NULL,
@@ -108,8 +108,8 @@ CREATE TABLE dbai_system.network (
     link_speed_mbps INTEGER
 );
 
-CREATE INDEX idx_network_ts ON dbai_system.network(ts DESC);
-CREATE INDEX idx_network_iface ON dbai_system.network(interface);
+CREATE INDEX IF NOT EXISTS idx_network_ts ON dbai_system.network(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_network_iface ON dbai_system.network(interface);
 
 -- =============================================================================
 -- Automatische Cleanup-Funktion für System-Tabellen

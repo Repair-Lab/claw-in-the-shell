@@ -5,7 +5,7 @@
 -- =============================================================================
 
 -- Haupt-Event-Tabelle: Alle Hardware- und System-Events
-CREATE TABLE dbai_event.events (
+CREATE TABLE IF NOT EXISTS dbai_event.events (
     id              BIGSERIAL PRIMARY KEY,
     ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     event_type      TEXT NOT NULL CHECK (event_type IN (
@@ -23,11 +23,11 @@ CREATE TABLE dbai_event.events (
     is_immutable    BOOLEAN NOT NULL DEFAULT TRUE
 );
 
-CREATE INDEX idx_events_ts ON dbai_event.events(ts DESC);
-CREATE INDEX idx_events_type ON dbai_event.events(event_type);
-CREATE INDEX idx_events_unprocessed ON dbai_event.events(processed) WHERE processed = FALSE;
-CREATE INDEX idx_events_priority ON dbai_event.events(priority);
-CREATE INDEX idx_events_payload ON dbai_event.events USING GIN(payload);
+CREATE INDEX IF NOT EXISTS idx_events_ts ON dbai_event.events(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_events_type ON dbai_event.events(event_type);
+CREATE INDEX IF NOT EXISTS idx_events_unprocessed ON dbai_event.events(processed) WHERE processed = FALSE;
+CREATE INDEX IF NOT EXISTS idx_events_priority ON dbai_event.events(priority);
+CREATE INDEX IF NOT EXISTS idx_events_payload ON dbai_event.events USING GIN(payload);
 
 -- Schutz: Events dürfen nicht gelöscht oder inhaltlich geändert werden
 -- Nur das 'processed' Flag darf gesetzt werden
@@ -50,6 +50,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_events_protect ON dbai_event.events;
 CREATE TRIGGER trg_events_protect
     BEFORE UPDATE OR DELETE ON dbai_event.events
     FOR EACH ROW EXECUTE FUNCTION dbai_event.protect_events();
@@ -57,7 +58,7 @@ CREATE TRIGGER trg_events_protect
 -- =============================================================================
 -- Tastatur-Events (spezifisch)
 -- =============================================================================
-CREATE TABLE dbai_event.keyboard (
+CREATE TABLE IF NOT EXISTS dbai_event.keyboard (
     id              BIGSERIAL PRIMARY KEY,
     ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     key_code        INTEGER NOT NULL,
@@ -67,12 +68,12 @@ CREATE TABLE dbai_event.keyboard (
     event_id        BIGINT REFERENCES dbai_event.events(id)
 );
 
-CREATE INDEX idx_keyboard_ts ON dbai_event.keyboard(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_keyboard_ts ON dbai_event.keyboard(ts DESC);
 
 -- =============================================================================
 -- Netzwerk-Events
 -- =============================================================================
-CREATE TABLE dbai_event.network (
+CREATE TABLE IF NOT EXISTS dbai_event.network (
     id              BIGSERIAL PRIMARY KEY,
     ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     interface       TEXT NOT NULL,
@@ -89,13 +90,13 @@ CREATE TABLE dbai_event.network (
     event_id        BIGINT REFERENCES dbai_event.events(id)
 );
 
-CREATE INDEX idx_net_events_ts ON dbai_event.network(ts DESC);
-CREATE INDEX idx_net_events_iface ON dbai_event.network(interface);
+CREATE INDEX IF NOT EXISTS idx_net_events_ts ON dbai_event.network(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_net_events_iface ON dbai_event.network(interface);
 
 -- =============================================================================
 -- Power/Strom-Events
 -- =============================================================================
-CREATE TABLE dbai_event.power (
+CREATE TABLE IF NOT EXISTS dbai_event.power (
     id              BIGSERIAL PRIMARY KEY,
     ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     event_subtype   TEXT NOT NULL CHECK (event_subtype IN (
@@ -110,7 +111,7 @@ CREATE TABLE dbai_event.power (
     event_id        BIGINT REFERENCES dbai_event.events(id)
 );
 
-CREATE INDEX idx_power_ts ON dbai_event.power(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_power_ts ON dbai_event.power(ts DESC);
 
 -- =============================================================================
 -- Event-Dispatcher Funktion: Verteilt Events an die richtigen Unter-Tabellen

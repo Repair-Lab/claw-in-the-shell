@@ -17,7 +17,7 @@
 -- Bekannte Fehlermuster mit Regex-Signaturen
 -- Wenn ein Fehler auftritt, wird er gegen diese Muster gematcht
 -- =============================================================================
-CREATE TABLE dbai_knowledge.error_patterns (
+CREATE TABLE IF NOT EXISTS dbai_knowledge.error_patterns (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     -- Identifikation
     name            TEXT NOT NULL UNIQUE,             -- z.B. 'posix_c_source_missing'
@@ -63,22 +63,23 @@ CREATE TABLE dbai_knowledge.error_patterns (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+DROP TRIGGER IF EXISTS trg_error_pattern_updated ON dbai_knowledge.error_patterns;
 CREATE TRIGGER trg_error_pattern_updated
     BEFORE UPDATE ON dbai_knowledge.error_patterns
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
 
-CREATE INDEX idx_ep_source ON dbai_knowledge.error_patterns(error_source);
-CREATE INDEX idx_ep_severity ON dbai_knowledge.error_patterns(severity);
-CREATE INDEX idx_ep_category ON dbai_knowledge.error_patterns(category);
-CREATE INDEX idx_ep_tags ON dbai_knowledge.error_patterns USING GIN(tags);
-CREATE INDEX idx_ep_component ON dbai_knowledge.error_patterns(affected_component);
+CREATE INDEX IF NOT EXISTS idx_ep_source ON dbai_knowledge.error_patterns(error_source);
+CREATE INDEX IF NOT EXISTS idx_ep_severity ON dbai_knowledge.error_patterns(severity);
+CREATE INDEX IF NOT EXISTS idx_ep_category ON dbai_knowledge.error_patterns(category);
+CREATE INDEX IF NOT EXISTS idx_ep_tags ON dbai_knowledge.error_patterns USING GIN(tags);
+CREATE INDEX IF NOT EXISTS idx_ep_component ON dbai_knowledge.error_patterns(affected_component);
 
 -- =============================================================================
 -- TABELLE: runbooks
 -- Schritt-für-Schritt Anleitungen zur Fehlerbehebung
 -- Wie ein Notfall-Handbuch, aber in der Datenbank
 -- =============================================================================
-CREATE TABLE dbai_knowledge.runbooks (
+CREATE TABLE IF NOT EXISTS dbai_knowledge.runbooks (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name            TEXT NOT NULL UNIQUE,
     title           TEXT NOT NULL,
@@ -107,17 +108,18 @@ CREATE TABLE dbai_knowledge.runbooks (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+DROP TRIGGER IF EXISTS trg_runbook_updated ON dbai_knowledge.runbooks;
 CREATE TRIGGER trg_runbook_updated
     BEFORE UPDATE ON dbai_knowledge.runbooks
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
 
-CREATE INDEX idx_runbook_category ON dbai_knowledge.runbooks(category);
+CREATE INDEX IF NOT EXISTS idx_runbook_category ON dbai_knowledge.runbooks(category);
 
 -- =============================================================================
 -- TABELLE: error_log
 -- Tatsächlich aufgetretene Fehler (Append-Only)
 -- =============================================================================
-CREATE TABLE dbai_knowledge.error_log (
+CREATE TABLE IF NOT EXISTS dbai_knowledge.error_log (
     id              BIGSERIAL PRIMARY KEY,
     -- Fehlerdetails
     error_source    TEXT NOT NULL,                    -- Wo trat der Fehler auf
@@ -160,20 +162,21 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_protect_error_log ON dbai_knowledge.error_log;
 CREATE TRIGGER trg_protect_error_log
     BEFORE UPDATE OR DELETE ON dbai_knowledge.error_log
     FOR EACH ROW EXECUTE FUNCTION dbai_knowledge.protect_error_log();
 
-CREATE INDEX idx_errlog_source ON dbai_knowledge.error_log(error_source);
-CREATE INDEX idx_errlog_pattern ON dbai_knowledge.error_log(matched_pattern_id);
-CREATE INDEX idx_errlog_resolved ON dbai_knowledge.error_log(is_resolved) WHERE is_resolved = FALSE;
-CREATE INDEX idx_errlog_occurred ON dbai_knowledge.error_log(occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_errlog_source ON dbai_knowledge.error_log(error_source);
+CREATE INDEX IF NOT EXISTS idx_errlog_pattern ON dbai_knowledge.error_log(matched_pattern_id);
+CREATE INDEX IF NOT EXISTS idx_errlog_resolved ON dbai_knowledge.error_log(is_resolved) WHERE is_resolved = FALSE;
+CREATE INDEX IF NOT EXISTS idx_errlog_occurred ON dbai_knowledge.error_log(occurred_at DESC);
 
 -- =============================================================================
 -- TABELLE: error_resolutions
 -- Dokumentiert wie Fehler gelöst wurden — Wissen wächst
 -- =============================================================================
-CREATE TABLE dbai_knowledge.error_resolutions (
+CREATE TABLE IF NOT EXISTS dbai_knowledge.error_resolutions (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     error_log_id    BIGINT NOT NULL REFERENCES dbai_knowledge.error_log(id),
     -- Was wurde getan
@@ -199,8 +202,8 @@ CREATE TABLE dbai_knowledge.error_resolutions (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_resolution_error ON dbai_knowledge.error_resolutions(error_log_id);
-CREATE INDEX idx_resolution_type ON dbai_knowledge.error_resolutions(resolution_type);
+CREATE INDEX IF NOT EXISTS idx_resolution_error ON dbai_knowledge.error_resolutions(error_log_id);
+CREATE INDEX IF NOT EXISTS idx_resolution_type ON dbai_knowledge.error_resolutions(resolution_type);
 
 -- =============================================================================
 -- FUNKTIONEN — Fehler-Management
@@ -339,11 +342,15 @@ $$ LANGUAGE SQL STABLE;
 -- =============================================================================
 -- FK: known_issues → error_patterns
 -- =============================================================================
-ALTER TABLE dbai_knowledge.known_issues
-    ADD CONSTRAINT fk_issue_pattern
-    FOREIGN KEY (error_pattern_id)
-    REFERENCES dbai_knowledge.error_patterns(id)
-    ON DELETE SET NULL;
+DO $$ BEGIN
+    ALTER TABLE dbai_knowledge.known_issues
+        ADD CONSTRAINT fk_issue_pattern
+        FOREIGN KEY (error_pattern_id)
+        REFERENCES dbai_knowledge.error_patterns(id)
+        ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN
+    RAISE NOTICE 'Constraint fk_issue_pattern existiert bereits';
+END $$;
 
 -- =============================================================================
 -- KOMMENTARE

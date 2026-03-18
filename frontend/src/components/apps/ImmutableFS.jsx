@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 export default function ImmutableFS() {
+  const { settings, schema, update, reset } = useAppSettings('immutable_fs')
+  const [showSettings, setShowSettings] = useState(false)
   const [config, setConfig] = useState(null)
   const [snapshots, setSnapshots] = useState([])
   const [loading, setLoading] = useState(false)
@@ -22,6 +26,22 @@ export default function ImmutableFS() {
     finally { setLoading(false) }
   }
 
+  const createSnapshot = async () => {
+    const label = prompt('Snapshot-Name:')
+    if (!label) return
+    try { await api.immutableCreateSnapshot(label); await load() } catch { /* */ }
+  }
+
+  const deleteSnapshot = async (id) => {
+    if (!confirm('Snapshot wirklich löschen?')) return
+    try { await api.immutableDeleteSnapshot(id); await load() } catch { /* */ }
+  }
+
+  const restoreSnapshot = async (id) => {
+    if (!confirm('Snapshot wiederherstellen? Aktuelle Änderungen gehen verloren!')) return
+    try { await api.immutableRestoreSnapshot(id); alert('Wiederherstellung gestartet') } catch { /* */ }
+  }
+
   const S = {
     container: { display: 'flex', flexDirection: 'column', height: '100%', background: '#0a0a14', color: '#c8d6e5', padding: '16px', overflow: 'auto' },
     h: { color: '#00ffcc', fontSize: '18px', fontWeight: 700, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' },
@@ -39,7 +59,11 @@ export default function ImmutableFS() {
 
   return (
     <div style={S.container}>
-      <div style={S.h}><span>🛡️</span> Immutable Filesystem</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={S.h}>🛡️ Immutable Filesystem</div>
+        <button style={{ ...S.btn, padding: '4px 10px' }} onClick={() => setShowSettings(!showSettings)}>⚙️</button>
+      </div>
+      {showSettings && <AppSettingsPanel settings={settings} schema={schema} onUpdate={update} onReset={reset} />}
       <p style={{ color: '#556', fontSize: '13px', marginBottom: '16px' }}>OverlayFS-basiertes schreibgeschütztes Root-Dateisystem mit Snapshot-Unterstützung.</p>
 
       <div style={S.card}>
@@ -71,7 +95,10 @@ export default function ImmutableFS() {
         ))}
       </div>
 
-      <div style={S.h}><span>📸</span> Snapshots</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+        <div style={S.h}><span>📸</span> Snapshots</div>
+        <button style={S.btn} onClick={createSnapshot}>+ Snapshot</button>
+      </div>
       {snapshots.length === 0 ? (
         <div style={{ color: '#334', textAlign: 'center', padding: '20px' }}>Keine Snapshots vorhanden</div>
       ) : (
@@ -87,6 +114,8 @@ export default function ImmutableFS() {
                 <span style={S.badge(s.is_bootable)}>
                   {s.is_bootable ? 'Bootfähig' : 'Standard'}
                 </span>
+                <button style={{ background: 'none', border: 'none', color: '#4488ff', cursor: 'pointer', fontSize: '12px' }} onClick={() => restoreSnapshot(s.id)} title="Wiederherstellen">♻️</button>
+                <button style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '12px' }} onClick={() => deleteSnapshot(s.id)} title="Löschen">🗑</button>
               </div>
             </div>
             {s.description && <div style={{ color: '#556', fontSize: '11px', marginTop: '4px' }}>{s.description}</div>}

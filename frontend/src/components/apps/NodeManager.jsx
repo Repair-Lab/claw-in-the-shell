@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 const ICON_TYPES = [
   { value: 'circle', label: '⭕ Kreis' },
@@ -48,6 +50,8 @@ function emptyNode() {
 }
 
 export default function NodeManager({ onRefreshNodes }) {
+  const { settings, schema, update: updateSetting, reset: resetSettings } = useAppSettings('node-manager')
+  const [showSettings, setShowSettings] = useState(false)
   const [nodes, setNodes] = useState([])
   const [loading, setLoading] = useState(true)
   const [editNode, setEditNode] = useState(null) // null = Liste, object = Bearbeiten/Neu
@@ -287,8 +291,17 @@ export default function NodeManager({ onRefreshNodes }) {
     <div style={s.container}>
       <div style={s.header}>
         <span style={s.title}>🔧 Netzwerk-Knoten</span>
-        <button style={{ ...s.btn, ...s.btnPrimary }} onClick={startNew}>+ Neuer Knoten</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button style={{ ...s.btn, ...s.btnPrimary }} onClick={startNew}>+ Neuer Knoten</button>
+          <button style={s.btn} onClick={() => setShowSettings(!showSettings)} title="Einstellungen">⚙️</button>
+        </div>
       </div>
+
+      {showSettings && (
+        <div style={{ marginBottom: 12 }}>
+          <AppSettingsPanel schema={schema} settings={settings} onUpdate={updateSetting} onReset={resetSettings} title="Node-Manager" />
+        </div>
+      )}
 
       {error && <div style={s.error}>⚠️ {error}</div>}
       {success && <div style={s.success}>✅ {success}</div>}

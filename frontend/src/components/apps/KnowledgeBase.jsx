@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 /**
  * KI-Werkstatt / Knowledge Base
@@ -32,7 +34,9 @@ function formatSize(bytes) {
 }
 
 export default function KnowledgeBase() {
-  const [tab, setTab] = useState('files')
+  const { settings, schema: appSchema, update: updateSetting, reset: resetSettings } = useAppSettings('knowledge-base')
+  const [showAppSettings, setShowAppSettings] = useState(false)
+  const [tab, setTab] = useState(settings?.default_tab || 'files')
 
   // ── File Browser State ──
   const [currentPath, setCurrentPath] = useState('/')
@@ -62,8 +66,8 @@ export default function KnowledgeBase() {
   }, [])
 
   useEffect(() => {
-    if (tab === 'modules') api.kbModules?.().then(setModules).catch(() => {})
-    if (tab === 'errors') api.errorPatterns?.().then(setErrors).catch(() => {})
+    if (tab === 'modules') api.modules?.().then(setModules).catch(() => {})
+    if (tab === 'errors') api.errors?.().then(setErrors).catch(() => {})
   }, [tab])
 
   const browsePath = useCallback(async (path, addHistory = true) => {
@@ -153,7 +157,7 @@ export default function KnowledgeBase() {
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) { setSearchResults(null); return }
-    const results = await api.kbSearch?.(searchQuery).catch(() => [])
+    const results = await api.searchModules?.(searchQuery).catch(() => [])
     setSearchResults(results)
   }
 
@@ -176,6 +180,13 @@ export default function KnowledgeBase() {
 
   return (
     <div style={sx.container}>
+      {showAppSettings ? (
+        <div style={{ padding: '16px' }}>
+          <button onClick={() => setShowAppSettings(false)} style={{ marginBottom: '12px', padding: '4px 12px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '11px' }}>← Zurück</button>
+          <AppSettingsPanel schema={appSchema} settings={settings} onUpdate={updateSetting} onReset={resetSettings} title="KI-Werkstatt" />
+        </div>
+      ) : (
+      <>
       {/* Tab Bar */}
       <div style={sx.tabBar}>
         {TABS.map(t => (
@@ -185,6 +196,8 @@ export default function KnowledgeBase() {
             {t.icon} {t.label}
           </button>
         ))}
+        <div style={{ flex: 1 }} />
+        <button onClick={() => setShowAppSettings(true)} style={{ ...sx.tabBtn, marginLeft: 'auto' }}>⚙️</button>
       </div>
 
       {/* ── FILE BROWSER TAB ── */}
@@ -414,6 +427,8 @@ export default function KnowledgeBase() {
 
       {/* ── REPORT TAB ── */}
       {tab === 'report' && <SystemReport />}
+      </>
+      )}
     </div>
   )
 }
@@ -454,7 +469,7 @@ function ModuleRow({ module }) {
 
 function SystemReport() {
   const [report, setReport] = useState(null)
-  useEffect(() => { api.systemHealth?.().then(setReport).catch(console.error) }, [])
+  useEffect(() => { api.health?.().then(setReport).catch(console.error) }, [])
   if (!report) return <div style={{ color: '#556677', padding: 16 }}>Lade System-Report…</div>
   if (!report) return <div style={{ color: '#556677', padding: 16 }}>Lade System-Report…</div>
   return (

@@ -44,14 +44,18 @@ RETURNS TRIGGER AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_llm_providers_updated ON dbai_llm.llm_providers;
 CREATE TRIGGER trg_llm_providers_updated
     BEFORE UPDATE ON dbai_llm.llm_providers
     FOR EACH ROW EXECUTE FUNCTION dbai_llm.fn_set_updated_at();
 
 -- RLS + GRANT
 ALTER TABLE dbai_llm.llm_providers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS llm_providers_system ON dbai_llm.llm_providers;
 CREATE POLICY llm_providers_system ON dbai_llm.llm_providers FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS llm_providers_runtime ON dbai_llm.llm_providers;
 CREATE POLICY llm_providers_runtime ON dbai_llm.llm_providers FOR SELECT TO dbai_runtime USING (TRUE);
+DROP POLICY IF EXISTS llm_providers_runtime_write ON dbai_llm.llm_providers;
 CREATE POLICY llm_providers_runtime_write ON dbai_llm.llm_providers FOR ALL TO dbai_runtime USING (TRUE);
 GRANT SELECT, INSERT, UPDATE, DELETE ON dbai_llm.llm_providers TO dbai_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON dbai_llm.llm_providers TO dbai_system;

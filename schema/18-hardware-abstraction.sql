@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS dbai_system.hardware_inventory (
     updated_at      TIMESTAMPTZ DEFAULT now()
 );
 
+DROP TRIGGER IF EXISTS trg_hw_inventory_updated ON dbai_system.hardware_inventory;
 CREATE TRIGGER trg_hw_inventory_updated
     BEFORE UPDATE ON dbai_system.hardware_inventory
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
@@ -110,6 +111,7 @@ CREATE TABLE IF NOT EXISTS dbai_system.gpu_devices (
     created_at          TIMESTAMPTZ DEFAULT now()
 );
 
+DROP TRIGGER IF EXISTS trg_gpu_devices_updated ON dbai_system.gpu_devices;
 CREATE TRIGGER trg_gpu_devices_updated
     BEFORE UPDATE ON dbai_system.gpu_devices
     FOR EACH ROW EXECUTE FUNCTION dbai_core.update_timestamp();
@@ -309,6 +311,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_fan_control_notify ON dbai_system.fan_control;
 CREATE TRIGGER trg_fan_control_notify
     AFTER UPDATE ON dbai_system.fan_control
     FOR EACH ROW EXECUTE FUNCTION dbai_system.notify_fan_change();
@@ -447,6 +450,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_protect_hotplug ON dbai_system.hotplug_events;
 CREATE TRIGGER trg_protect_hotplug
     BEFORE UPDATE OR DELETE ON dbai_system.hotplug_events
     FOR EACH ROW EXECUTE FUNCTION dbai_system.protect_hotplug_events();
@@ -471,6 +475,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_hotplug_notify ON dbai_system.hotplug_events;
 CREATE TRIGGER trg_hotplug_notify
     AFTER INSERT ON dbai_system.hotplug_events
     FOR EACH ROW EXECUTE FUNCTION dbai_system.notify_hotplug();
@@ -719,32 +724,55 @@ ALTER TABLE dbai_system.network_connections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dbai_system.hotplug_events ENABLE ROW LEVEL SECURITY;
 
 -- System-Rolle: Voller Zugriff
+DROP POLICY IF EXISTS hal_system_all ON dbai_system.hardware_inventory;
 CREATE POLICY hal_system_all ON dbai_system.hardware_inventory FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS gpu_system_all ON dbai_system.gpu_devices;
 CREATE POLICY gpu_system_all ON dbai_system.gpu_devices FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS vram_system_all ON dbai_system.gpu_vram_map;
 CREATE POLICY vram_system_all ON dbai_system.gpu_vram_map FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS cores_system_all ON dbai_system.cpu_cores;
 CREATE POLICY cores_system_all ON dbai_system.cpu_cores FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS memmap_system_all ON dbai_system.memory_map;
 CREATE POLICY memmap_system_all ON dbai_system.memory_map FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS storage_system_all ON dbai_system.storage_health;
 CREATE POLICY storage_system_all ON dbai_system.storage_health FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS fan_system_all ON dbai_system.fan_control;
 CREATE POLICY fan_system_all ON dbai_system.fan_control FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS power_system_all ON dbai_system.power_profiles;
 CREATE POLICY power_system_all ON dbai_system.power_profiles FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS netconn_system_all ON dbai_system.network_connections;
 CREATE POLICY netconn_system_all ON dbai_system.network_connections FOR ALL TO dbai_system USING (TRUE);
+DROP POLICY IF EXISTS hotplug_system_all ON dbai_system.hotplug_events;
 CREATE POLICY hotplug_system_all ON dbai_system.hotplug_events FOR ALL TO dbai_system USING (TRUE);
 
 -- Monitor-Rolle: Nur lesen
+DROP POLICY IF EXISTS hal_monitor_read ON dbai_system.hardware_inventory;
 CREATE POLICY hal_monitor_read ON dbai_system.hardware_inventory FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS gpu_monitor_read ON dbai_system.gpu_devices;
 CREATE POLICY gpu_monitor_read ON dbai_system.gpu_devices FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS vram_monitor_read ON dbai_system.gpu_vram_map;
 CREATE POLICY vram_monitor_read ON dbai_system.gpu_vram_map FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS cores_monitor_read ON dbai_system.cpu_cores;
 CREATE POLICY cores_monitor_read ON dbai_system.cpu_cores FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS memmap_monitor_read ON dbai_system.memory_map;
 CREATE POLICY memmap_monitor_read ON dbai_system.memory_map FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS storage_monitor_read ON dbai_system.storage_health;
 CREATE POLICY storage_monitor_read ON dbai_system.storage_health FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS fan_monitor_read ON dbai_system.fan_control;
 CREATE POLICY fan_monitor_read ON dbai_system.fan_control FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS power_monitor_read ON dbai_system.power_profiles;
 CREATE POLICY power_monitor_read ON dbai_system.power_profiles FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS netconn_monitor_read ON dbai_system.network_connections;
 CREATE POLICY netconn_monitor_read ON dbai_system.network_connections FOR SELECT TO dbai_monitor USING (TRUE);
+DROP POLICY IF EXISTS hotplug_monitor_read ON dbai_system.hotplug_events;
 CREATE POLICY hotplug_monitor_read ON dbai_system.hotplug_events FOR SELECT TO dbai_monitor USING (TRUE);
 
 -- LLM-Rolle: GPU und VRAM lesen (braucht es für Swap-Entscheidungen)
+DROP POLICY IF EXISTS gpu_llm_read ON dbai_system.gpu_devices;
 CREATE POLICY gpu_llm_read ON dbai_system.gpu_devices FOR SELECT TO dbai_llm USING (TRUE);
+DROP POLICY IF EXISTS vram_llm_read ON dbai_system.gpu_vram_map;
 CREATE POLICY vram_llm_read ON dbai_system.gpu_vram_map FOR SELECT TO dbai_llm USING (TRUE);
+DROP POLICY IF EXISTS power_llm_read ON dbai_system.power_profiles;
 CREATE POLICY power_llm_read ON dbai_system.power_profiles FOR SELECT TO dbai_llm USING (TRUE);
 
 -- =============================================================================

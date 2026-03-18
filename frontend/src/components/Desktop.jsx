@@ -1,20 +1,20 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { api } from '../api'
+import useKeyboardShortcuts from '../hooks/useKeyboardShortcuts'
+import SpotlightSearch from './SpotlightSearch'
 import Window from './Window'
 import SystemMonitor from './apps/SystemMonitor'
-import GhostManager from './apps/GhostManager'
 import GhostChat from './apps/GhostChat'
 import KnowledgeBase from './apps/KnowledgeBase'
 import EventViewer from './apps/EventViewer'
 import SQLConsole from './apps/SQLConsole'
 import HealthDashboard from './apps/HealthDashboard'
 import FileBrowser from './apps/FileBrowser'
-import ProcessManager from './apps/ProcessManager'
 import Settings from './apps/Settings'
 import ErrorAnalyzer from './apps/ErrorAnalyzer'
 import SoftwareStore from './apps/SoftwareStore'
 import OpenClawIntegrator from './apps/OpenClawIntegrator'
-import LLMManager from './apps/LLMManager'
+import GhostLLMManager from './apps/LLMManager'
 import SetupWizard from './apps/SetupWizard'
 import AIWorkshop from './apps/AIWorkshop'
 import SQLExplorer from './apps/SQLExplorer'
@@ -34,23 +34,24 @@ import AnomalyDetector from './apps/AnomalyDetector'
 import AppSandbox from './apps/AppSandbox'
 import FirewallManager from './apps/FirewallManager'
 import GhostUpdater from './apps/GhostUpdater'
+import GhostMail from './apps/GhostMail'
+import GhostBrowser from './apps/GhostBrowser'
+import RemoteAccess from './apps/RemoteAccess'
 
 // App-Komponenten Registry
 const APP_COMPONENTS = {
   SystemMonitor,
-  GhostManager,
+  GhostLLMManager,
   GhostChat,
   KnowledgeBase,
   EventViewer,
   SQLConsole,
   HealthDashboard,
   FileBrowser,
-  ProcessManager,
   Settings,
   ErrorAnalyzer,
   SoftwareStore,
   OpenClawIntegrator,
-  LLMManager,
   SetupWizard,
   AIWorkshop,
   SQLExplorer,
@@ -70,6 +71,9 @@ const APP_COMPONENTS = {
   AppSandbox,
   FirewallManager,
   GhostUpdater,
+  GhostMail,
+  GhostBrowser,
+  RemoteAccess,
 }
 
 // Icon-Mapping für Netzwerkknoten
@@ -79,13 +83,13 @@ const NODE_ICON_MAP = {
   chat: '💬', message: '✉️',
 }
 
-// Icons pro Seite (Grid ~10 Spalten x 6 Reihen)
-const ICONS_PER_PAGE = 60
+// Icons pro Seite (Cube-Grid ~16 Spalten x 9 Reihen bei 80px)
+const ICONS_PER_PAGE = 120
 
 /**
  * Desktop — Icon-Desktop mit Drag & Drop, Ordnern, Seiten und Aktualisieren-Button
  */
-export default function Desktop({ user, desktopState, onLogout }) {
+export default function Desktop({ user, desktopState, tabInfo, onLogout }) {
   const [windows, setWindows] = useState([])
   const [apps, setApps] = useState(desktopState?.apps || [])
   const [theme] = useState(desktopState?.theme || {})
@@ -96,6 +100,23 @@ export default function Desktop({ user, desktopState, onLogout }) {
   const [nodes, setNodes] = useState([])
   const [resetConfirm, setResetConfirm] = useState(null) // node zum Zurücksetzen
   const longPressRef = useRef(null)
+  const [showSpotlight, setShowSpotlight] = useState(false)
+
+  // Keyboard Shortcuts
+  useKeyboardShortcuts({
+    'open-terminal': () => openApp('terminal'),
+    'open-file-browser': () => openApp('file-browser'),
+    'open-ghost-chat': () => openApp('ghost-chat'),
+    'open-spotlight': () => setShowSpotlight(true),
+    'open-settings': () => openApp('settings'),
+    'open-system-monitor': () => openApp('system-monitor'),
+    'open-llm-manager': () => openApp('llm-manager'),
+    'close-spotlight': () => setShowSpotlight(false),
+    'close-window': () => {
+      const focused = windows.find(w => w.focused)
+      if (focused) setWindows(prev => prev.filter(w => w.id !== focused.id))
+    },
+  })
 
   // Active ghosts for taskbar
   const [activeGhosts, setActiveGhosts] = useState(desktopState?.ghosts || [])
@@ -129,16 +150,20 @@ export default function Desktop({ user, desktopState, onLogout }) {
   // ── Desktop-Seiten (Pagination) ──
   const [currentPage, setCurrentPage] = useState(0)
 
-  // ── Ordner-System ──
-  // folders: { [folderId]: { name, icon, items: [appId, ...] } }
+  // ── Ordner-System — Tab-isoliert ──
+  // Im DB-Mode kommen Ordner aus desktopState.tab, Fallback: sessionStorage
   const [folders, setFolders] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('dbai_folders') || '{}') } catch { return {} }
+    const tabFolders = desktopState?.tab?.folders
+    if (tabFolders && typeof tabFolders === 'object' && Object.keys(tabFolders).length > 0) return tabFolders
+    try { return JSON.parse(sessionStorage.getItem('dbai_folders') || '{}') } catch { return {} }
   })
   const [openFolder, setOpenFolder] = useState(null) // welcher Ordner ist offen
 
-  // ── Icon-Reihenfolge (appIds + folderIds, ohne die in Ordnern) ──
+  // ── Icon-Reihenfolge — Tab-isoliert ──
   const [iconOrder, setIconOrder] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('dbai_icon_order') || 'null') } catch { return null }
+    const tabOrder = desktopState?.tab?.icon_order
+    if (Array.isArray(tabOrder) && tabOrder.length > 0) return tabOrder
+    try { return JSON.parse(sessionStorage.getItem('dbai_icon_order') || 'null') } catch { return null }
   })
 
   // ── Drag & Drop ──
@@ -146,12 +171,26 @@ export default function Desktop({ user, desktopState, onLogout }) {
   const [dragOverItem, setDragOverItem] = useState(null)
   const [dropIndicator, setDropIndicator] = useState(null) // index wo eingefügt wird
 
-  // Persistenz
+  // Persistenz — Tab-isoliert (sessionStorage + DB-Sync)
+  const syncTimerRef = useRef(null)
   useEffect(() => {
-    localStorage.setItem('dbai_folders', JSON.stringify(folders))
+    sessionStorage.setItem('dbai_folders', JSON.stringify(folders))
+    // DB-Sync (debounced)
+    clearTimeout(syncTimerRef.current)
+    syncTimerRef.current = setTimeout(() => {
+      const tabId = api.getTabId?.()
+      if (tabId) api.tabUpdate?.(tabId, { folders }).catch(() => {})
+    }, 2000)
   }, [folders])
   useEffect(() => {
-    if (iconOrder) localStorage.setItem('dbai_icon_order', JSON.stringify(iconOrder))
+    if (iconOrder) {
+      sessionStorage.setItem('dbai_icon_order', JSON.stringify(iconOrder))
+      clearTimeout(syncTimerRef.current)
+      syncTimerRef.current = setTimeout(() => {
+        const tabId = api.getTabId?.()
+        if (tabId) api.tabUpdate?.(tabId, { icon_order: iconOrder }).catch(() => {})
+      }, 2000)
+    }
   }, [iconOrder])
 
   // Icon-Order initialisieren / synchronisieren wenn Apps + Knoten sich ändern
@@ -268,6 +307,16 @@ export default function Desktop({ user, desktopState, onLogout }) {
     const app = apps.find(a => a.app_id === appId)
     const appInfo = app || { app_id: appId, name: extra?.title || appId, icon: '🌐', source_type: 'component', source_target: extra?.component || appId }
 
+    // WebFrame-Apps: URL automatisch aus Beschreibung oder fester Map laden
+    const WEBFRAME_URLS = {
+      'vscode': 'http://localhost:8443',
+      'n8n': 'http://localhost:5678',
+    }
+    let resolvedExtra = extra || null
+    if (appInfo.source_target === 'WebFrame' && !extra?.url && WEBFRAME_URLS[appId]) {
+      resolvedExtra = { url: WEBFRAME_URLS[appId], title: appInfo.name, ...(extra || {}) }
+    }
+
     const z = nextZ + 1
     setNextZ(z)
 
@@ -285,7 +334,7 @@ export default function Desktop({ user, desktopState, onLogout }) {
       height: appInfo.default_height || 600,
       state: 'normal',
       focused: true,
-      extra: extra || null,
+      extra: resolvedExtra,
       z,
     }
 
@@ -640,7 +689,17 @@ export default function Desktop({ user, desktopState, onLogout }) {
       {/* Taskbar */}
       <div className="taskbar">
         <div className="taskbar-start" onClick={() => openApp('ghost-chat')}>
-          👻 DBAI
+          👻 {tabInfo?.hostname || 'DBAI'}
+        </div>
+        <div
+          style={{ cursor: 'pointer', padding: '0 8px', fontSize: 16, opacity: 0.8, borderLeft: '1px solid rgba(255,255,255,0.1)', borderRight: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center' }}
+          onClick={() => window.open(window.location.origin, '_blank')}
+          title="Neuen Desktop-Tab öffnen"
+        >
+          ＋
+        </div>
+        <div style={{ cursor: 'pointer', padding: '0 8px', fontSize: 14, opacity: 0.7 }} onClick={() => setShowSpotlight(true)} title="App-Suche (Ctrl+K)">
+          🔍
         </div>
 
         <div className="taskbar-apps">
@@ -675,8 +734,18 @@ export default function Desktop({ user, desktopState, onLogout }) {
           <span>
             {clock.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
           </span>
+          <PowerMenu onLogout={onLogout} />
         </div>
       </div>
+
+      {/* Spotlight Search */}
+      {showSpotlight && (
+        <SpotlightSearch
+          apps={apps}
+          onLaunch={(appId) => openApp(appId)}
+          onClose={() => setShowSpotlight(false)}
+        />
+      )}
     </div>
   )
 }
@@ -759,6 +828,116 @@ function SQLViewApp({ viewName }) {
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+// ── Power Menu (Ausschalten / Neustart / Abmelden) ──
+function PowerMenu({ onLogout }) {
+  const [open, setOpen] = useState(false)
+  const [confirm, setConfirm] = useState(null) // 'shutdown' | 'reboot'
+  const [powerState, setPowerState] = useState(null) // 'shutting_down' | 'rebooting'
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setConfirm(null) } }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const exec = async (action) => {
+    try {
+      if (action === 'logout') { onLogout(); return }
+      setPowerState(action === 'shutdown' ? 'shutting_down' : 'rebooting')
+      setOpen(false); setConfirm(null)
+      if (action === 'shutdown') await api.powerShutdown()
+      else if (action === 'reboot') await api.powerReboot()
+      // Bei Reboot: nach 3s automatisch versuchen neu zu laden
+      if (action === 'reboot') {
+        setTimeout(() => {
+          const tryReload = () => {
+            fetch('/api/health').then(r => { if (r.ok) window.location.reload() }).catch(() => setTimeout(tryReload, 2000))
+          }
+          tryReload()
+        }, 3000)
+      }
+    } catch (e) {
+      console.error('Power action failed:', e)
+      setPowerState(null)
+    }
+  }
+
+  // ── Fullscreen Overlay bei Shutdown/Reboot ──
+  if (powerState) {
+    const isShutdown = powerState === 'shutting_down'
+    return (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 999999,
+        background: '#0a0e14',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        animation: 'fadeIn 0.5s ease',
+      }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>{isShutdown ? '⏻' : '🔄'}</div>
+        <div style={{ color: '#b0b8c0', fontSize: 18, fontWeight: 300, marginBottom: 8 }}>
+          {isShutdown ? 'System wird ausgeschaltet…' : 'System wird neu gestartet…'}
+        </div>
+        <div style={{ color: '#606870', fontSize: 13 }}>
+          {isShutdown ? 'Du kannst dieses Fenster schließen.' : 'Bitte warten — die Seite lädt automatisch neu.'}
+        </div>
+        {!isShutdown && (
+          <div style={{ marginTop: 24 }}>
+            <div style={{
+              width: 32, height: 32, border: '3px solid #2a3a4a',
+              borderTopColor: '#00ffcc', borderRadius: '50%',
+              animation: 'spin 1s linear infinite',
+            }} />
+          </div>
+        )}
+        <style>{`
+          @keyframes spin { to { transform: rotate(360deg) } }
+          @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+        `}</style>
+      </div>
+    )
+  }
+
+  const PS = {
+    btn: { background: 'none', border: 'none', color: '#e0e0e0', cursor: 'pointer', fontSize: 16, padding: '4px 8px', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 4 },
+    menu: { position: 'absolute', bottom: '100%', right: 0, marginBottom: 8, background: '#1a1a2e', border: '1px solid #2a3a4a', borderRadius: 8, padding: 6, minWidth: 180, zIndex: 99999, boxShadow: '0 -4px 20px rgba(0,0,0,0.6)' },
+    item: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: '#d0d0d0', border: 'none', background: 'none', width: '100%', textAlign: 'left' },
+    sep: { height: 1, background: '#2a3a4a', margin: '4px 0' },
+    confirmBox: { padding: '10px 12px', textAlign: 'center' },
+    confirmBtn: { padding: '6px 16px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600 },
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button onClick={() => { setOpen(!open); setConfirm(null) }} style={PS.btn} title="Ein/Aus">⏻</button>
+      {open && (
+        <div style={PS.menu}>
+          {!confirm ? (<>
+            <button style={PS.item} onMouseEnter={e => e.target.style.background='rgba(0,255,204,0.08)'} onMouseLeave={e => e.target.style.background='none'} onClick={() => exec('logout')}>🚪 Abmelden</button>
+            <div style={PS.sep} />
+            <button style={PS.item} onMouseEnter={e => e.target.style.background='rgba(255,170,0,0.08)'} onMouseLeave={e => e.target.style.background='none'} onClick={() => setConfirm('reboot')}>🔄 Neustart</button>
+            <button style={PS.item} onMouseEnter={e => e.target.style.background='rgba(255,68,68,0.08)'} onMouseLeave={e => e.target.style.background='none'} onClick={() => setConfirm('shutdown')}>⏻ Ausschalten</button>
+          </>) : (
+            <div style={PS.confirmBox}>
+              <div style={{ fontSize: 24, marginBottom: 6 }}>{confirm === 'shutdown' ? '⏻' : '🔄'}</div>
+              <div style={{ fontSize: 13, color: '#b0b8c0', marginBottom: 10 }}>
+                {confirm === 'shutdown' ? 'System wirklich ausschalten?' : 'System wirklich neustarten?'}
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                <button style={{ ...PS.confirmBtn, background: '#2a3a4a', color: '#d0d0d0' }} onClick={() => setConfirm(null)}>Abbrechen</button>
+                <button style={{ ...PS.confirmBtn, background: confirm === 'shutdown' ? '#dc2626' : '#f59e0b', color: '#fff' }} onClick={() => exec(confirm)}>
+                  {confirm === 'shutdown' ? 'Ausschalten' : 'Neustarten'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

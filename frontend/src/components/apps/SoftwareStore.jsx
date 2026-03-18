@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 /**
  * Software Store — GitHub-Installer + interner Katalog
@@ -24,7 +26,9 @@ const CATEGORIES = [
 ]
 
 export default function SoftwareStore() {
-  const [tab, setTab] = useState('github') // github | installed | system
+  const { settings, schema, update: updateSetting, reset: resetSettings } = useAppSettings('software-store')
+  const [showSettings, setShowSettings] = useState(false)
+  const [tab, setTab] = useState(settings?.default_tab || 'github')
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searching, setSearching] = useState(false)
@@ -150,8 +154,16 @@ export default function SoftwareStore() {
         </div>
 
         <div style={{ flex: 1 }} />
+        <button onClick={() => setShowSettings(true)} style={{ padding: '6px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '12px' }}>⚙️</button>
       </div>
 
+      {showSettings ? (
+        <div style={{ padding: '16px', overflow: 'auto' }}>
+          <button onClick={() => setShowSettings(false)} style={{ marginBottom: '12px', padding: '4px 12px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '11px' }}>← Zurück</button>
+          <AppSettingsPanel schema={schema} settings={settings} onUpdate={updateSetting} onReset={resetSettings} title="Software Store" />
+        </div>
+      ) : (
+      <>
       {/* ── GitHub Tab ── */}
       {tab === 'github' && (
         <div style={sx.content}>
@@ -261,6 +273,8 @@ export default function SoftwareStore() {
             ))}
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   )

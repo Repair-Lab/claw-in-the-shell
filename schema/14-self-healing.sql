@@ -10,7 +10,7 @@
 -- TABELLE: dbai_system.health_checks
 -- Regelmäßige Gesundheitsprüfungen — Ergebnisse als Tabelle
 -- =============================================================================
-CREATE TABLE dbai_system.health_checks (
+CREATE TABLE IF NOT EXISTS dbai_system.health_checks (
     id              BIGSERIAL PRIMARY KEY,
     check_name      TEXT NOT NULL,                   -- z.B. 'postgresql_alive', 'disk_usage', 'schema_integrity'
     check_category  TEXT NOT NULL CHECK (check_category IN (
@@ -26,15 +26,15 @@ CREATE TABLE dbai_system.health_checks (
     metadata        JSONB DEFAULT '{}'
 );
 
-CREATE INDEX idx_hc_name ON dbai_system.health_checks(check_name, checked_at DESC);
-CREATE INDEX idx_hc_status ON dbai_system.health_checks(status) WHERE status != 'ok';
-CREATE INDEX idx_hc_checked ON dbai_system.health_checks(checked_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hc_name ON dbai_system.health_checks(check_name, checked_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hc_status ON dbai_system.health_checks(status) WHERE status != 'ok';
+CREATE INDEX IF NOT EXISTS idx_hc_checked ON dbai_system.health_checks(checked_at DESC);
 
 -- =============================================================================
 -- TABELLE: dbai_system.alert_rules
 -- Alerting-Regeln: Wann soll das System reagieren
 -- =============================================================================
-CREATE TABLE dbai_system.alert_rules (
+CREATE TABLE IF NOT EXISTS dbai_system.alert_rules (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name            TEXT NOT NULL UNIQUE,
     description     TEXT NOT NULL,
@@ -87,13 +87,14 @@ INSERT INTO dbai_system.alert_rules
  'active_connections', '>', 80, 'warning', 'log', NULL, 300),
 
 ('schema_integrity', 'Schema-Prüfung fehlgeschlagen',
- 'schema_check', '<', 7, 'critical', 'panic', NULL, 60);
+ 'schema_check', '<', 7, 'critical', 'panic', NULL, 60)
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- TABELLE: dbai_system.alert_history
 -- Ausgelöste Alerts (Append-Only)
 -- =============================================================================
-CREATE TABLE dbai_system.alert_history (
+CREATE TABLE IF NOT EXISTS dbai_system.alert_history (
     id              BIGSERIAL PRIMARY KEY,
     rule_id         UUID NOT NULL REFERENCES dbai_system.alert_rules(id),
     rule_name       TEXT NOT NULL,
@@ -106,15 +107,15 @@ CREATE TABLE dbai_system.alert_history (
     triggered_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_alert_hist_rule ON dbai_system.alert_history(rule_id, triggered_at DESC);
-CREATE INDEX idx_alert_hist_severity ON dbai_system.alert_history(severity);
+CREATE INDEX IF NOT EXISTS idx_alert_hist_rule ON dbai_system.alert_history(rule_id, triggered_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_hist_severity ON dbai_system.alert_history(severity);
 
 -- =============================================================================
 -- TABELLE: dbai_system.telemetry
 -- System-Telemetrie: Aggregierte Metriken über Zeit
 -- Für Trend-Analyse und Kapazitätsplanung
 -- =============================================================================
-CREATE TABLE dbai_system.telemetry (
+CREATE TABLE IF NOT EXISTS dbai_system.telemetry (
     id              BIGSERIAL PRIMARY KEY,
     metric_name     TEXT NOT NULL,                   -- z.B. 'boot_time_ms', 'queries_per_second', 'error_rate'
     metric_value    REAL NOT NULL,
@@ -124,8 +125,8 @@ CREATE TABLE dbai_system.telemetry (
     recorded_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_telemetry_name ON dbai_system.telemetry(metric_name, recorded_at DESC);
-CREATE INDEX idx_telemetry_dim ON dbai_system.telemetry(dimension);
+CREATE INDEX IF NOT EXISTS idx_telemetry_name ON dbai_system.telemetry(metric_name, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_telemetry_dim ON dbai_system.telemetry(dimension);
 
 -- =============================================================================
 -- FUNKTION: run_health_checks()
@@ -153,7 +154,8 @@ BEGIN
         v_value := 0;
     END;
     INSERT INTO dbai_system.health_checks (check_name, check_category, status, message, metric_value, metric_unit)
-    VALUES (v_check_name, 'database', v_status, v_message, v_value, 'bool');
+    VALUES (v_check_name, 'database', v_status, v_message, v_value, 'bool')
+ON CONFLICT DO NOTHING;
     check_name := v_check_name; status := v_status; message := v_message; RETURN NEXT;
 
     -- 2. Schema-Integrität
@@ -168,7 +170,8 @@ BEGIN
     END IF;
     v_value := v_count;
     INSERT INTO dbai_system.health_checks (check_name, check_category, status, message, metric_value, metric_unit)
-    VALUES (v_check_name, 'schema', v_status, v_message, v_value, 'count');
+    VALUES (v_check_name, 'schema', v_status, v_message, v_value, 'count')
+ON CONFLICT DO NOTHING;
     check_name := v_check_name; status := v_status; message := v_message; RETURN NEXT;
 
     -- 3. Zombie-Prozesse
@@ -184,7 +187,8 @@ BEGIN
     END IF;
     v_value := v_count;
     INSERT INTO dbai_system.health_checks (check_name, check_category, status, message, metric_value, metric_unit)
-    VALUES (v_check_name, 'process', v_status, v_message, v_value, 'count');
+    VALUES (v_check_name, 'process', v_status, v_message, v_value, 'count')
+ON CONFLICT DO NOTHING;
     check_name := v_check_name; status := v_status; message := v_message; RETURN NEXT;
 
     -- 4. Deadlocks
@@ -199,7 +203,8 @@ BEGIN
     END IF;
     v_value := v_count;
     INSERT INTO dbai_system.health_checks (check_name, check_category, status, message, metric_value, metric_unit)
-    VALUES (v_check_name, 'database', v_status, v_message, v_value, 'count');
+    VALUES (v_check_name, 'database', v_status, v_message, v_value, 'count')
+ON CONFLICT DO NOTHING;
     check_name := v_check_name; status := v_status; message := v_message; RETURN NEXT;
 
     -- 5. Aktive Verbindungen
@@ -215,7 +220,8 @@ BEGIN
     v_message := v_count || ' aktive Verbindungen';
     v_value := v_count;
     INSERT INTO dbai_system.health_checks (check_name, check_category, status, message, metric_value, metric_unit)
-    VALUES (v_check_name, 'database', v_status, v_message, v_value, 'count');
+    VALUES (v_check_name, 'database', v_status, v_message, v_value, 'count')
+ON CONFLICT DO NOTHING;
     check_name := v_check_name; status := v_status; message := v_message; RETURN NEXT;
 
     -- 6. Ungelöste Panics
@@ -230,7 +236,8 @@ BEGIN
     END IF;
     v_value := v_count;
     INSERT INTO dbai_system.health_checks (check_name, check_category, status, message, metric_value, metric_unit)
-    VALUES (v_check_name, 'database', v_status, v_message, v_value, 'count');
+    VALUES (v_check_name, 'database', v_status, v_message, v_value, 'count')
+ON CONFLICT DO NOTHING;
     check_name := v_check_name; status := v_status; message := v_message; RETURN NEXT;
 
     -- 7. DB-Größe
@@ -239,7 +246,8 @@ BEGIN
     v_status := 'ok';
     v_message := ROUND(v_value::numeric, 1) || ' MB Datenbankgröße';
     INSERT INTO dbai_system.health_checks (check_name, check_category, status, message, metric_value, metric_unit)
-    VALUES (v_check_name, 'database', v_status, v_message, v_value, 'MB');
+    VALUES (v_check_name, 'database', v_status, v_message, v_value, 'MB')
+ON CONFLICT DO NOTHING;
     check_name := v_check_name; status := v_status; message := v_message; RETURN NEXT;
 
     -- 8. Offene Error-Logs
@@ -257,7 +265,8 @@ BEGIN
     END IF;
     v_value := v_count;
     INSERT INTO dbai_system.health_checks (check_name, check_category, status, message, metric_value, metric_unit)
-    VALUES (v_check_name, 'database', v_status, v_message, v_value, 'count');
+    VALUES (v_check_name, 'database', v_status, v_message, v_value, 'count')
+ON CONFLICT DO NOTHING;
     check_name := v_check_name; status := v_status; message := v_message; RETURN NEXT;
 
 END;
@@ -325,7 +334,8 @@ BEGIN
                 INSERT INTO dbai_panic.panic_log (panic_type, severity, description, system_state)
                 VALUES ('data_integrity', v_rule.severity,
                         'Alert "' || v_rule.name || '" ausgelöst: Wert=' || v_latest_value || ' Schwelle=' || v_rule.threshold,
-                        jsonb_build_object('rule', v_rule.name, 'value', v_latest_value, 'threshold', v_rule.threshold));
+                        jsonb_build_object('rule', v_rule.name, 'value', v_latest_value, 'threshold', v_rule.threshold))
+ON CONFLICT DO NOTHING;
                 v_action_result := 'PANIC ausgelöst!';
             END IF;
 
@@ -337,7 +347,8 @@ BEGIN
                 (v_rule.id, v_rule.name, v_rule.severity,
                  v_rule.description || ': Wert=' || v_latest_value,
                  v_latest_value, v_rule.threshold, v_action_result,
-                 v_action_result NOT LIKE '%FEHLGESCHLAGEN%');
+                 v_action_result NOT LIKE '%FEHLGESCHLAGEN%')
+ON CONFLICT DO NOTHING;
 
             -- Cooldown aktualisieren
             UPDATE dbai_system.alert_rules
@@ -386,7 +397,8 @@ BEGIN
     INSERT INTO dbai_system.telemetry (metric_name, metric_value, metric_unit, dimension)
     VALUES
         ('self_heal_checks', v_checks, 'count', 'self_healing'),
-        ('self_heal_alerts', v_alerts, 'count', 'self_healing');
+        ('self_heal_alerts', v_alerts, 'count', 'self_healing')
+ON CONFLICT DO NOTHING;
 
     -- 4. Ergebnis
     v_result := jsonb_build_object(

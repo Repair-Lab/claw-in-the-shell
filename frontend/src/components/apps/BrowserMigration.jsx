@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 export default function BrowserMigration() {
+  const { settings, schema, update, reset } = useAppSettings('browser_migration')
+  const [showSettings, setShowSettings] = useState(false)
   const [profiles, setProfiles] = useState([])
   const [imported, setImported] = useState([])
   const [scanning, setScanning] = useState(false)
@@ -27,14 +31,18 @@ export default function BrowserMigration() {
 
   useEffect(() => { loadStatus() }, [loadStatus])
 
+  const [selectedTypes, setSelectedTypes] = useState({ bookmarks: true, history: true, passwords: false })
+
+  const toggleType = (t) => setSelectedTypes(prev => ({ ...prev, [t]: !prev[t] }))
+
   const importProfile = async (p) => {
+    const types = Object.entries(selectedTypes).filter(([, v]) => v).map(([k]) => k)
+    if (types.length === 0) { alert('Mindestens einen Datentyp auswählen!'); return }
     setImporting(p.profile_path)
-    setLog(prev => [...prev, `Importiere ${p.browser_type}/${p.profile_name}...`])
+    setLog(prev => [...prev, `Importiere ${p.browser_type}/${p.profile_name} (${types.join(', ')})...`])
     try {
-      const result = await api.browserImport(p.browser_type, p.profile_name, p.profile_path)
-      setLog(prev => [...prev,
-        `✓ ${result.bookmarks || 0} Bookmarks, ${result.history || 0} History, ${result.knowledge_base_entries || 0} Knowledge-Einträge`
-      ])
+      const result = await api.browserImportSelective(p.browser_type, p.profile_name, p.profile_path, types)
+      setLog(prev => [...prev, `✓ Import abgeschlossen: ${JSON.stringify(result.selective_import || {})}`])
       loadStatus()
     } catch (e) { setLog(prev => [...prev, `✗ ${e.message}`]) }
     finally { setImporting(null) }
@@ -54,17 +62,27 @@ export default function BrowserMigration() {
 
   return (
     <div style={S.container}>
-      <div style={S.h}>
-        <span>🌐</span> Browser-Migration
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={S.h}>🌐 Browser-Migration</div>
+        <button style={{ ...S.btn, padding: '4px 10px' }} onClick={() => setShowSettings(!showSettings)}>⚙️</button>
       </div>
+      {showSettings && <AppSettingsPanel settings={settings} schema={schema} onUpdate={update} onReset={reset} />}
       <p style={{ color: '#556', fontSize: '13px', marginBottom: '16px' }}>
         Importiert Bookmarks, History und Passwörter aus Chrome/Firefox in die Ghost Knowledge Base.
       </p>
 
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', alignItems: 'center' }}>
         <button style={S.btn} onClick={scan} disabled={scanning}>
           {scanning ? '⏳ Scanne...' : '🔍 Browser scannen'}
         </button>
+        <div style={{ display: 'flex', gap: '10px', marginLeft: '12px' }}>
+          {[['bookmarks', '🔖 Bookmarks'], ['history', '📜 History'], ['passwords', '🔑 Passwörter']].map(([k, l]) => (
+            <label key={k} style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '11px', color: selectedTypes[k] ? '#00ffcc' : '#556' }}>
+              <input type="checkbox" checked={selectedTypes[k]} onChange={() => toggleType(k)} style={{ accentColor: '#00ffcc' }} />
+              {l}
+            </label>
+          ))}
+        </div>
       </div>
 
       {profiles.length > 0 && (

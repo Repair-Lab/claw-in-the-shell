@@ -1,7 +1,7 @@
 {
   "name": "dbai-frontend",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.12.0",
   "description": "DBAI — Ghost in the Database — Desktop UI",
   "type": "module",
   "scripts": {

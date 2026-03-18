@@ -1,16 +1,24 @@
 import React, { useState, useRef } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 /**
  * SQL Console — Direkte SQL-Abfragen (nur SELECT)
  */
 export default function SQLConsole() {
+  const { settings, schema, update: updateSetting, reset: resetSettings } = useAppSettings('sql-console')
+  const [showSettings, setShowSettings] = useState(false)
   const [query, setQuery] = useState('SELECT * FROM dbai_knowledge.vw_module_overview LIMIT 20;')
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [history, setHistory] = useState([])
   const textareaRef = useRef(null)
+
+  const maxHistory = settings?.max_history ?? 20
+  const fontSize = settings?.font_size ?? 13
+  const highlightNull = settings?.highlight_null !== false
 
   const execute = async () => {
     if (!query.trim() || loading) return
@@ -21,7 +29,7 @@ export default function SQLConsole() {
     try {
       const data = await api.sqlQuery(query)
       setResult(data)
-      setHistory(prev => [query, ...prev.filter(q => q !== query)].slice(0, 20))
+      setHistory(prev => [query, ...prev.filter(q => q !== query)].slice(0, maxHistory))
     } catch (err) {
       setError(err.message)
       setResult(null)
@@ -31,6 +39,15 @@ export default function SQLConsole() {
   }
 
   const columns = result?.rows?.length > 0 ? Object.keys(result.rows[0]) : []
+
+  if (showSettings) {
+    return (
+      <div style={{ padding: '16px' }}>
+        <button onClick={() => setShowSettings(false)} style={{ marginBottom: '12px', padding: '4px 12px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '11px' }}>← Zurück</button>
+        <AppSettingsPanel schema={schema} settings={settings} onUpdate={updateSetting} onReset={resetSettings} title="SQL Console" />
+      </div>
+    )
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -51,19 +68,22 @@ export default function SQLConsole() {
             padding: '12px', background: 'var(--bg-surface)',
             border: '1px solid var(--border)', borderRadius: 'var(--radius)',
             color: 'var(--accent)', fontFamily: 'var(--font-mono)',
-            fontSize: '13px', outline: 'none', resize: 'vertical',
+            fontSize: `${fontSize}px`, outline: 'none', resize: 'vertical',
           }}
           placeholder="SELECT * FROM ..."
         />
         <div className="flex justify-between items-center mt-2">
-          <button onClick={execute} disabled={loading} style={{
-            padding: '8px 20px', background: 'var(--accent)',
-            border: 'none', borderRadius: 'var(--radius)',
-            color: 'var(--bg-primary)', fontWeight: 600,
-            cursor: loading ? 'wait' : 'pointer', fontSize: '12px',
-          }}>
-            {loading ? '⏳' : '▶'} Ausführen (Ctrl+Enter)
-          </button>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button onClick={execute} disabled={loading} style={{
+              padding: '8px 20px', background: 'var(--accent)',
+              border: 'none', borderRadius: 'var(--radius)',
+              color: 'var(--bg-primary)', fontWeight: 600,
+              cursor: loading ? 'wait' : 'pointer', fontSize: '12px',
+            }}>
+              {loading ? '⏳' : '▶'} Ausführen (Ctrl+Enter)
+            </button>
+            <button onClick={() => setShowSettings(true)} style={{ padding: '6px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '12px' }}>⚙️</button>
+          </div>
           {result && (
             <span className="text-xs text-muted">
               {result.count} Zeilen · {result.duration_ms}ms
@@ -113,7 +133,7 @@ export default function SQLConsole() {
                       maxWidth: '300px', overflow: 'hidden',
                       textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
-                      {row[col] === null ? <span className="text-muted">NULL</span> :
+                      {row[col] === null ? (highlightNull ? <span className="text-muted">NULL</span> : '') :
                        typeof row[col] === 'object' ? JSON.stringify(row[col]) :
                        String(row[col])}
                     </td>

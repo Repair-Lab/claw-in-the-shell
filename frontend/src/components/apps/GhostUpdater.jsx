@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 // ─── Ghost Updater ───────────────────────────────────────────────
 // CI/CD Dashboard & OTA Update-Kanal für GhostShell OS.
@@ -8,6 +10,8 @@ import { api } from '../../api'
 // ─────────────────────────────────────────────────────────────────
 
 export default function GhostUpdater() {
+  const { settings, schema, update, reset } = useAppSettings('ghost_updater')
+  const [showSettings, setShowSettings] = useState(false)
   const [tab, setTab] = useState('overview')
   const [status, setStatus] = useState(null)
   const [releases, setReleases] = useState([])
@@ -747,7 +751,9 @@ export default function GhostUpdater() {
             ⏳ Verarbeitung...
           </div>
         )}
+        <button style={{ marginLeft: loading ? '8px' : 'auto', background: '#1a2a3a', border: '1px solid #2a3a4a', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', color: '#8a9aaa' }} onClick={() => setShowSettings(!showSettings)}>⚙️</button>
       </div>
+      {showSettings && <AppSettingsPanel settings={settings} schema={schema} onUpdate={update} onReset={reset} />}
 
       {/* Tabs */}
       <div style={S.tabs}>

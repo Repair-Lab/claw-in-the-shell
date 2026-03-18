@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 export default function AnomalyDetector() {
+  const { settings, schema, update, reset } = useAppSettings('anomaly_detector')
+  const [showSettings, setShowSettings] = useState(false)
   const [detections, setDetections] = useState([])
   const [models, setModels] = useState([])
   const [filter, setFilter] = useState('all')
@@ -19,6 +23,10 @@ export default function AnomalyDetector() {
   }, [filter])
 
   useEffect(() => { load() }, [load])
+
+  const resolveAnomaly = async (id) => {
+    try { await api.anomalyResolve(id, 'Manuell gelöst'); await load() } catch { /* */ }
+  }
 
   const sevColors = { info: '#4488ff', warning: '#ffaa00', critical: '#ff4444', resolved: '#00ffcc' }
 
@@ -41,7 +49,11 @@ export default function AnomalyDetector() {
 
   return (
     <div style={S.container}>
-      <div style={S.h}><span>🔬</span> Anomalie-Erkennung</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={S.h}>🔬 Anomalie-Erkennung</div>
+        <button style={{ ...S.btn, padding: '4px 10px' }} onClick={() => setShowSettings(!showSettings)}>⚙️</button>
+      </div>
+      {showSettings && <AppSettingsPanel settings={settings} schema={schema} onUpdate={update} onReset={reset} />}
 
       <div style={S.grid}>
         {[
@@ -105,6 +117,7 @@ export default function AnomalyDetector() {
               <span>Wert: {d.metric_value}</span>
               <span>Erwartet: {d.expected_value?.toFixed(1)}</span>
               <span>{new Date(d.detected_at).toLocaleString()}</span>
+              {!d.resolved && <button style={{ ...S.btn, padding: '2px 8px', borderColor: '#00ffcc', color: '#00ffcc', fontSize: '10px' }} onClick={() => resolveAnomaly(d.id)}>✓ Lösen</button>}
             </div>
           </div>
         ))

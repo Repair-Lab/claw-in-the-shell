@@ -85,3 +85,8 @@ frontend/.vite/
 bridge/__pycache__/
 web/__pycache__/
 dist/
+
+# ─── Sandbox (lokale Testumgebung) ───
+# Persönliche Testdaten, niemals ins Repo
+dev/.sandbox-data/
+dev/docker-compose.sandbox.yml

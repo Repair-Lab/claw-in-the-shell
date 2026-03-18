@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 export default function WorkspaceMapper() {
+  const { settings, schema, update, reset } = useAppSettings('workspace_mapper')
+  const [showSettings, setShowSettings] = useState(false)
   const [stats, setStats] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
@@ -35,6 +39,10 @@ export default function WorkspaceMapper() {
     } catch { /* ignore */ }
   }
 
+  const openFile = async (path) => {
+    try { await api.workspaceOpenFile(path) } catch { /* */ }
+  }
+
   const formatSize = (bytes) => {
     if (!bytes) return '0 B'
     const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -59,7 +67,11 @@ export default function WorkspaceMapper() {
 
   return (
     <div style={S.container}>
-      <div style={S.h}><span>📂</span> Workspace Mapping</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={S.h}>📂 Workspace Mapping</div>
+        <button style={{ ...S.btn, padding: '4px 10px' }} onClick={() => setShowSettings(!showSettings)}>⚙️</button>
+      </div>
+      {showSettings && <AppSettingsPanel settings={settings} schema={schema} onUpdate={update} onReset={reset} />}
 
       <div style={S.tabs}>
         <div style={S.tab(view === 'overview')} onClick={() => setView('overview')}>Übersicht</div>
@@ -136,6 +148,7 @@ export default function WorkspaceMapper() {
                     <div>{formatSize(f.file_size)}</div>
                     {f.line_count && <div>{f.line_count} Zeilen</div>}
                     {f.language && <div style={{ color: catColors.code }}>{f.language}</div>}
+                    <button style={{ ...S.btn, fontSize: '10px', padding: '2px 8px', marginTop: '4px' }} onClick={() => openFile(f.file_path)} title="Datei öffnen">📂 Öffnen</button>
                   </div>
                 </div>
               ))}

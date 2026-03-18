@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 export default function USBInstaller() {
+  const { settings, schema, update, reset } = useAppSettings('usb_installer')
+  const [showSettings, setShowSettings] = useState(false)
   const [devices, setDevices] = useState([])
   const [jobs, setJobs] = useState([])
   const [imagePath, setImagePath] = useState('')
@@ -29,6 +33,10 @@ export default function USBInstaller() {
     } catch { /* */ }
   }
 
+  const cancelJob = async (id) => {
+    try { await api.usbCancelJob(id); loadJobs() } catch { /* */ }
+  }
+
   const formatSize = (b) => { if (!b) return '?'; const u = ['B','KB','MB','GB','TB']; const i = Math.floor(Math.log(b)/Math.log(1024)); return `${(b/Math.pow(1024,i)).toFixed(1)} ${u[i]}` }
 
   const S = {
@@ -44,7 +52,11 @@ export default function USBInstaller() {
 
   return (
     <div style={S.container}>
-      <div style={S.h}><span>💾</span> USB Installer</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={S.h}>💾 USB Installer</div>
+        <button style={{ ...S.btn, padding: '4px 10px' }} onClick={() => setShowSettings(!showSettings)}>⚙️</button>
+      </div>
+      {showSettings && <AppSettingsPanel settings={settings} schema={schema} onUpdate={update} onReset={reset} />}
       <p style={{ color: '#556', fontSize: '13px', marginBottom: '16px' }}>ISO/IMG auf USB-Stick flashen (dd/Ventoy).</p>
 
       <button style={{ ...S.btn, marginBottom: '16px' }} onClick={loadDevices} disabled={scanning}>
@@ -95,7 +107,12 @@ export default function USBInstaller() {
             <div key={i} style={S.card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ color: '#d4d4d4', fontSize: '12px' }}>{j.image_path?.split('/').pop()}</span>
-                <span style={{ color: statusColors[j.status] || '#556', fontSize: '11px', fontWeight: 600 }}>{j.status}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ color: statusColors[j.status] || '#556', fontSize: '11px', fontWeight: 600 }}>{j.status}</span>
+                  {(j.status === 'pending' || j.status === 'flashing' || j.status === 'preparing') && (
+                    <button style={{ ...S.btn, fontSize: '10px', padding: '2px 8px', borderColor: '#ff4444', color: '#ff4444' }} onClick={() => cancelJob(j.id)}>✗</button>
+                  )}
+                </div>
               </div>
               {j.progress > 0 && j.progress < 1 && (
                 <div style={{ marginTop: '6px', height: '4px', background: '#111828', borderRadius: '2px' }}>

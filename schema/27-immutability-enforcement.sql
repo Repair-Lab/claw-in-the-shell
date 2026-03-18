@@ -70,8 +70,8 @@ GRANT SELECT ON ALL TABLES IN SCHEMA dbai_vector   TO dbai_runtime;
 -- ─── Schreibrechte: NUR auf Laufzeit-Tabellen ───
 
 -- Sessions / Login
-GRANT INSERT, UPDATE, DELETE ON dbai_core.sessions       TO dbai_runtime;
-GRANT INSERT, UPDATE, DELETE ON dbai_core.users          TO dbai_runtime;
+GRANT INSERT, UPDATE, DELETE ON dbai_ui.sessions         TO dbai_runtime;
+GRANT INSERT, UPDATE, DELETE ON dbai_ui.users            TO dbai_runtime;
 
 -- Audit-Log: Append-Only
 GRANT INSERT ON dbai_core.audit_log TO dbai_runtime;
@@ -82,7 +82,7 @@ GRANT INSERT, UPDATE         ON dbai_core.config         TO dbai_runtime;
 
 -- Events
 GRANT INSERT ON dbai_event.events             TO dbai_runtime;
-GRANT INSERT ON dbai_event.user_events        TO dbai_runtime;
+-- user_events: Tabelle existiert nicht, Events werden über dbai_event.events geloggt
 
 -- Journal: Nur schreiben
 GRANT INSERT ON dbai_journal.change_log       TO dbai_runtime;
@@ -96,11 +96,21 @@ GRANT INSERT, UPDATE ON dbai_system.network    TO dbai_runtime;
 
 -- UI: Fenster-Verwaltung, Desktop-Elemente
 GRANT INSERT, UPDATE, DELETE ON dbai_ui.windows          TO dbai_runtime;
-GRANT INSERT, UPDATE, DELETE ON dbai_ui.window_states    TO dbai_runtime;
 GRANT INSERT, UPDATE, DELETE ON dbai_ui.notifications    TO dbai_runtime;
-GRANT INSERT, UPDATE, DELETE ON dbai_ui.taskbar_pins     TO dbai_runtime;
-GRANT INSERT, UPDATE         ON dbai_ui.desktop_settings TO dbai_runtime;
-GRANT INSERT, UPDATE         ON dbai_ui.wallpapers       TO dbai_runtime;
+
+-- Optionale UI-Tabellen (nur wenn vorhanden)
+DO $$ BEGIN
+    EXECUTE 'GRANT INSERT, UPDATE, DELETE ON dbai_ui.window_states TO dbai_runtime';
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN
+    EXECUTE 'GRANT INSERT, UPDATE, DELETE ON dbai_ui.taskbar_pins TO dbai_runtime';
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN
+    EXECUTE 'GRANT INSERT, UPDATE ON dbai_ui.desktop_settings TO dbai_runtime';
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN
+    EXECUTE 'GRANT INSERT, UPDATE ON dbai_ui.wallpapers TO dbai_runtime';
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- LLM: Runtime darf proposed_actions verwalten (approve/reject/execute)
 GRANT INSERT, UPDATE ON dbai_llm.proposed_actions     TO dbai_runtime;
@@ -111,7 +121,9 @@ GRANT UPDATE         ON dbai_llm.active_ghosts        TO dbai_runtime;
 
 -- Software-Katalog: Runtime darf installieren aber nicht den Katalog ändern
 GRANT UPDATE ON dbai_core.software_catalog     TO dbai_runtime;
-GRANT INSERT, UPDATE, DELETE ON dbai_core.installed_software TO dbai_runtime;
+DO $$ BEGIN
+    EXECUTE 'GRANT INSERT, UPDATE, DELETE ON dbai_core.installed_software TO dbai_runtime';
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Vektor-Daten
 GRANT INSERT, UPDATE ON dbai_vector.memories   TO dbai_runtime;
@@ -159,10 +171,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_schema_fingerprints_unique
 
 -- Append-Only für die Fingerprints: kein UPDATE/DELETE erlaubt (außer dbai_system)
 ALTER TABLE dbai_core.schema_fingerprints ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS fp_system ON dbai_core.schema_fingerprints;
 CREATE POLICY fp_system ON dbai_core.schema_fingerprints
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS fp_runtime_read ON dbai_core.schema_fingerprints;
 CREATE POLICY fp_runtime_read ON dbai_core.schema_fingerprints
     FOR SELECT TO dbai_runtime USING (TRUE);
+DROP POLICY IF EXISTS fp_monitor_read ON dbai_core.schema_fingerprints;
 CREATE POLICY fp_monitor_read ON dbai_core.schema_fingerprints
     FOR SELECT TO dbai_monitor USING (TRUE);
 
@@ -199,10 +214,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_immutable_registry_unique
 
 -- Registry selbst ist immutable (nur dbai_system)
 ALTER TABLE dbai_core.immutable_registry ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS immutable_reg_system ON dbai_core.immutable_registry;
 CREATE POLICY immutable_reg_system ON dbai_core.immutable_registry
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS immutable_reg_runtime_read ON dbai_core.immutable_registry;
 CREATE POLICY immutable_reg_runtime_read ON dbai_core.immutable_registry
     FOR SELECT TO dbai_runtime USING (TRUE);
+DROP POLICY IF EXISTS immutable_reg_monitor_read ON dbai_core.immutable_registry;
 CREATE POLICY immutable_reg_monitor_read ON dbai_core.immutable_registry
     FOR SELECT TO dbai_monitor USING (TRUE);
 
@@ -226,6 +244,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_protect_immutable_registry ON dbai_core.immutable_registry;
 CREATE TRIGGER trg_protect_immutable_registry
     BEFORE UPDATE OR DELETE ON dbai_core.immutable_registry
     FOR EACH ROW EXECUTE FUNCTION dbai_core.protect_immutable_registry();
@@ -270,12 +289,16 @@ CREATE TABLE IF NOT EXISTS dbai_core.policy_enforcement_log (
 
 -- Append-Only
 ALTER TABLE dbai_core.policy_enforcement_log ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS enforcement_system ON dbai_core.policy_enforcement_log;
 CREATE POLICY enforcement_system ON dbai_core.policy_enforcement_log
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS enforcement_runtime_insert ON dbai_core.policy_enforcement_log;
 CREATE POLICY enforcement_runtime_insert ON dbai_core.policy_enforcement_log
     FOR INSERT TO dbai_runtime WITH CHECK (TRUE);
+DROP POLICY IF EXISTS enforcement_runtime_read ON dbai_core.policy_enforcement_log;
 CREATE POLICY enforcement_runtime_read ON dbai_core.policy_enforcement_log
     FOR SELECT TO dbai_runtime USING (TRUE);
+DROP POLICY IF EXISTS enforcement_monitor_read ON dbai_core.policy_enforcement_log;
 CREATE POLICY enforcement_monitor_read ON dbai_core.policy_enforcement_log
     FOR SELECT TO dbai_monitor USING (TRUE);
 
@@ -289,6 +312,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_protect_enforcement_log ON dbai_core.policy_enforcement_log;
 CREATE TRIGGER trg_protect_enforcement_log
     BEFORE UPDATE OR DELETE ON dbai_core.policy_enforcement_log
     FOR EACH ROW EXECUTE FUNCTION dbai_core.protect_enforcement_log();
@@ -775,8 +799,10 @@ CREATE TABLE IF NOT EXISTS dbai_core.websocket_commands (
 );
 
 ALTER TABLE dbai_core.websocket_commands ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ws_cmd_system ON dbai_core.websocket_commands;
 CREATE POLICY ws_cmd_system ON dbai_core.websocket_commands
     FOR ALL TO dbai_system USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS ws_cmd_runtime_read ON dbai_core.websocket_commands;
 CREATE POLICY ws_cmd_runtime_read ON dbai_core.websocket_commands
     FOR SELECT TO dbai_runtime USING (TRUE);
 

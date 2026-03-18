@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 /**
  * ErrorAnalyzer — Fehler-Log durchsuchen, Patterns matchen, Runbooks anzeigen
  */
 export default function ErrorAnalyzer({ windowId }) {
+  const { settings, schema, update: updateSetting, reset: resetSettings } = useAppSettings('error-analyzer')
+  const [showSettings, setShowSettings] = useState(false)
   const [errors, setErrors] = useState([])
   const [patterns, setPatterns] = useState([])
   const [loading, setLoading] = useState(true)
@@ -39,6 +43,15 @@ export default function ErrorAnalyzer({ windowId }) {
     }
   }
 
+  if (showSettings) {
+    return (
+      <div style={{ padding: '16px' }}>
+        <button onClick={() => setShowSettings(false)} style={{ marginBottom: '12px', padding: '4px 12px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '11px' }}>← Zurück</button>
+        <AppSettingsPanel schema={schema} settings={settings} onUpdate={updateSetting} onReset={resetSettings} title="Error Analyzer" />
+      </div>
+    )
+  }
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
       {/* Tabs */}
@@ -64,6 +77,7 @@ export default function ErrorAnalyzer({ windowId }) {
           </div>
         ))}
         <div style={{ flex: 1 }} />
+        <button onClick={() => setShowSettings(true)} style={{ padding: '4px 12px', background: 'transparent', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '10px', margin: '4px 0' }}>⚙️</button>
         <button
           onClick={loadData}
           style={{

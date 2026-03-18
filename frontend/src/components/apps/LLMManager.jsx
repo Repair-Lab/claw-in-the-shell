@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 /**
- * LLMManager v3 — Agent Orchestration & Mission Control
+ * Ghost LLM Manager — Agent Orchestration, Ghost Hot-Swap & Mission Control
  * 
- * OpenClaw-style agent orchestration nativ in DBAI:
+ * Vereint Ghost Manager + LLM Manager in einer App:
+ * - KI-Modelle verwalten, Hot-Swap, Kompatibilität (Ghost Manager)
  * - GPU-basierte Agenten-Instanzen erstellen & dirigieren
  * - Modelle aus ghost_models verschiedenen Rollen zuweisen
  * - Multi-GPU / Multi-Instanz parallel betreiben
@@ -53,14 +56,16 @@ const BACKENDS = [
 ]
 
 const DEFAULT_WEBUIS = [
-  { name: 'Ollama WebUI', icon: '🐪', desc: 'Chat-Interface für Ollama', port: 11434, url: 'http://localhost:3080' },
-  { name: 'ComfyUI', icon: '🎨', desc: 'Stable Diffusion Node-Editor', port: 8188, url: 'http://localhost:8188' },
-  { name: 'text-generation-webui', icon: '💬', desc: 'Gradio LLM Interface', port: 7860, url: 'http://localhost:7860' },
-  { name: 'Stable Diffusion WebUI', icon: '🖼️', desc: 'AUTOMATIC1111 Forge', port: 7861, url: 'http://localhost:7861' },
-  { name: 'LocalAI', icon: '🧠', desc: 'Drop-in OpenAI-Ersatz', port: 8080, url: 'http://localhost:8080' },
-  { name: 'LM Studio', icon: '📡', desc: 'Desktop LLM Server', port: 1234, url: 'http://localhost:1234' },
-  { name: 'Jan.ai', icon: '🤖', desc: 'Offline-first AI', port: 1337, url: 'http://localhost:1337' },
-  { name: 'vLLM Server', icon: '⚡', desc: 'High-Throughput Serving', port: 8000, url: 'http://localhost:8000' },
+  { name: 'n8n', icon: '🔗', desc: 'Workflow-Automatisierung & AI Agents', port: 5678, url: 'http://localhost:5678', repo: 'https://github.com/n8n-io/n8n', installCmd: 'docker run -d --name n8n -p 5678:5678 -v n8n_data:/home/node/.n8n n8nio/n8n', category: 'automation' },
+  { name: 'Ollama WebUI', icon: '🐪', desc: 'Chat-Interface für Ollama', port: 3080, url: 'http://localhost:3080', repo: 'https://github.com/open-webui/open-webui', installCmd: 'docker run -d --name open-webui -p 3080:8080 -v open-webui:/app/backend/data ghcr.io/open-webui/open-webui:main', category: 'chat' },
+  { name: 'ComfyUI', icon: '🎨', desc: 'Stable Diffusion Node-Editor', port: 8188, url: 'http://localhost:8188', repo: 'https://github.com/comfyanonymous/ComfyUI', installCmd: 'git clone https://github.com/comfyanonymous/ComfyUI /opt/comfyui && cd /opt/comfyui && pip install -r requirements.txt && python main.py --port 8188', category: 'image' },
+  { name: 'text-generation-webui', icon: '💬', desc: 'Gradio LLM Interface', port: 7860, url: 'http://localhost:7860', repo: 'https://github.com/oobabooga/text-generation-webui', installCmd: 'docker run -d --name textgen --gpus all -p 7860:7860 atinoda/text-generation-webui', category: 'chat' },
+  { name: 'Stable Diffusion WebUI', icon: '🖼️', desc: 'AUTOMATIC1111 Forge', port: 7861, url: 'http://localhost:7861', repo: 'https://github.com/AUTOMATIC1111/stable-diffusion-webui', installCmd: 'docker run -d --name sd-webui --gpus all -p 7861:7860 sd-webui', category: 'image' },
+  { name: 'LocalAI', icon: '🧠', desc: 'Drop-in OpenAI-Ersatz', port: 8080, url: 'http://localhost:8080', repo: 'https://github.com/mudler/LocalAI', installCmd: 'docker run -d --name localai --gpus all -p 8080:8080 localai/localai', category: 'api' },
+  { name: 'LM Studio', icon: '📡', desc: 'Desktop LLM Server', port: 1234, url: 'http://localhost:1234', repo: 'https://lmstudio.ai', installCmd: null, category: 'desktop' },
+  { name: 'Jan.ai', icon: '🤖', desc: 'Offline-first AI', port: 1337, url: 'http://localhost:1337', repo: 'https://github.com/janhq/jan', installCmd: null, category: 'desktop' },
+  { name: 'vLLM Server', icon: '⚡', desc: 'High-Throughput Serving', port: 8000, url: 'http://localhost:8000', repo: 'https://github.com/vllm-project/vllm', installCmd: 'docker run -d --name vllm --gpus all -p 8000:8000 vllm/vllm-openai', category: 'api' },
+  { name: 'VS Code Server', icon: '💻', desc: 'Code-Editor im Browser', port: 8443, url: 'http://localhost:8443', repo: 'https://github.com/coder/code-server', installCmd: 'curl -fsSL https://code-server.dev/install.sh | sh && code-server --port 8443 --auth none --bind-addr 0.0.0.0', category: 'dev' },
 ]
 
 /* ─── Sub-Components ─────────────────────────────────── */
@@ -103,9 +108,11 @@ function StateDot({ state }) {
 /* ═══════════════════════════════════════════════════════
    MAIN COMPONENT
    ═══════════════════════════════════════════════════════ */
-export default function LLMManager({ windowId, onOpenWindow }) {
+export default function GhostLLMManager({ windowId, onOpenWindow }) {
+  const { settings: appSettings, schema: appSchema, update: updateAppSetting, reset: resetAppSettings } = useAppSettings('ghost-llm-manager')
+  const [showAppSettings, setShowAppSettings] = useState(false)
   // ─── Tab-State ────────────────────
-  const [tab, setTab] = useState('agents')
+  const [tab, setTab] = useState(appSettings?.default_tab || 'agents')
 
   // ─── Agents ───────────────────────
   const [instances, setInstances] = useState([])
@@ -122,7 +129,10 @@ export default function LLMManager({ windowId, onOpenWindow }) {
   const [models, setModels] = useState([])
   const [scanResults, setScanResults] = useState([])
   const [scanning, setScanning] = useState(false)
-  const [scanPaths, setScanPaths] = useState('/home,/opt,/mnt,/data')
+  const [scanPaths, setScanPaths] = useState('/home,/opt,/mnt,/mnt/nvme,/data')
+  const [downloading, setDownloading] = useState(null)
+  const [downloadRepo, setDownloadRepo] = useState('')
+  const [vramBudget, setVramBudget] = useState(null)
 
   // ─── Pipelines (Chains) ───────────
   const [chains, setChains] = useState([])
@@ -145,6 +155,29 @@ export default function LLMManager({ windowId, onOpenWindow }) {
 
   // ─── Benchmarks ───────────────────
   const [benchmarks, setBenchmarks] = useState([])
+  const [gpuBenchResult, setGpuBenchResult] = useState(null)
+  const [gpuBenching, setGpuBenching] = useState(false)
+  const [modelBenching, setModelBenching] = useState(null)
+  const [modelStarting, setModelStarting] = useState(null)
+  const [modelStopping, setModelStopping] = useState(null)
+  const [selectedModelConfig, setSelectedModelConfig] = useState(null)
+  const [modelRecommendation, setModelRecommendation] = useState(null)
+  const [modelConfigOverrides, setModelConfigOverrides] = useState({})
+
+  // ─── LLM Server (CPU/GPU) ────────
+  const [llmServerStatus, setLlmServerStatus] = useState(null)
+  const [llmServerRestarting, setLlmServerRestarting] = useState(false)
+
+  // ─── VRAM Live-Monitoring ───────
+  const [vramLive, setVramLive] = useState(null)
+  const vramPollRef = useRef(null)
+
+  // ─── Ghost Hot-Swap ───────────────
+  const [ghostData, setGhostData] = useState({ active_ghosts: [], models: [], roles: [], compatibility: [] })
+  const [ghostSwapping, setGhostSwapping] = useState(false)
+  const [selectedGhostRole, setSelectedGhostRole] = useState(null)
+  const [ghostTab, setGhostTab] = useState('roles')
+  const [ghostHistory, setGhostHistory] = useState([])
 
   // ─── Global ───────────────────────
   const [loading, setLoading] = useState(true)
@@ -176,6 +209,13 @@ export default function LLMManager({ windowId, onOpenWindow }) {
       }))
       setGpuInfo(gpus)
     } catch (e) { console.error('GPU-Info laden:', e) }
+  }, [])
+
+  const loadLlmServerStatus = useCallback(async () => {
+    try {
+      const data = await api.llmServerStatus()
+      setLlmServerStatus(data)
+    } catch (e) { console.error('LLM-Server Status:', e) }
   }, [])
 
   const loadRoles = useCallback(async () => {
@@ -237,6 +277,20 @@ export default function LLMManager({ windowId, onOpenWindow }) {
     } catch (e) { console.error('Benchmarks laden:', e); setBenchmarks([]) }
   }, [])
 
+  const loadGhosts = useCallback(async () => {
+    try {
+      const data = await api.ghosts()
+      setGhostData(data || { active_ghosts: [], models: [], roles: [], compatibility: [] })
+    } catch (e) { console.error('Ghosts laden:', e) }
+  }, [])
+
+  const loadGhostHistory = useCallback(async () => {
+    try {
+      const data = await api.ghostHistory(30)
+      setGhostHistory(data || [])
+    } catch (e) { console.error('Ghost-History laden:', e) }
+  }, [])
+
   const loadTasks = useCallback(async (instId) => {
     if (!instId) return
     try {
@@ -251,21 +305,31 @@ export default function LLMManager({ windowId, onOpenWindow }) {
     const timeout = setTimeout(() => setLoading(false), 5000) // Safety timeout
     Promise.all([
       loadInstances(), loadGpu(), loadRoles(), loadGhostModels(),
-      loadModels(), loadChains(), loadJobs(), loadBenchmarks()
+      loadModels(), loadChains(), loadJobs(), loadBenchmarks(), loadVramBudget(),
+      loadGhosts(), loadLlmServerStatus()
     ]).finally(() => {
       clearTimeout(timeout)
       setLoading(false)
     })
   }, [])
 
-  // Auto-refresh GPU + instances every 10s
+  // Auto-refresh GPU + instances + ghosts every 10s
   useEffect(() => {
     refreshRef.current = setInterval(() => {
       loadGpu()
       loadInstances()
+      loadVramBudget()
+      loadGhosts()
     }, 10000)
     return () => clearInterval(refreshRef.current)
-  }, [loadGpu, loadInstances])
+  }, [loadGpu, loadInstances, loadGhosts])
+
+  // Listen for ghost_swap events
+  useEffect(() => {
+    const handler = () => loadGhosts()
+    window.addEventListener('dbai:ghost_swap', handler)
+    return () => window.removeEventListener('dbai:ghost_swap', handler)
+  }, [loadGhosts])
 
   /* ─── ACTION HANDLERS ────────────────────────────── */
   const confirmAndDo = (title, message, icon, action) => {
@@ -326,6 +390,56 @@ export default function LLMManager({ windowId, onOpenWindow }) {
     } catch (e) { console.error('Scan fehlgeschlagen:', e) }
     setScanning(false)
   }
+
+  const handleDownloadModel = async () => {
+    if (!downloadRepo.trim()) return
+    setDownloading(downloadRepo)
+    try {
+      const result = await api.llmDownloadModel(downloadRepo.trim(), '/mnt/nvme/models')
+      if (result?.ok) {
+        alert(`Download gestartet: ${downloadRepo}`)
+        setDownloadRepo('')
+        // Nach kurzer Wartezeit Modelle neu laden
+        setTimeout(() => { loadModels(); loadGhostModels() }, 3000)
+      } else {
+        alert(`Fehler: ${result?.error || 'Unbekannt'}`)
+      }
+    } catch (e) { console.error('Download fehlgeschlagen:', e); alert('Download fehlgeschlagen: ' + e.message) }
+    setDownloading(null)
+  }
+
+  const handleActivateModel = async (model) => {
+    try {
+      await api.llmActivateModel(model.id)
+      await loadModels()
+      await loadGhostModels()
+      window.dispatchEvent(new CustomEvent('dbai:llm_model_change', { detail: { action: 'activate', model: model.name } }))
+    } catch (e) { console.error('Aktivieren fehlgeschlagen:', e) }
+  }
+
+  const handleDeactivateModel = async (model) => {
+    try {
+      await api.llmDeactivateModel(model.id)
+      await loadModels()
+      await loadGhostModels()
+      window.dispatchEvent(new CustomEvent('dbai:llm_model_change', { detail: { action: 'deactivate', model: model.name } }))
+    } catch (e) { console.error('Deaktivieren fehlgeschlagen:', e) }
+  }
+
+  const loadVramBudget = useCallback(async () => {
+    try {
+      const data = await api.gpuVramBudget()
+      setVramBudget(data)
+      // Admin-Alert bei kritischem VRAM
+      if (data?.alerts?.length > 0) {
+        data.alerts.forEach(a => {
+          if (a.alert === 'critical') {
+            console.warn(`⚠️ VRAM KRITISCH: ${a.alert_message}`)
+          }
+        })
+      }
+    } catch (e) { /* nvidia-smi nicht verfügbar */ }
+  }, [])
 
   const handleAddModel = (model) => {
     confirmAndDo('Modell registrieren', `"${model.name || model.filename}" zur Datenbank hinzufügen?`, '📦', async () => {
@@ -403,16 +517,171 @@ export default function LLMManager({ windowId, onOpenWindow }) {
   }
 
   const handleRunBenchmark = (modelId) => {
-    confirmAndDo('Benchmark starten', 'Benchmark für dieses Modell starten? Das kann einige Minuten dauern.', '📊', async () => {
+    const gpuIdx = gpuInfo.length > 0 ? gpuInfo[0].gpu_index : 0
+    confirmAndDo('Benchmark starten', `GPU-Benchmark für dieses Modell starten?\nDie GPU-Leistung wird gemessen und optimale Einstellungen berechnet.`, '📊', async () => {
+      setModelBenching(modelId)
       try {
-        await api.llmRunBenchmark(modelId)
+        const result = await api.llmRunBenchmark(modelId, gpuIdx)
         await loadBenchmarks()
+        if (result.recommended) {
+          setModelRecommendation(result)
+          setSelectedModelConfig(modelId)
+        }
       } catch (e) { console.error('Benchmark fehlgeschlagen:', e) }
+      setModelBenching(null)
     })
+  }
+
+  const handleGpuBenchmark = async () => {
+    setGpuBenching(true)
+    try {
+      const result = await api.gpuBenchmark(gpuInfo.length > 0 ? gpuInfo[0].gpu_index : 0)
+      setGpuBenchResult(result)
+    } catch (e) { console.error('GPU-Benchmark fehlgeschlagen:', e) }
+    setGpuBenching(false)
+  }
+
+  const handleServerRestart = async (device) => {
+    setLlmServerRestarting(true)
+    try {
+      const config = {
+        device: device,
+        n_gpu_layers: device === 'gpu' ? 99 : 0,
+        ctx_size: llmServerStatus?.ctx_size || 8192,
+        threads: llmServerStatus?.threads || 12,
+      }
+      const result = await api.llmServerRestart(config)
+      if (result?.ok) {
+        await loadLlmServerStatus()
+      }
+    } catch (e) { console.error('Server-Neustart fehlgeschlagen:', e) }
+    setLlmServerRestarting(false)
+  }
+
+  const handleServerRestartFull = async (config) => {
+    setLlmServerRestarting(true)
+    try {
+      const result = await api.llmServerRestart(config)
+      if (result?.ok) {
+        await loadLlmServerStatus()
+      }
+    } catch (e) { console.error('Server-Neustart fehlgeschlagen:', e) }
+    setLlmServerRestarting(false)
+  }
+
+  const handleStartModel = async (model) => {
+    const gpuIdx = gpuInfo.length > 0 ? gpuInfo[0].gpu_index : 0
+    setModelStarting(model.id)
+
+    // ── VRAM-Live-Polling starten (alle 1s) ──
+    if (vramPollRef.current) clearInterval(vramPollRef.current)
+    vramPollRef.current = setInterval(async () => {
+      try {
+        const v = await api.vramLive()
+        setVramLive(v)
+      } catch(e) {}
+    }, 1000)
+
+    try {
+      // GPU-Empfehlung holen oder Defaults nutzen
+      let settings = {
+        gpu_index: gpuIdx,
+        n_gpu_layers: 99,
+        context_size: 8192,
+        batch_size: 512,
+        threads: 10,
+        backend: 'llama.cpp',
+        device: 'gpu',
+      }
+
+      try {
+        const rec = await api.gpuRecommend(model.id, gpuIdx)
+        if (rec?.recommended) {
+          settings = {
+            gpu_index: gpuIdx,
+            n_gpu_layers: modelConfigOverrides[model.id]?.n_gpu_layers ?? rec.recommended.n_gpu_layers,
+            context_size: modelConfigOverrides[model.id]?.context_size ?? rec.recommended.context_size,
+            batch_size: modelConfigOverrides[model.id]?.batch_size ?? rec.recommended.batch_size,
+            threads: modelConfigOverrides[model.id]?.threads ?? rec.recommended.threads,
+            backend: modelConfigOverrides[model.id]?.backend || 'llama.cpp',
+            device: 'gpu',
+          }
+        }
+      } catch (e) {
+        console.warn('GPU-Empfehlung fehlgeschlagen, nutze Defaults:', e)
+      }
+
+      const result = await api.llmStartModel(model.id, settings)
+      if (result?.ok) {
+        // Warte kurz und stoppe VRAM-Polling
+        await new Promise(r => setTimeout(r, 3000))
+        await loadModels()
+        await loadGhostModels()
+        await loadInstances()
+        await loadGpu()
+        await loadLlmServerStatus()
+      } else {
+        console.error('Modell-Start Ergebnis:', result)
+      }
+    } catch (e) { console.error('Modell starten fehlgeschlagen:', e) }
+
+    // VRAM-Polling stoppen nach 5s
+    setTimeout(() => {
+      if (vramPollRef.current) { clearInterval(vramPollRef.current); vramPollRef.current = null }
+    }, 5000)
+    setModelStarting(null)
+  }
+
+  const handleStopModel = async (model) => {
+    setModelStopping(model.id)
+    // VRAM-Polling stoppen
+    if (vramPollRef.current) { clearInterval(vramPollRef.current); vramPollRef.current = null }
+    try {
+      await api.llmStopModel(model.id)
+      await loadModels()
+      await loadGhostModels()
+      await loadInstances()
+      await loadGpu()
+      await loadLlmServerStatus()
+      setVramLive(null)
+    } catch (e) { console.error('Modell stoppen fehlgeschlagen:', e) }
+    setModelStopping(null)
+  }
+
+  const handleShowModelConfig = async (model) => {
+    const gpuIdx = gpuInfo.length > 0 ? gpuInfo[0].gpu_index : 0
+    setSelectedModelConfig(selectedModelConfig === model.id ? null : model.id)
+    setModelRecommendation(null)
+    try {
+      const rec = await api.gpuRecommend(model.id, gpuIdx)
+      setModelRecommendation(rec)
+    } catch (e) { console.error('GPU-Empfehlung fehlgeschlagen:', e) }
   }
 
   const openWebFrame = (url, title) => {
     if (onOpenWindow) onOpenWindow('webframe', { url, title })
+  }
+
+  // ─── Ghost Hot-Swap Handlers ────────────
+  const handleGhostSwap = async (roleName, modelName) => {
+    setGhostSwapping(true)
+    try {
+      await api.swapGhost(roleName, modelName, 'Manueller Wechsel via Ghost LLM Manager')
+      setTimeout(loadGhosts, 500)
+    } catch (err) {
+      alert('Swap fehlgeschlagen: ' + err.message)
+    }
+    setGhostSwapping(false)
+  }
+
+  const getActiveModelForRole = (roleName) => {
+    return ghostData.active_ghosts.find(g => g.role_name === roleName)
+  }
+
+  const getCompatModels = (roleName) => {
+    return ghostData.compatibility
+      .filter(c => c.role_name === roleName)
+      .sort((a, b) => b.fitness_score - a.fitness_score)
   }
 
   // ─── OpenClaw Import ────────────────────
@@ -777,6 +1046,217 @@ export default function LLMManager({ windowId, onOpenWindow }) {
   /* ─── TAB: MODELS ───────────────────────────────── */
   const renderModels = () => (
     <div style={S.tabContent}>
+      {/* ─── LLM Server Steuerung (CPU / GPU) ───────────────── */}
+      <div style={{
+        padding: '14px 16px', borderRadius: '10px', marginBottom: '12px',
+        background: 'linear-gradient(135deg, rgba(136,68,255,0.08), rgba(0,200,255,0.06))',
+        border: `1px solid ${llmServerStatus?.ok ? 'rgba(0,255,136,0.2)' : 'rgba(255,68,68,0.2)'}`,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '10px' }}>
+          <span style={{ fontSize: '24px' }}>{llmServerStatus?.ok ? '🟢' : '🔴'}</span>
+          <div style={{ flex: 1, minWidth: '200px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+              LLM Inferenz-Server
+              <span style={{
+                marginLeft: '8px', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 600,
+                background: llmServerStatus?.ok ? 'rgba(0,255,136,0.12)' : 'rgba(255,68,68,0.12)',
+                color: llmServerStatus?.ok ? '#00ff88' : '#ff4444',
+              }}>
+                {llmServerStatus?.ok ? 'Online' : 'Offline'}
+              </span>
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+              {llmServerStatus?.ok ? (
+                <>
+                  Modell: <strong>{llmServerStatus.model_name}</strong>
+                  {' · '}Gerät: <strong style={{ color: llmServerStatus.device === 'gpu' ? '#00ff88' : '#ffaa00' }}>
+                    {llmServerStatus.device === 'gpu' ? `🎮 GPU (${llmServerStatus.n_gpu_layers} Layer)` : '🖥️ CPU'}
+                  </strong>
+                  {' · '}Kontext: {llmServerStatus.ctx_size?.toLocaleString()} · Threads: {llmServerStatus.threads}
+                </>
+              ) : (
+                'Server nicht erreichbar – starte ihn mit GPU oder CPU'
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* CPU / GPU Umschalter */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{
+            display: 'inline-flex', borderRadius: '8px', overflow: 'hidden',
+            border: '1px solid rgba(255,255,255,0.1)',
+          }}>
+            <button
+              style={{
+                padding: '7px 16px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600,
+                background: (llmServerStatus?.device === 'gpu' || !llmServerStatus?.ok) ? 'rgba(0,255,136,0.15)' : 'rgba(255,255,255,0.04)',
+                color: (llmServerStatus?.device === 'gpu' || !llmServerStatus?.ok) ? '#00ff88' : 'var(--text-secondary)',
+                transition: 'all 0.2s',
+              }}
+              disabled={llmServerRestarting}
+              onClick={() => handleServerRestart('gpu')}
+              title="Modell auf GPU laden — schnell, nutzt VRAM"
+            >
+              🎮 GPU
+            </button>
+            <button
+              style={{
+                padding: '7px 16px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600,
+                borderLeft: '1px solid rgba(255,255,255,0.1)',
+                background: llmServerStatus?.device === 'cpu' ? 'rgba(255,170,0,0.15)' : 'rgba(255,255,255,0.04)',
+                color: llmServerStatus?.device === 'cpu' ? '#ffaa00' : 'var(--text-secondary)',
+                transition: 'all 0.2s',
+              }}
+              disabled={llmServerRestarting}
+              onClick={() => handleServerRestart('cpu')}
+              title="Modell auf CPU laden — langsam, kein VRAM nötig"
+            >
+              🖥️ CPU
+            </button>
+          </div>
+
+          {llmServerRestarting && (
+            <span style={{ fontSize: '12px', color: 'var(--accent)', animation: 'pulse 1s infinite' }}>
+              ⏳ Server wird neu gestartet… (Modell wird geladen, kann bis zu 2 Min dauern)
+            </span>
+          )}
+
+          {/* Erweiterte Einstellungen */}
+          {llmServerStatus?.ok && (
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <select
+                style={{ ...S.select, width: '120px', fontSize: '11px' }}
+                value={llmServerStatus?.ctx_size || 8192}
+                onChange={e => handleServerRestartFull({
+                  device: llmServerStatus.device,
+                  n_gpu_layers: llmServerStatus.n_gpu_layers,
+                  ctx_size: +e.target.value,
+                  threads: llmServerStatus.threads,
+                })}
+                title="Kontext-Größe"
+              >
+                {[2048, 4096, 8192, 16384, 32768, 65536].map(v => (
+                  <option key={v} value={v}>Ctx: {v.toLocaleString()}</option>
+                ))}
+              </select>
+              <select
+                style={{ ...S.select, width: '100px', fontSize: '11px' }}
+                value={llmServerStatus?.threads || 12}
+                onChange={e => handleServerRestartFull({
+                  device: llmServerStatus.device,
+                  n_gpu_layers: llmServerStatus.n_gpu_layers,
+                  ctx_size: llmServerStatus.ctx_size,
+                  threads: +e.target.value,
+                })}
+                title="CPU Threads"
+              >
+                {[4, 8, 12, 16, 24, 32].map(v => (
+                  <option key={v} value={v}>{v} Threads</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* GPU Benchmark Banner */}
+      <div style={{
+        padding: '12px 16px', borderRadius: '10px',
+        background: 'linear-gradient(135deg, rgba(0,255,200,0.06), rgba(68,136,255,0.06))',
+        border: '1px solid rgba(0,255,200,0.15)',
+        display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap',
+      }}>
+        <span style={{ fontSize: '24px' }}>🎮</span>
+        <div style={{ flex: 1, minWidth: '200px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>GPU-Benchmark zuerst</div>
+          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+            Messe die GPU-Leistung, um optimale Modell-Einstellungen zu berechnen (VRAM, Layer, Kontext)
+          </div>
+        </div>
+        {gpuBenchResult?.ok && gpuBenchResult.gpus?.length > 0 && (
+          <div style={{ fontSize: '11px', color: '#00ff88', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            {gpuBenchResult.gpus.map((g, i) => (
+              <span key={i}>
+                ✅ {g.name}: {g.vram_free_mb} MB frei · {g.memory_bandwidth_gbs} GB/s · {g.architecture}
+              </span>
+            ))}
+          </div>
+        )}
+        <button style={S.btnPrimary} onClick={handleGpuBenchmark} disabled={gpuBenching}>
+          {gpuBenching ? '⏳ Benchmark läuft…' : '🔥 GPU benchmarken'}
+        </button>
+      </div>
+
+      {/* GPU Benchmark Ergebnis */}
+      {gpuBenchResult?.ok && gpuBenchResult.gpus?.map((gpu, gi) => (
+        <div key={gi} style={S.section}>
+          <div style={S.sectionHeader}>
+            <span>🖥️ {gpu.name} — {gpu.architecture}</span>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+              Treiber: {gpu.driver_version} · PCIe Gen{gpu.pcie_gen} x{gpu.pcie_width}
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px', marginBottom: '12px' }}>
+            {[
+              { label: 'VRAM Frei', value: formatMB(gpu.vram_free_mb), color: '#00ff88' },
+              { label: 'VRAM Gesamt', value: formatMB(gpu.vram_total_mb), color: 'var(--accent)' },
+              { label: 'Bandbreite', value: `${gpu.memory_bandwidth_gbs} GB/s`, color: '#4488ff' },
+              { label: 'Temperatur', value: `${gpu.temperature_c}°C`, color: gpu.temperature_c > 80 ? '#ff4444' : '#00ff88' },
+              { label: 'Core Clock', value: `${gpu.clock_core_mhz} MHz`, color: 'var(--text-secondary)' },
+              { label: 'Power', value: `${Math.round(gpu.power_draw_w)}/${Math.round(gpu.power_limit_w)} W`, color: 'var(--text-secondary)' },
+            ].map((s, i) => (
+              <div key={i} style={{ padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', textAlign: 'center' }}>
+                <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{s.label}</div>
+                <div style={{ fontSize: '14px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: s.color }}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Geschätzte Token-Geschwindigkeit */}
+          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 600 }}>
+            Geschätzte Token/s nach Modellgröße:
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+            {Object.entries(gpu.estimated_token_speed).map(([key, tps]) => (
+              <div key={key} style={{
+                padding: '4px 10px', borderRadius: '6px', fontSize: '11px',
+                background: tps > 40 ? 'rgba(0,255,136,0.1)' : tps > 20 ? 'rgba(255,170,0,0.1)' : 'rgba(255,68,68,0.1)',
+                color: tps > 40 ? '#00ff88' : tps > 20 ? '#ffaa00' : '#ff4444',
+                fontFamily: 'var(--font-mono)',
+              }}>
+                {key.replace('_', ' ')}: <strong>{tps} t/s</strong>
+              </div>
+            ))}
+          </div>
+
+          {/* Modell-Empfehlungen */}
+          {gpu.model_recommendations?.length > 0 && (
+            <>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 600 }}>
+                Empfohlene Modellgrößen für diese GPU:
+              </div>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {gpu.model_recommendations.map((rec, ri) => (
+                  <div key={ri} style={{
+                    padding: '6px 10px', borderRadius: '6px', fontSize: '11px',
+                    background: rec.fits === 'full' ? 'rgba(0,255,136,0.08)' : 'rgba(255,170,0,0.08)',
+                    border: `1px solid ${rec.fits === 'full' ? 'rgba(0,255,136,0.2)' : 'rgba(255,170,0,0.2)'}`,
+                  }}>
+                    <div style={{ fontWeight: 600, color: rec.fits === 'full' ? '#00ff88' : '#ffaa00' }}>
+                      {rec.fits === 'full' ? '✅' : '⚠️'} {rec.label}
+                    </div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      {rec.quant} · Ctx: {rec.context.toLocaleString()} · ~{rec.est_tps} t/s
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      ))}
+
       {/* Scanner */}
       <div style={S.section}>
         <div style={S.sectionHeader}>
@@ -794,21 +1274,68 @@ export default function LLMManager({ windowId, onOpenWindow }) {
           />
         </div>
         {scanResults.length > 0 && (
-          <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+          <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
             {scanResults.map((r, i) => (
               <div key={i} style={S.scanRow}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '12px', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{r.filename || r.name}</div>
-                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{r.path} · {formatBytes(r.size)}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '14px' }}>{r.type === 'huggingface_dir' ? '🤗' : '📄'}</span>
+                    <span style={{ fontSize: '12px', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{r.filename || r.name}</span>
+                    {r.type === 'huggingface_dir' && (
+                      <span style={{ ...S.badge, fontSize: '9px', background: 'rgba(255,170,0,0.15)', color: '#ffaa00' }}>HF</span>
+                    )}
+                    {r.model_type && (
+                      <span style={{ ...S.badge, fontSize: '9px' }}>{r.model_type}</span>
+                    )}
+                    {r.param_estimate && (
+                      <span style={{ ...S.badge, fontSize: '9px', background: 'rgba(0,255,204,0.1)', color: 'var(--accent)' }}>{r.param_estimate}</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    {r.path} · {r.size_display || formatBytes(r.size)}
+                    {r.has_weights === false && <span style={{ color: '#ff6644', marginLeft: '6px' }}>⚠ Keine Gewichte</span>}
+                    {r.has_weights === true && <span style={{ color: '#00ff88', marginLeft: '6px' }}>✓ {r.weight_count} Gewichtsdatei(en)</span>}
+                    {r.quantization && <span style={{ marginLeft: '6px' }}>· Quantisierung: {r.quantization}</span>}
+                  </div>
                 </div>
-                <button style={S.btnSmall} onClick={() => handleAddModel(r)}>+ Hinzufügen</button>
+                <button style={S.btnSmall} onClick={() => handleAddModel({
+                  ...r,
+                  name: r.name_guess || r.filename,
+                  model_path: r.path,
+                  model_format: r.format || r.type,
+                })}>+ Hinzufügen</button>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* Model Registry */}
+      {/* Download von HuggingFace */}
+      <div style={S.section}>
+        <div style={S.sectionHeader}>
+          <span>⬇️ Modell herunterladen</span>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <input
+            style={{ ...S.input, flex: 1 }}
+            value={downloadRepo}
+            onChange={e => setDownloadRepo(e.target.value)}
+            placeholder="HuggingFace Repo-ID (z.B. Qwen/Qwen2.5-7B-Instruct-GGUF)"
+          />
+          <button
+            style={{ ...S.btnPrimary, whiteSpace: 'nowrap', opacity: downloading ? 0.5 : 1 }}
+            onClick={handleDownloadModel}
+            disabled={!!downloading || !downloadRepo.trim()}
+          >
+            {downloading ? '⏳ Lade…' : '⬇️ Download'}
+          </button>
+        </div>
+        <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+          Zielverzeichnis: /mnt/nvme/models · Unterstützt: GGUF, SafeTensors, PyTorch
+        </div>
+      </div>
+
+      {/* Model Registry — ALLE Modelle mit Start/Stop/Benchmark */}
       <div style={S.section}>
         <div style={S.sectionHeader}>
           <span>📦 Registrierte Modelle ({models.length})</span>
@@ -817,43 +1344,315 @@ export default function LLMManager({ windowId, onOpenWindow }) {
         {models.length === 0 ? (
           <div style={S.emptyState}>Keine Modelle registriert</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={S.table}>
-              <thead>
-                <tr>
-                  <th style={S.th}>Name</th>
-                  <th style={S.th}>Format</th>
-                  <th style={S.th}>VRAM</th>
-                  <th style={S.th}>Parameter</th>
-                  <th style={S.th}>Status</th>
-                  <th style={S.th}>Aktionen</th>
-                </tr>
-              </thead>
-              <tbody>
-                {models.map(m => (
-                  <tr key={m.id}>
-                    <td style={S.td}>
-                      <div style={{ fontWeight: 600 }}>{m.name}</div>
-                      <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{m.model_path || '—'}</div>
-                    </td>
-                    <td style={S.td}><span style={S.badge}>{m.format || m.model_format || '—'}</span></td>
-                    <td style={S.td}>{m.vram_required_mb ? formatMB(m.vram_required_mb) : '—'}</td>
-                    <td style={S.td}>{m.parameters || m.param_count || '—'}</td>
-                    <td style={S.td}>
-                      <span style={{ ...S.badge, background: m.state === 'active' ? 'rgba(0,255,136,0.1)' : 'rgba(255,255,255,0.05)', color: m.state === 'active' ? '#00ff88' : 'var(--text-secondary)' }}>
-                        {m.state || 'inaktiv'}
-                      </span>
-                    </td>
-                    <td style={S.td}>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <button style={S.btnSmall} onClick={() => handleRunBenchmark(m.id)} title="Benchmark">📊</button>
-                        <button style={S.btnDanger} onClick={() => handleRemoveModel(m)} title="Entfernen">🗑️</button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {models.map(m => {
+              const isActive = m.state === 'active' || m.state === 'loaded'
+              const isStarting = modelStarting === m.id
+              const isStopping = modelStopping === m.id
+              const isBenching = modelBenching === m.id
+              const isConfigOpen = selectedModelConfig === m.id
+              const hasGpu = gpuInfo.length > 0
+              const gpu0 = gpuInfo[0] || {}
+
+              return (
+                <div key={m.id} style={{
+                  padding: '12px 14px', background: 'var(--bg-surface)',
+                  border: `1px solid ${isActive ? 'rgba(0,255,136,0.3)' : 'var(--border)'}`,
+                  borderRadius: '10px',
+                  boxShadow: isActive ? '0 0 15px rgba(0,255,136,0.06)' : 'none',
+                }}>
+                  {/* Model Header Row */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: '200px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {isActive && <StateDot state="running" />}
+                        <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>{m.name}</span>
+                        <span style={S.badge}>{m.format || m.model_format || '—'}</span>
+                        {m.parameters || m.param_count ? (
+                          <span style={{ ...S.badge, background: 'rgba(0,255,204,0.1)', color: 'var(--accent)' }}>
+                            {m.parameters || m.param_count}
+                          </span>
+                        ) : null}
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
+                        {m.model_path || m.path || '—'}
+                        {m.vram_required_mb > 0 && ` · VRAM: ${formatMB(m.vram_required_mb)}`}
+                        {m.context_length > 0 && ` · Ctx: ${m.context_length?.toLocaleString()}`}
+                      </div>
+                    </div>
+
+                    {/* Status Badge */}
+                    <span style={{
+                      ...S.badge, fontSize: '10px', fontWeight: 600,
+                      background: isActive ? 'rgba(0,255,136,0.12)' : 'rgba(255,255,255,0.05)',
+                      color: isActive ? '#00ff88' : 'var(--text-secondary)',
+                    }}>
+                      {isActive ? '● Geladen' : '○ Verfügbar'}
+                    </span>
+
+                    {/* Action Buttons */}
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                      {/* Start / Stop */}
+                      {isActive ? (
+                        <button
+                          style={{ ...S.btnStop, opacity: isStopping ? 0.5 : 1 }}
+                          onClick={() => handleStopModel(m)}
+                          disabled={isStopping}
+                          title="Modell stoppen & entladen"
+                        >
+                          {isStopping ? '⏳' : '⏹'} Stoppen
+                        </button>
+                      ) : (
+                        <button
+                          style={{ ...S.btnStart, opacity: isStarting ? 0.5 : 1 }}
+                          onClick={() => handleStartModel(m)}
+                          disabled={isStarting}
+                          title="Modell auf GPU laden (Auto-Konfiguration)"
+                        >
+                          {isStarting ? '⏳' : '▶'} Starten
+                        </button>
+                      )}
+
+                      {/* Benchmark */}
+                      <button
+                        style={{ ...S.btnSmall, opacity: isBenching ? 0.5 : 1 }}
+                        onClick={() => handleRunBenchmark(m.id)}
+                        disabled={isBenching}
+                        title="GPU-Benchmark für dieses Modell"
+                      >
+                        {isBenching ? '⏳' : '📊'} Benchmark
+                      </button>
+
+                      {/* GPU Config */}
+                      <button
+                        style={{ ...S.btnSmall, background: isConfigOpen ? 'rgba(0,255,200,0.1)' : undefined }}
+                        onClick={() => handleShowModelConfig(m)}
+                        title="GPU-Einstellungen anzeigen"
+                      >
+                        ⚙️ GPU-Config
+                      </button>
+
+                      {/* Delete */}
+                      <button style={S.btnDanger} onClick={() => handleRemoveModel(m)} title="Modell entfernen">🗑️</button>
+                    </div>
+                  </div>
+
+                  {/* ── VRAM Echtzeit-Ladebalken (beim Laden/Entladen) ── */}
+                  {(isStarting || (isActive && vramLive?.gpus?.[0])) && (() => {
+                    const gpu = vramLive?.gpus?.[0] || (gpuInfo[0] ? { used_mb: gpuInfo[0].memory_used_mb, total_mb: gpuInfo[0].memory_total_mb, pct: Math.round(gpuInfo[0].memory_used_mb / gpuInfo[0].memory_total_mb * 100), util: gpuInfo[0].utilization, temp: gpuInfo[0].temperature, power_w: 0 } : null)
+                    if (!gpu) return null
+                    const llm = vramLive?.llm || {}
+                    const color = gpu.pct > 90 ? '#ff4444' : gpu.pct > 70 ? '#ffaa00' : '#00ff88'
+                    return (
+                      <div style={{ marginTop: '10px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(0,245,255,0.03)', border: '1px solid rgba(0,245,255,0.12)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                          <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            {isStarting ? '⏳ GPU wird geladen…' : `✅ ${llm.model || m.name} auf GPU`}
+                          </span>
+                          <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
+                            {gpu.temp}°C · {gpu.util}% · {gpu.power_w > 0 ? `${Math.round(gpu.power_w)}W` : ''}
+                          </span>
+                        </div>
+                        <div style={{ height: '22px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', overflow: 'hidden', position: 'relative' }}>
+                          <div style={{
+                            height: '100%', width: `${gpu.pct}%`, borderRadius: '6px',
+                            background: `linear-gradient(90deg, ${color}66, ${color})`,
+                            transition: 'width 0.8s ease-out',
+                            boxShadow: isStarting ? `0 0 12px ${color}44` : 'none',
+                            animation: isStarting ? 'pulse 1.5s infinite' : 'none',
+                          }} />
+                          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,0.9)' }}>
+                            {formatMB(gpu.used_mb)} / {formatMB(gpu.total_mb)} VRAM ({gpu.pct}%)
+                          </div>
+                        </div>
+                        {llm.healthy !== undefined && (
+                          <div style={{ marginTop: '4px', fontSize: '10px', color: llm.healthy ? '#00ff88' : '#ffaa00' }}>
+                            {llm.healthy ? `● LLM-Server bereit (${llm.device?.toUpperCase()}, ${llm.gpu_layers} Layer)` : '○ LLM-Server startet…'}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
+
+                  {/* GPU Configuration Panel (expandable) */}
+                  {isConfigOpen && (
+                    <div style={{
+                      marginTop: '12px', padding: '12px', borderRadius: '8px',
+                      background: 'rgba(0,255,200,0.03)', border: '1px solid rgba(0,255,200,0.12)',
+                    }}>
+                      <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--accent)', marginBottom: '10px' }}>
+                        ⚙️ GPU-Konfiguration — {m.name}
+                      </div>
+
+                      {modelRecommendation?.recommended ? (() => {
+                        const rec = modelRecommendation.recommended
+                        const gpuData = modelRecommendation.gpu || {}
+                        const overrides = modelConfigOverrides[m.id] || {}
+
+                        return (
+                          <div>
+                            {/* GPU + Model Summary */}
+                            <div style={{ display: 'flex', gap: '16px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                              <div style={{ flex: 1, minWidth: '150px' }}>
+                                <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px' }}>GPU</div>
+                                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                  {gpuData.name || 'Unbekannt'}
+                                </div>
+                                <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                                  VRAM: {formatMB(gpuData.vram_free_mb || 0)} frei von {formatMB(gpuData.vram_total_mb || 0)}
+                                  {gpuData.bandwidth_gbs ? ` · ${gpuData.bandwidth_gbs} GB/s` : ''}
+                                </div>
+                              </div>
+                              <div style={{ flex: 1, minWidth: '150px' }}>
+                                <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Offload-Status</div>
+                                <div style={{
+                                  fontSize: '13px', fontWeight: 700,
+                                  color: rec.fits_fully ? '#00ff88' : rec.offload_pct > 50 ? '#ffaa00' : '#ff4444',
+                                }}>
+                                  {rec.fits_fully ? '✅ Vollständig auf GPU' : `⚠️ ${rec.offload_pct}% auf GPU`}
+                                </div>
+                                <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                                  {rec.n_gpu_layers} / {rec.total_layers} Layer · {formatMB(rec.vram_needed_mb)} benötigt
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* VRAM Visualisierung */}
+                            <VramBar
+                              used={rec.vram_needed_mb}
+                              total={gpuData.vram_free_mb || rec.vram_available_mb}
+                              label="VRAM-Belegung durch dieses Modell"
+                              height={20}
+                            />
+
+                            {/* Konfiguration zum Anpassen */}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px', marginTop: '12px' }}>
+                              <label style={S.label}>
+                                GPU-Layer ({rec.total_layers} max)
+                                <input
+                                  style={S.input}
+                                  type="number"
+                                  min={0}
+                                  max={rec.total_layers}
+                                  value={overrides.n_gpu_layers ?? rec.n_gpu_layers}
+                                  onChange={e => setModelConfigOverrides(prev => ({
+                                    ...prev,
+                                    [m.id]: { ...(prev[m.id] || {}), n_gpu_layers: +e.target.value }
+                                  }))}
+                                />
+                                <div style={{ fontSize: '9px', color: 'var(--text-secondary)' }}>
+                                  Empfohlen: {rec.n_gpu_layers} — Mehr = schneller, mehr VRAM
+                                </div>
+                              </label>
+
+                              <label style={S.label}>
+                                Kontext-Größe
+                                <select
+                                  style={S.select}
+                                  value={overrides.context_size ?? rec.context_size}
+                                  onChange={e => setModelConfigOverrides(prev => ({
+                                    ...prev,
+                                    [m.id]: { ...(prev[m.id] || {}), context_size: +e.target.value }
+                                  }))}
+                                >
+                                  {[2048, 4096, 8192, 16384, 32768, 65536, 131072].map(v => (
+                                    <option key={v} value={v}>{v.toLocaleString()} Token</option>
+                                  ))}
+                                </select>
+                                <div style={{ fontSize: '9px', color: 'var(--text-secondary)' }}>
+                                  Empfohlen: {rec.context_size.toLocaleString()} — Größer = mehr VRAM
+                                </div>
+                              </label>
+
+                              <label style={S.label}>
+                                Batch-Größe
+                                <select
+                                  style={S.select}
+                                  value={overrides.batch_size ?? rec.batch_size}
+                                  onChange={e => setModelConfigOverrides(prev => ({
+                                    ...prev,
+                                    [m.id]: { ...(prev[m.id] || {}), batch_size: +e.target.value }
+                                  }))}
+                                >
+                                  {[128, 256, 512, 1024, 2048].map(v => (
+                                    <option key={v} value={v}>{v}</option>
+                                  ))}
+                                </select>
+                                <div style={{ fontSize: '9px', color: 'var(--text-secondary)' }}>
+                                  Empfohlen: {rec.batch_size}
+                                </div>
+                              </label>
+
+                              <label style={S.label}>
+                                Threads
+                                <input
+                                  style={S.input}
+                                  type="number"
+                                  min={1}
+                                  max={64}
+                                  value={overrides.threads ?? rec.threads}
+                                  onChange={e => setModelConfigOverrides(prev => ({
+                                    ...prev,
+                                    [m.id]: { ...(prev[m.id] || {}), threads: +e.target.value }
+                                  }))}
+                                />
+                                <div style={{ fontSize: '9px', color: 'var(--text-secondary)' }}>
+                                  Empfohlen: {rec.threads}
+                                </div>
+                              </label>
+
+                              <label style={S.label}>
+                                Backend
+                                <select
+                                  style={S.select}
+                                  value={overrides.backend || 'llama.cpp'}
+                                  onChange={e => setModelConfigOverrides(prev => ({
+                                    ...prev,
+                                    [m.id]: { ...(prev[m.id] || {}), backend: e.target.value }
+                                  }))}
+                                >
+                                  {BACKENDS.map(b => (
+                                    <option key={b.value} value={b.value}>{b.icon} {b.label}</option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+
+                            {/* Quick-Start */}
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '12px', alignItems: 'center' }}>
+                              <button
+                                style={S.btnPrimary}
+                                onClick={() => handleStartModel(m)}
+                                disabled={isStarting || isActive}
+                              >
+                                {isStarting ? '⏳ Wird geladen…' : isActive ? '✅ Läuft bereits' : '🚀 Mit diesen Einstellungen starten'}
+                              </button>
+                              <button
+                                style={S.btnSmall}
+                                onClick={() => {
+                                  setModelConfigOverrides(prev => {
+                                    const copy = { ...prev }
+                                    delete copy[m.id]
+                                    return copy
+                                  })
+                                }}
+                              >
+                                ↺ Zurücksetzen
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })() : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-secondary)', fontSize: '12px' }}>
+                          <span style={{ animation: 'pulse 1s infinite' }}>⏳</span>
+                          GPU-Empfehlung wird berechnet…
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
@@ -1145,6 +1944,92 @@ export default function LLMManager({ windowId, onOpenWindow }) {
         )}
       </div>
 
+      {/* VRAM Budget & Monitoring */}
+      <div style={S.section}>
+        <div style={S.sectionHeader}>
+          <span>📊 VRAM Budget</span>
+          <button style={S.btnSmall} onClick={loadVramBudget}>↻</button>
+        </div>
+        {vramBudget?.gpus?.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {vramBudget.gpus.map((gpu, i) => (
+              <div key={i} style={{
+                ...S.gpuDetailCard,
+                borderLeft: `3px solid ${gpu.alert === 'critical' ? '#ff4444' : gpu.alert === 'warning' ? '#ffaa00' : 'var(--accent)'}`,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <div>
+                    <span style={{ fontWeight: 600, fontSize: '13px' }}>GPU {gpu.gpu_index}: {gpu.name}</span>
+                    {gpu.alert !== 'ok' && (
+                      <span style={{
+                        ...S.badge, marginLeft: '8px', fontSize: '9px',
+                        background: gpu.alert === 'critical' ? 'rgba(255,68,68,0.15)' : 'rgba(255,170,0,0.15)',
+                        color: gpu.alert === 'critical' ? '#ff4444' : '#ffaa00',
+                      }}>
+                        {gpu.alert === 'critical' ? '🔴 KRITISCH' : '🟡 WARNUNG'}
+                      </span>
+                    )}
+                  </div>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--accent)' }}>
+                    {gpu.temp_c}°C · {gpu.utilization_pct}% GPU
+                  </span>
+                </div>
+                <VramBar
+                  used={gpu.vram_used_mb}
+                  total={gpu.vram_total_mb}
+                  label={`${Math.round(gpu.vram_used_mb)} / ${Math.round(gpu.vram_total_mb)} MB (${gpu.vram_pct}%)`}
+                  height={20}
+                />
+                {gpu.alert_message && (
+                  <div style={{
+                    marginTop: '6px', padding: '6px 10px', borderRadius: '4px', fontSize: '11px',
+                    background: gpu.alert === 'critical' ? 'rgba(255,68,68,0.1)' : 'rgba(255,170,0,0.1)',
+                    color: gpu.alert === 'critical' ? '#ff4444' : '#ffaa00',
+                    border: `1px solid ${gpu.alert === 'critical' ? 'rgba(255,68,68,0.3)' : 'rgba(255,170,0,0.3)'}`,
+                  }}>
+                    ⚠️ {gpu.alert_message}
+                  </div>
+                )}
+              </div>
+            ))}
+            {/* Geladene Modelle */}
+            {vramBudget.loaded_models?.length > 0 && (
+              <div style={{ marginTop: '4px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>
+                  Geladene Modelle ({vramBudget.loaded_models.length})
+                </div>
+                {vramBudget.loaded_models.map((lm, i) => (
+                  <div key={i} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '4px 8px', fontSize: '11px',
+                    borderBottom: '1px solid var(--border)',
+                  }}>
+                    <span style={{ fontWeight: 500 }}>{lm.name}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
+                      GPU {lm.gpu_index} · {lm.required_vram_mb ? `${lm.required_vram_mb} MB` : '—'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {vramBudget.alerts?.length > 0 && (
+              <div style={{
+                padding: '10px 14px', borderRadius: 'var(--radius)', fontSize: '12px',
+                background: 'rgba(255,68,68,0.08)', border: '1px solid rgba(255,68,68,0.25)',
+                color: '#ff6644',
+              }}>
+                ⚠️ <strong>Admin-Hinweis:</strong> {vramBudget.alerts.length} GPU(s) mit hoher VRAM-Auslastung.
+                Modelle entladen oder auf mehrere GPUs verteilen.
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={S.emptyState}>
+            Keine GPU-Daten verfügbar. nvidia-smi nicht erreichbar oder kein GPU vorhanden.
+          </div>
+        )}
+      </div>
+
       {/* WebUI Links */}
       <div style={S.section}>
         <div style={S.sectionHeader}>
@@ -1152,11 +2037,39 @@ export default function LLMManager({ windowId, onOpenWindow }) {
         </div>
         <div style={S.webuiGrid}>
           {DEFAULT_WEBUIS.map((ui, i) => (
-            <div key={i} style={S.webuiCard} onClick={() => openWebFrame(ui.url, ui.name)}>
+            <div key={i} style={{ ...S.webuiCard, position: 'relative' }}>
               <div style={{ fontSize: '28px' }}>{ui.icon}</div>
               <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>{ui.name}</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{ui.desc}</div>
-              <div style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>:{ui.port}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', minHeight: '28px' }}>{ui.desc}</div>
+              <div style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--accent)', marginBottom: '6px' }}>:{ui.port}</div>
+              <div style={{ display: 'flex', gap: '4px', width: '100%' }}>
+                <button
+                  style={{ ...S.btnSmall, flex: 1, fontSize: '10px', padding: '4px 6px' }}
+                  onClick={(e) => { e.stopPropagation(); openWebFrame(ui.url, ui.name) }}
+                  title="Im Browser öffnen"
+                >🌐 Öffnen</button>
+                {ui.installCmd && (
+                  <button
+                    style={{ ...S.btnSmall, flex: 1, fontSize: '10px', padding: '4px 6px', background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.3)', color: '#00ff88' }}
+                    onClick={async (e) => {
+                      e.stopPropagation()
+                      if (!confirm(`${ui.name} installieren?\n\nBefehl:\n${ui.installCmd}`)) return
+                      try {
+                        const r = await api.installService(ui.name, ui.installCmd, ui.port)
+                        alert(r.ok ? `✅ ${ui.name} installiert!` : `❌ Fehler: ${r.error}`)
+                      } catch (err) { alert(`❌ Installation fehlgeschlagen: ${err.message}`) }
+                    }}
+                    title={`${ui.name} installieren`}
+                  >⬇️ Install</button>
+                )}
+                {ui.repo && (
+                  <button
+                    style={{ ...S.btnSmall, fontSize: '10px', padding: '4px 6px' }}
+                    onClick={(e) => { e.stopPropagation(); openWebFrame(ui.repo, `${ui.name} Repo`) }}
+                    title="GitHub-Repo öffnen"
+                  >🔗</button>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -1167,6 +2080,24 @@ export default function LLMManager({ windowId, onOpenWindow }) {
   /* ─── TAB: BENCHMARKS ───────────────────────────── */
   const renderBenchmarks = () => (
     <div style={S.tabContent}>
+      {/* GPU Benchmark Button */}
+      <div style={{
+        padding: '10px 14px', borderRadius: '8px',
+        background: 'rgba(68,136,255,0.04)', border: '1px solid rgba(68,136,255,0.15)',
+        display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
+      }}>
+        <span style={{ fontSize: '18px' }}>🔥</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>GPU-Hardware benchmarken</div>
+          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+            Testet VRAM-Kapazität, Bandbreite und berechnet optimale Modell-Einstellungen
+          </div>
+        </div>
+        <button style={S.btnPrimary} onClick={handleGpuBenchmark} disabled={gpuBenching}>
+          {gpuBenching ? '⏳ Läuft…' : '🔥 GPU benchmarken'}
+        </button>
+      </div>
+
       <div style={S.section}>
         <div style={S.sectionHeader}>
           <span>📊 Benchmark-Ergebnisse ({benchmarks.length})</span>
@@ -1177,45 +2108,278 @@ export default function LLMManager({ windowId, onOpenWindow }) {
             <div style={{ fontSize: '48px', marginBottom: '12px' }}>📊</div>
             <div>Keine Benchmark-Daten</div>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>
-              Starte einen Benchmark im Modelle-Tab
+              Starte einen Benchmark im Modelle-Tab (📊-Button bei jedem Modell)
             </div>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={S.table}>
-              <thead>
-                <tr>
-                  <th style={S.th}>Modell</th>
-                  <th style={S.th}>Token/s</th>
-                  <th style={S.th}>TTFT</th>
-                  <th style={S.th}>Speicher</th>
-                  <th style={S.th}>Score</th>
-                  <th style={S.th}>Datum</th>
-                </tr>
-              </thead>
-              <tbody>
-                {benchmarks.map((b, i) => (
-                  <tr key={i}>
-                    <td style={S.td}>{b.model_name || b.model || '—'}</td>
-                    <td style={S.td}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{b.tokens_per_second ? b.tokens_per_second.toFixed(1) : '—'}</span>
-                        <QualityBar value={b.tokens_per_second || 0} max={100} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {benchmarks.map((b, i) => {
+              const ratingColors = {
+                excellent: '#00ff88', good: '#00ffc8', fair: '#ffaa00', poor: '#ff4444',
+              }
+              const ratingLabels = {
+                excellent: '🏆 Exzellent', good: '✅ Gut', fair: '⚠️ Mittel', poor: '❌ Langsam',
+              }
+              return (
+                <div key={i} style={{
+                  padding: '12px 14px', background: 'var(--bg-surface)',
+                  border: '1px solid var(--border)', borderRadius: '10px',
+                  borderLeft: `3px solid ${ratingColors[b.rating] || '#888'}`,
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>
+                        {b.model_name || '—'}
+                      </span>
+                      <span style={{
+                        ...S.badge, fontSize: '10px',
+                        background: `${ratingColors[b.rating] || '#888'}15`,
+                        color: ratingColors[b.rating] || '#888',
+                      }}>
+                        {ratingLabels[b.rating] || b.rating}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                      {b.created_at ? new Date(b.created_at).toLocaleString('de-DE') : '—'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '8px' }}>
+                    <div style={{ textAlign: 'center', padding: '6px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Token/s</div>
+                      <div style={{ fontSize: '16px', fontWeight: 700, color: ratingColors[b.rating] || '#00ffc8', fontFamily: 'var(--font-mono)' }}>
+                        {b.tokens_per_second?.toFixed(1) || '—'}
                       </div>
-                    </td>
-                    <td style={S.td}>{b.time_to_first_token ? b.time_to_first_token.toFixed(0) + 'ms' : '—'}</td>
-                    <td style={S.td}>{b.memory_used_mb ? formatMB(b.memory_used_mb) : '—'}</td>
-                    <td style={S.td}>
-                      <span style={{ fontWeight: 700, color: '#00ffc8' }}>{b.overall_score ? b.overall_score.toFixed(1) : '—'}</span>
-                    </td>
-                    <td style={S.td}>{b.created_at ? new Date(b.created_at).toLocaleDateString('de-DE') : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      <QualityBar value={b.tokens_per_second || 0} max={100} color={ratingColors[b.rating]} />
+                    </div>
+                    <div style={{ textAlign: 'center', padding: '6px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Prompt t/s</div>
+                      <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
+                        {b.prompt_eval_tps?.toFixed(1) || '—'}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'center', padding: '6px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>TTFT</div>
+                      <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
+                        {b.time_to_first_token_ms ? Math.round(b.time_to_first_token_ms) + 'ms' : '—'}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'center', padding: '6px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>GPU-Layer</div>
+                      <div style={{ fontSize: '16px', fontWeight: 700, color: '#4488ff', fontFamily: 'var(--font-mono)' }}>
+                        {b.n_gpu_layers ?? '—'}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'center', padding: '6px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Kontext</div>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
+                        {b.context_size?.toLocaleString() || '—'}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'center', padding: '6px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>VRAM</div>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
+                        {b.vram_mb ? formatMB(b.vram_mb) : '—'}
+                      </div>
+                    </div>
+                  </div>
+                  {/* GPU + Details */}
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '6px', fontFamily: 'var(--font-mono)' }}>
+                    {b.gpu_name && `GPU: ${b.gpu_name} · `}
+                    {b.quantization && `Quant: ${b.quantization} · `}
+                    {b.batch_size && `Batch: ${b.batch_size} · `}
+                    {b.backend && `Backend: ${b.backend}`}
+                  </div>
+                  {b.notes && (
+                    <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px', opacity: 0.7 }}>
+                      {b.notes}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
+    </div>
+  )
+
+  /* ─── TAB: GHOSTS (Hot-Swap) ────────────────────── */
+  const renderGhosts = () => (
+    <div style={S.tabContent}>
+      {/* Ghost Sub-Tabs */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
+        {['roles', 'models', 'history'].map(t => (
+          <button
+            key={t}
+            onClick={() => { setGhostTab(t); if (t === 'history') loadGhostHistory() }}
+            style={{
+              padding: '6px 16px', borderRadius: 'var(--radius)',
+              border: `1px solid ${ghostTab === t ? 'var(--accent)' : 'var(--border)'}`,
+              background: ghostTab === t ? 'rgba(0,255,204,0.1)' : 'transparent',
+              color: ghostTab === t ? 'var(--accent)' : 'var(--text-secondary)',
+              cursor: 'pointer', fontSize: '12px',
+            }}
+          >
+            {t === 'roles' ? '🎭 Rollen' : t === 'models' ? '🧠 Modelle' : '📜 History'}
+          </button>
+        ))}
+      </div>
+
+      {/* Ghost Roles View */}
+      {ghostTab === 'roles' && (
+        <div style={S.section}>
+          <div style={S.sectionHeader}>
+            <span>👻 Ghost Hot-Swap ({ghostData.roles.length} Rollen)</span>
+            <button style={S.btnSmall} onClick={loadGhosts}>↻</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '10px' }}>
+            {ghostData.roles.map(role => {
+              const active = getActiveModelForRole(role.name)
+              const compat = getCompatModels(role.name)
+              return (
+                <div
+                  key={role.id}
+                  style={{
+                    ...S.roleCard,
+                    borderLeft: active ? '3px solid var(--accent)' : '3px solid var(--border)',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setSelectedGhostRole(selectedGhostRole === role.name ? null : role.name)}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '24px' }}>{role.icon}</span>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '14px', color: role.color || 'var(--text-primary)' }}>
+                        {role.display_name}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        {role.description}
+                      </div>
+                    </div>
+                  </div>
+                  {active ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '12px' }}>🧠 {active.model_display}</span>
+                      <span style={S.badgeGreen}>● Aktiv</span>
+                    </div>
+                  ) : (
+                    <span style={S.badgeGray}>○ Kein Ghost</span>
+                  )}
+                  {/* Expanded: Model Selection */}
+                  {selectedGhostRole === role.name && (
+                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                        Ghost zuweisen:
+                      </div>
+                      {compat.map(c => (
+                        <div
+                          key={c.model_name}
+                          onClick={(e) => { e.stopPropagation(); handleGhostSwap(role.name, c.model_name) }}
+                          style={{
+                            padding: '6px 10px', marginBottom: '4px', borderRadius: '6px',
+                            border: '1px solid var(--border)', cursor: ghostSwapping ? 'wait' : 'pointer',
+                            fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            background: active?.model_name === c.model_name ? 'rgba(0,255,204,0.08)' : 'transparent',
+                          }}
+                        >
+                          <span>{c.model_name}</span>
+                          <span style={{
+                            color: c.fitness_score > 0.8 ? '#00ff88' : c.fitness_score > 0.5 ? '#ffaa00' : '#ff4444',
+                            fontFamily: 'var(--font-mono)',
+                          }}>
+                            {(c.fitness_score * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                      ))}
+                      {compat.length === 0 && (
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Keine kompatiblen Modelle</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+            {ghostData.roles.length === 0 && (
+              <div style={S.emptyState}>Keine Ghost-Rollen definiert</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Ghost Models View */}
+      {ghostTab === 'models' && (
+        <div style={S.section}>
+          <div style={S.sectionHeader}>
+            <span>🧠 Ghost-Modelle ({ghostData.models.length})</span>
+            <button style={S.btnSmall} onClick={loadGhosts}>↻</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '10px' }}>
+            {ghostData.models.map(model => (
+              <div key={model.id} style={S.roleCard}>
+                <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>{model.display_name}</div>
+                <div style={{ fontSize: '12px', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', marginTop: '4px' }}>{model.name}</div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '8px', flexWrap: 'wrap' }}>
+                  <span style={{ ...S.badge, background: model.is_loaded ? 'rgba(0,255,136,0.1)' : 'rgba(255,255,255,0.05)', color: model.is_loaded ? '#00ff88' : 'var(--text-secondary)' }}>
+                    {model.is_loaded ? '● Geladen' : '○ Verfügbar'}
+                  </span>
+                  <span style={{ ...S.badge, fontSize: '10px' }}>
+                    {model.parameter_count} · {model.quantization || 'F16'}
+                  </span>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                  Provider: {model.provider} · Ctx: {model.context_size}
+                  {model.requires_gpu && ' · 🎮 GPU'}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  {model.total_requests} Anfragen · ⌀ {model.avg_latency_ms?.toFixed(0) || 0}ms
+                </div>
+                {model.capabilities && (
+                  <div style={{ display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' }}>
+                    {model.capabilities.map(cap => (
+                      <span key={cap} style={{ padding: '1px 6px', fontSize: '9px', borderRadius: '8px', background: 'rgba(68,136,255,0.15)', color: 'var(--info)' }}>{cap}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            {ghostData.models.length === 0 && (
+              <div style={S.emptyState}>Keine Ghost-Modelle registriert</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Ghost History View */}
+      {ghostTab === 'history' && (
+        <div style={S.section}>
+          <div style={S.sectionHeader}>
+            <span>📜 Ghost Swap History</span>
+            <button style={S.btnSmall} onClick={loadGhostHistory}>↻</button>
+          </div>
+          {ghostHistory.map((h, i) => (
+            <div key={i} style={{
+              padding: '10px 12px', borderBottom: '1px solid var(--border)',
+              display: 'flex', gap: '12px', alignItems: 'center', fontSize: '12px',
+            }}>
+              <span>{h.success ? '✅' : '❌'}</span>
+              <div style={{ flex: 1 }}>
+                <div>
+                  <strong>{h.role_name}</strong>: {h.old_model_name || '—'} → {h.new_model_name}
+                </div>
+                <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                  {h.swap_reason} · {h.swap_duration_ms}ms · {h.initiated_by}
+                </div>
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                {new Date(h.ts).toLocaleString('de-DE')}
+              </div>
+            </div>
+          ))}
+          {ghostHistory.length === 0 && (
+            <div style={S.emptyState}>Keine Ghost-Wechsel protokolliert</div>
+          )}
+        </div>
+      )}
     </div>
   )
 
@@ -1225,6 +2389,7 @@ export default function LLMManager({ windowId, onOpenWindow }) {
   const TABS = [
     { key: 'agents', icon: '🤖', label: 'Agenten' },
     { key: 'models', icon: '📦', label: 'Modelle' },
+    { key: 'ghosts', icon: '👻', label: 'Ghosts' },
     { key: 'roles', icon: '🎭', label: 'Rollen' },
     { key: 'jobs', icon: '⏰', label: 'Jobs' },
     { key: 'pipelines', icon: '🔗', label: 'Pipelines' },
@@ -1237,8 +2402,8 @@ export default function LLMManager({ windowId, onOpenWindow }) {
       {/* Header */}
       <div style={S.header}>
         <div style={S.headerLeft}>
-          <span style={{ fontSize: '20px' }}>🧠</span>
-          <span style={{ fontWeight: 700, fontSize: '15px' }}>Mission Control</span>
+          <span style={{ fontSize: '20px' }}>👻</span>
+          <span style={{ fontWeight: 700, fontSize: '15px' }}>Ghost LLM Manager</span>
           <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
             {instances.filter(i => i.state === 'running').length} aktiv · {gpuInfo.length} GPU{gpuInfo.length !== 1 ? 's' : ''}
           </span>
@@ -1268,19 +2433,28 @@ export default function LLMManager({ windowId, onOpenWindow }) {
             )}
           </button>
         ))}
+        <div style={{ flex: 1 }} />
+        <button onClick={() => setShowAppSettings(v => !v)} style={{ ...S.tabBtn, ...(showAppSettings ? S.tabBtnActive : {}) }}>
+          <span>⚙️</span><span>Settings</span>
+        </button>
       </div>
 
       {/* Content */}
       <div style={S.content}>
-        {loading ? (
+        {showAppSettings ? (
+          <div style={{ padding: '16px', overflow: 'auto' }}>
+            <AppSettingsPanel schema={appSchema} settings={appSettings} onUpdate={updateAppSetting} onReset={resetAppSettings} title="Ghost LLM Manager" />
+          </div>
+        ) : loading ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ fontSize: '36px', animation: 'pulse 1.5s infinite' }}>🧠</div>
-            <div style={{ fontSize: '13px', color: 'var(--accent)' }}>Mission Control wird geladen…</div>
+            <div style={{ fontSize: '36px', animation: 'pulse 1.5s infinite' }}>👻</div>
+            <div style={{ fontSize: '13px', color: 'var(--accent)' }}>Ghost LLM Manager wird geladen…</div>
           </div>
         ) : (
           <>
             {tab === 'agents' && renderAgents()}
             {tab === 'models' && renderModels()}
+            {tab === 'ghosts' && renderGhosts()}
             {tab === 'roles' && renderRoles()}
             {tab === 'jobs' && renderJobs()}
             {tab === 'pipelines' && renderPipelines()}

@@ -1,15 +1,31 @@
 # =============================================================================
-# DBAI Ghost-API — Dockerfile
+# DBAI Ghost-API — Dockerfile (Multi-Arch: x86_64 + arm64)
 # =============================================================================
 # FastAPI + Bridge-Module + C-Bindings
 # Für docker compose: ghost-api Service
+#
+# Build:
+#   docker build -f dev/Dockerfile.api -t dbai-ghost-api .
+#   docker buildx build --platform linux/amd64,linux/arm64 -f dev/Dockerfile.api -t dbai-ghost-api .
 # =============================================================================
 
 FROM python:3.11-slim-bookworm AS base
 
-# System-Pakete für C-Bindings, psutil, psycopg2
+# ─── Architektur-Erkennung ────────────────────────────────────────
+ARG TARGETPLATFORM
+ARG TARGETARCH
+ARG BUILDPLATFORM
+
+LABEL org.opencontainers.image.title="GhostShell OS — Ghost API"
+LABEL org.opencontainers.image.description="Neural Bridge: FastAPI + Hardware Bridge + LLM"
+LABEL org.opencontainers.image.architecture="${TARGETARCH}"
+LABEL org.opencontainers.image.source="https://github.com/Repair-Lab/claw-in-the-shell"
+
+# ─── System-Pakete (architektur-neutral) ──────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    g++ \
+    cmake \
     make \
     libc6-dev \
     libpq-dev \
@@ -21,19 +37,39 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iproute2 \
     net-tools \
     procps \
+    # Playwright / Chromium dependencies
+    libglib2.0-0 \
+    libnss3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libx11-6 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libxkbcommon0 \
+    libpangocairo-1.0-0 \
+    libpango-1.0-0 \
+    fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Python-Abhängigkeiten
+# ─── Python-Abhängigkeiten (Multi-Arch aware) ─────────────────────
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# Install Playwright Python package and download Chromium for Playwright
+RUN pip install --no-cache-dir playwright && \
+    python3 -m playwright install chromium
 
-# C-Bindings kompilieren
+# ─── C-Bindings kompilieren (passt sich an Arch an) ──────────────
 COPY bridge/c_bindings/ /app/bridge/c_bindings/
-RUN cd /app/bridge/c_bindings && make clean && make
+RUN cd /app/bridge/c_bindings && make clean && make \
+    && echo "C-Bindings compiled for $(uname -m)"
 
-# Anwendungscode (wird via Volume auch live gemountet)
+# ─── Anwendungscode (wird via Volume auch live gemountet) ────────
 COPY bridge/ /app/bridge/
 COPY web/ /app/web/
 COPY llm/ /app/llm/
@@ -43,12 +79,15 @@ COPY schema/ /app/schema/
 COPY scripts/ /app/scripts/
 COPY tests/ /app/tests/
 
-# Frontend-Build (falls vorhanden)
-COPY frontend/dist/ /app/frontend/dist/ 2>/dev/null || true
+# ─── Frontend-Build (falls vorhanden) ─────────────────────────────
+COPY frontend/dist/ /app/frontend/dist/
+
+# ─── Architektur-Marker für Runtime-Erkennung ─────────────────────
+RUN echo "{\"arch\": \"$(uname -m)\", \"platform\": \"${TARGETPLATFORM:-linux/$(uname -m)}\", \"build_date\": \"$(date -Iseconds)\"}" > /app/.arch-info.json
 
 EXPOSE 3000
 
-HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=15s \
+HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=20s \
     CMD curl -sf http://localhost:3000/api/health || exit 1
 
 CMD ["python3", "-m", "uvicorn", "web.server:app", \

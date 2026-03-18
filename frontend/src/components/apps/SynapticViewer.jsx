@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 export default function SynapticViewer() {
+  const { settings, schema, update, reset } = useAppSettings('synaptic_viewer')
+  const [showSettings, setShowSettings] = useState(false)
   const [stats, setStats] = useState(null)
   const [memories, setMemories] = useState([])
   const [filter, setFilter] = useState('all')
@@ -26,6 +30,11 @@ export default function SynapticViewer() {
       loadStats()
       alert(`${result.consolidated || 0} Memories konsolidiert`)
     } catch { /* ignore */ }
+  }
+
+  const deleteMemory = async (id) => {
+    if (!confirm('Memory wirklich löschen?')) return
+    try { await api.synapticDeleteMemory(id); loadMemories() } catch { /* */ }
   }
 
   const typeColors = {
@@ -62,7 +71,11 @@ export default function SynapticViewer() {
 
   return (
     <div style={S.container}>
-      <div style={S.h}><span>🧠</span> Synaptic Memory</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={S.h}>🧠 Synaptic Memory</div>
+        <button style={{ ...S.btn, padding: '4px 10px' }} onClick={() => setShowSettings(!showSettings)}>⚙️</button>
+      </div>
+      {showSettings && <AppSettingsPanel settings={settings} schema={schema} onUpdate={update} onReset={reset} />}
 
       {stats?.database && (
         <div style={{ ...S.card, display: 'flex', justifyContent: 'space-around', textAlign: 'center', marginBottom: '16px' }}>
@@ -116,6 +129,7 @@ export default function SynapticViewer() {
                 {importanceBar(m.importance || 0)}
               </div>
             </div>
+            <button style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '14px', padding: '4px', opacity: 0.6 }} onClick={() => deleteMemory(m.id)} title="Löschen">🗑</button>
           </div>
         </div>
       ))}

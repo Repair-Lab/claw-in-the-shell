@@ -30,7 +30,8 @@ INSERT INTO dbai_knowledge.known_issues (
     ARRAY['scripts/start_web.sh', 'web/server.py'],
     'Manuell starten: cd /home/worker/DBAI && python3 -m uvicorn web.server:app --host 0.0.0.0 --port 3000 --reload --reload-dir web &',
     '{"diagnosed_at": "2026-03-16", "root_cause": "kein systemd-service konfiguriert", "symptom": "Frontend zeigt Internal Server Error", "fix_planned": "systemd-Unit dbai-web.service in Stufe 1 erstellt aber nicht aktiviert"}'::jsonb
-);
+)
+ON CONFLICT DO NOTHING;
 
 -- Issue 2: psql Direktverbindung kann hängen
 INSERT INTO dbai_knowledge.known_issues (
@@ -51,7 +52,8 @@ INSERT INTO dbai_knowledge.known_issues (
     'Flags: -t (tuple only), -A (unaligned), wrapped in timeout. '
     'Für interaktiv: PAGER=cat sudo -u postgres psql -d dbai',
     '{"diagnosed_at": "2026-03-16", "root_cause": "pager_blocking_and_potential_locks", "symptom": "psql Befehle hängen, API funktioniert normal", "connection_pool": "asyncpg via web/server.py", "flags_required": "-t -A mit timeout"}'::jsonb
-);
+)
+ON CONFLICT DO NOTHING;
 
 -- Issue 3: Terminal-Sessions werden unresponsiv
 INSERT INTO dbai_knowledge.known_issues (
@@ -69,7 +71,8 @@ INSERT INTO dbai_knowledge.known_issues (
     'Neue Background-Terminal-Session starten statt die bestehende zu nutzen. '
     'Hängende Prozesse mit ``kill`` beenden. PTY-Buffer zurücksetzen mit ``reset``.',
     '{"diagnosed_at": "2026-03-16", "root_cause": "pty_blocking_by_zombie_processes", "symptom": "alle Befehle geben ^C zurück", "recovery": "neue Shell starten"}'::jsonb
-);
+)
+ON CONFLICT DO NOTHING;
 
 -- ============================================================================
 -- 2. SYSTEM MEMORY: Operationales Wissen aus der Diagnose
@@ -94,7 +97,8 @@ INSERT INTO dbai_knowledge.system_memory (
     ARRAY['web'],
     ARRAY['operations', 'restart', 'server', 'uvicorn', 'troubleshooting'],
     '0.8.0', 95, 'diagnostic-session'
-);
+)
+ON CONFLICT DO NOTHING;
 
 -- Memory 2: Login-Verifizierung
 INSERT INTO dbai_knowledge.system_memory (
@@ -120,7 +124,8 @@ INSERT INTO dbai_knowledge.system_memory (
     ARRAY['dbai_ui'],
     ARRAY['authentication', 'login', 'password', 'sha256', 'token', 'security'],
     '0.8.0', 90, 'diagnostic-session'
-);
+)
+ON CONFLICT DO NOTHING;
 
 -- Memory 3: DB-Verbindungsdiagnose
 INSERT INTO dbai_knowledge.system_memory (
@@ -149,7 +154,8 @@ INSERT INTO dbai_knowledge.system_memory (
     ARRAY['pg_stat_activity'],
     ARRAY['database', 'postgresql', 'psql', 'connection', 'diagnosis', 'troubleshooting'],
     '0.8.0', 85, 'diagnostic-session'
-);
+)
+ON CONFLICT DO NOTHING;
 
 -- Memory 4: Frontend-Backend Kommunikation
 INSERT INTO dbai_knowledge.system_memory (
@@ -176,7 +182,8 @@ INSERT INTO dbai_knowledge.system_memory (
     ARRAY['dbai_ui'],
     ARRAY['architecture', 'frontend', 'backend', 'api', 'communication', 'auth'],
     '0.8.0', 80, 'diagnostic-session'
-);
+)
+ON CONFLICT DO NOTHING;
 
 -- Memory 5: Diagnose-Zusammenfassung
 INSERT INTO dbai_knowledge.system_memory (
@@ -208,7 +215,8 @@ INSERT INTO dbai_knowledge.system_memory (
     ARRAY['dbai_ui', 'web'],
     ARRAY['incident', 'diagnosis', 'server-outage', 'login', 'postmortem'],
     '0.8.0', 100, 'diagnostic-session'
-);
+)
+ON CONFLICT DO NOTHING;
 
 -- ============================================================================
 -- 3. CHANGELOG: Diagnose-Session dokumentieren
@@ -237,6 +245,7 @@ INSERT INTO dbai_knowledge.changelog (
     'Einträge persistiert. Dient als Wissensbasis für zukünftige Diagnose-Sessions.',
     ARRAY['schema/32-diagnostic-session-seed.sql'],
     'diagnostic-session'
-);
+)
+ON CONFLICT DO NOTHING;
 
 COMMIT;
