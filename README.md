@@ -393,12 +393,22 @@ cd frontend && npm install && npm run dev
 - [x] **4 Hardware Profiles** — minimal, desktop, server, stress
 - [x] **Anomaly Injection** — overtemp, disk_fail, mem_leak, cpu_spike, network_flood
 
+### Previously Planned — Now Shipped ✅
+- [x] **Autonomous Coding** — Ghost writes SQL migrations via `autonomous_migrations` + `migration_runner.py`
+- [x] **Multi-GPU Parallel** — `plan_multi_gpu_split()` distributes layers across GPUs by available VRAM
+- [x] **Vision Integration** — `media_items` with `ai_caption`, `ai_ocr_text`, `ai_transcript`, `embedding` (pgvector)
+- [x] **Distributed Ghosts** — `ghost_nodes`, `distributed_tasks`, `node_heartbeats` tables + OTA sync
+- [x] **Model Marketplace** — `marketplace_catalog` + `model_downloads` tables with HuggingFace GGUF support
+
 ### Coming Soon
-- [ ] **Autonomous Coding** — Ghost writes its own SQL migrations
-- [ ] **Multi-GPU Parallel** — Split models across multiple GPUs
-- [ ] **Vision Integration** — Real-time video analysis in `media_metadata`
-- [ ] **Distributed Ghosts** — Multiple Ghost instances across nodes
-- [ ] **Model Marketplace** — Download and install GGUF models from HuggingFace directly
+- [ ] **Voice Interface** — Whisper STT + Piper TTS for hands-free Ghost interaction
+- [ ] **2FA / TOTP Authentication** — Time-based one-time passwords for login security
+- [ ] **LUKS Full-Disk Encryption** — Encrypted root partition with TPM2 auto-unlock
+- [ ] **Push Notifications** — WebPush + FCM for mobile alerts on security events
+- [ ] **Backup Manager App** — Scheduled pg_dump with S3/NFS/USB targets + retention policies
+- [ ] **Plugin System** — Hot-loadable Ghost Skills as database-registered modules
+- [ ] **Container Manager** — Podman/Docker container lifecycle from the desktop
+- [ ] **Clipboard Sync** — Cross-device clipboard sharing via Ghost-Net
 
 ---
 
