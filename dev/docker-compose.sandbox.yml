@@ -1,0 +1,147 @@
+# =============================================================================
+# DBAI GhostShell OS — Sandbox (Lokale Testumgebung)
+# =============================================================================
+# Isolierte Kopie des Prod-Stacks auf separaten Ports.
+# Daten bleiben lokal in dev/.sandbox-data/ und landen NIE im Git.
+#
+# Verwendung:
+#   ./dev/sandbox.sh up        — Sandbox starten
+#   ./dev/sandbox.sh down      — Sandbox stoppen (Daten bleiben)
+#   ./dev/sandbox.sh nuke      — Alles löschen (DB + Volumes)
+#   ./dev/sandbox.sh psql      — Direkt in die Sandbox-DB
+#   ./dev/sandbox.sh logs      — Logs folgen
+#
+# Oder manuell:
+#   docker compose -f dev/docker-compose.sandbox.yml up -d
+#   docker compose -f dev/docker-compose.sandbox.yml down
+#   docker compose -f dev/docker-compose.sandbox.yml down -v  ← Alles weg
+#
+# Ports:
+#   Sandbox API:  http://localhost:3100
+#   Sandbox DB:   localhost:5433
+#   Sandbox UI:   http://localhost:5174
+# =============================================================================
+
+services:
+  # ─── Sandbox PostgreSQL ───
+  sandbox-postgres:
+    image: pgvector/pgvector:pg16
+    container_name: dbai-sandbox-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: dbai_sandbox
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: dbai2026
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C.UTF-8"
+    volumes:
+      - ./.sandbox-data/pgdata:/var/lib/postgresql/data
+      - ../schema:/docker-entrypoint-initdb.d/schema:ro
+      - ../dev/init-db.sh:/docker-entrypoint-initdb.d/00-init.sh:ro
+      - ../config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ../config/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U root -d dbai_sandbox"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - sandbox-net
+    shm_size: "256mb"
+    command: >
+      postgres
+        -c shared_buffers=256MB
+        -c work_mem=32MB
+        -c maintenance_work_mem=128MB
+        -c max_connections=50
+        -c wal_level=replica
+        -c max_wal_size=512MB
+        -c listen_addresses='*'
+
+  # ─── Sandbox Ghost-API ───
+  sandbox-api:
+    build:
+      context: ..
+      dockerfile: dev/Dockerfile.api
+    container_name: dbai-sandbox-api
+    restart: unless-stopped
+    environment:
+      DBAI_DB_HOST: sandbox-postgres
+      DBAI_DB_PORT: 5432
+      DBAI_DB_NAME: dbai_sandbox
+      DBAI_DB_USER: root
+      DBAI_DB_PASSWORD: dbai2026
+      DBAI_DB_RUNTIME_USER: root
+      DBAI_DB_RUNTIME_PASSWORD: dbai2026
+      DBAI_WEB_HOST: 0.0.0.0
+      DBAI_WEB_PORT: 3000
+      DBAI_HW_SIMULATE: "false"
+      DBAI_SANDBOX: "true"
+      DBAI_ENV: "development"
+      PYTHONUNBUFFERED: 1
+      HOST_IP: ${HOST_IP:-172.16.16.179}
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: all
+      LD_LIBRARY_PATH: "/tmp/llama.cpp/build/bin:/usr/local/cuda/lib64:/usr/local/cuda-12.8/lib64"
+    volumes:
+      - ../bridge:/app/bridge
+      - ../web:/app/web
+      - ../llm:/app/llm
+      - ../recovery:/app/recovery
+      - ../config:/app/config
+      - ../schema:/app/schema
+      - ../scripts:/app/scripts
+      - ../tests:/app/tests
+      - ../frontend/dist:/app/frontend/dist:ro
+      - /mnt/nvme/models:/mnt/nvme/models
+      - /home/worker:/home/worker:ro
+    ports:
+      - "127.0.0.1:3100:3000"
+    depends_on:
+      sandbox-postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - sandbox-net
+
+  # ─── Sandbox Dashboard-UI ───
+  sandbox-ui:
+    build:
+      context: ..
+      dockerfile: dev/Dockerfile.ui
+    container_name: dbai-sandbox-ui
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: http://sandbox-api:3000
+    volumes:
+      - ../frontend/src:/app/frontend/src
+      - ../frontend/public:/app/frontend/public
+      - ../frontend/index.html:/app/frontend/index.html
+      - ../frontend/vite.config.js:/app/frontend/vite.config.js
+      - ../frontend/package.json:/app/frontend/package.json
+    ports:
+      - "127.0.0.1:5174:5173"
+    depends_on:
+      - sandbox-api
+    networks:
+      - sandbox-net
+
+networks:
+  sandbox-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.29.0.0/16
