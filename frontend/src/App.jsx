@@ -76,6 +76,7 @@ export default function App() {
   const [tabInfo, setTabInfo] = useState(null) // { tab_id, hostname, label }
   const [notifications, setNotifications] = useState([])
   const wsRef = useRef(null)
+  const [wsRetry, setWsRetry] = useState(0)  // Reconnect-Trigger
 
   // ── Check existing session ──
   useEffect(() => {
@@ -153,10 +154,12 @@ export default function App() {
     if (phase === PHASE_DESKTOP && token) {
       const tabId = api.getTabId()
 
-      // 1) Tab beim Backend registrieren
-      api.tabRegister(tabId).then(info => {
+      // 1) Tab beim Backend registrieren (mit Hostname + Label)
+      const hostname = window.location.hostname || 'localhost'
+      const label = `Tab ${tabId.slice(-6)}`
+      api.tabRegister(tabId, hostname, label).then(info => {
         setTabInfo(info)
-        // Seitenitel mit Hostname
+        // Seitentitel mit Hostname
         document.title = `${info.hostname || 'DBAI'} — Ghost Desktop`
       }).catch(() => {})
 
@@ -227,6 +230,7 @@ export default function App() {
         setTimeout(() => {
           if (phase === PHASE_DESKTOP && token) {
             console.log('[WS] Reconnecting...')
+            setWsRetry(prev => prev + 1)
           }
         }, 3000)
       }
@@ -235,9 +239,9 @@ export default function App() {
     wsRef.current = ws
 
     return () => {
-      ws.close()
+      ws.close(1000, 'Cleanup')
     }
-  }, [phase, token])
+  }, [phase, token, wsRetry])
 
   // ── Notifications ──
   const addNotification = useCallback((notif) => {

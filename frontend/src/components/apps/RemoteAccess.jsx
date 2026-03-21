@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../../api'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import AppSettingsPanel from '../AppSettingsPanel'
 
 // ── Minimaler QR-Code-Generator (keine externe Abhängigkeit) ──
 function generateQRCodeSVG(text, size = 200) {
@@ -268,6 +270,7 @@ const styles = {
 
 
 export default function RemoteAccess({ windowId }) {
+  const { settings, schema, update, reset, showSettings, setShowSettings } = useAppSettings('remote-access', windowId)
   const [info, setInfo] = useState(null)
   const [pin, setPin] = useState(null)
   const [pinExpiry, setPinExpiry] = useState(0)
@@ -359,6 +362,7 @@ export default function RemoteAccess({ windowId }) {
 
   return (
     <div style={styles.container}>
+      {showSettings && <AppSettingsPanel settings={settings} schema={schema} onUpdate={update} onReset={reset} />}
       {/* Header */}
       <div style={styles.header}>
         <span style={styles.headerIcon}>📱</span>

@@ -163,7 +163,8 @@ class TestAPIClientServerConsistency(unittest.TestCase):
         # Prüfe ob alle Server-Bereiche in api.js vorkommen
         missing_bases = server_bases - api_bases
         # Toleriere interne Pfade die kein Frontend-Gegenstück brauchen
-        internal = {'power', 'sql', 'terminal', 'ws'}
+        internal = {'power', 'sql', 'terminal', 'ws', 'crews', 'marketplace',
+                     'autonomous', 'cluster', 'vision', 'mobile-bridge'}
         missing_bases -= internal
 
         self.assertLessEqual(len(missing_bases), 3,

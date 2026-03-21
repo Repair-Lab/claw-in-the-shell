@@ -30,6 +30,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libc6-dev \
     libpq-dev \
     curl \
+    wget \
+    git \
     lm-sensors \
     pciutils \
     usbutils \
@@ -37,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iproute2 \
     net-tools \
     procps \
+    gnupg \
     # Playwright / Chromium dependencies
     libglib2.0-0 \
     libnss3 \
@@ -54,6 +57,40 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango-1.0-0 \
     fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
+
+# ─── CUDA Toolkit (minimal — nur Compiler + Runtime für llama.cpp) ──
+RUN if [ "$(uname -m)" = "x86_64" ]; then \
+        cd /tmp && \
+        wget -q https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb && \
+        dpkg -i cuda-keyring_1.1-1_all.deb && \
+        apt-get update -qq && \
+        apt-get install -y -qq cuda-nvcc-12-8 cuda-cudart-dev-12-8 libcublas-dev-12-8 && \
+        rm -f cuda-keyring_1.1-1_all.deb && \
+        rm -rf /var/lib/apt/lists/* && \
+        echo "CUDA toolkit installed for $(uname -m)"; \
+    else \
+        echo "Skipping CUDA on $(uname -m)"; \
+    fi
+
+# ─── llama.cpp kompilieren (CUDA auf x86_64, CPU auf ARM) ────────
+RUN cd /tmp && \
+    git clone --depth 1 https://github.com/ggml-org/llama.cpp.git && \
+    cd llama.cpp && mkdir -p build && cd build && \
+    if [ "$(uname -m)" = "x86_64" ] && [ -f /usr/local/cuda/bin/nvcc ]; then \
+        export PATH="/usr/local/cuda/bin:$PATH" && \
+        cmake .. -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release \
+          -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
+          -DLLAMA_BUILD_SERVER=ON && \
+        cmake --build . --config Release -j$(nproc) --target llama-server && \
+        echo "llama-server compiled with CUDA for x86_64"; \
+    else \
+        cmake .. -DCMAKE_BUILD_TYPE=Release \
+          -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
+          -DLLAMA_BUILD_SERVER=ON && \
+        cmake --build . --config Release -j$(nproc) --target llama-server && \
+        echo "llama-server compiled (CPU-only) for $(uname -m)"; \
+    fi && \
+    ls -lh /tmp/llama.cpp/build/bin/llama-server
 
 WORKDIR /app
 
@@ -84,6 +121,10 @@ COPY frontend/dist/ /app/frontend/dist/
 
 # ─── Architektur-Marker für Runtime-Erkennung ─────────────────────
 RUN echo "{\"arch\": \"$(uname -m)\", \"platform\": \"${TARGETPLATFORM:-linux/$(uname -m)}\", \"build_date\": \"$(date -Iseconds)\"}" > /app/.arch-info.json
+
+# ─── CUDA/llama.cpp Library-Pfade für Runtime ────────────────────
+ENV LD_LIBRARY_PATH="/tmp/llama.cpp/build/bin:/usr/local/cuda/lib64:/usr/local/cuda-12.8/lib64:${LD_LIBRARY_PATH}"
+ENV PATH="/usr/local/cuda/bin:${PATH}"
 
 EXPOSE 3000
 

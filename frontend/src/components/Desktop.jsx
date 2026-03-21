@@ -3,6 +3,7 @@ import { api } from '../api'
 import useKeyboardShortcuts from '../hooks/useKeyboardShortcuts'
 import SpotlightSearch from './SpotlightSearch'
 import Window from './Window'
+import ErrorBoundary from './ErrorBoundary'
 import SystemMonitor from './apps/SystemMonitor'
 import GhostChat from './apps/GhostChat'
 import KnowledgeBase from './apps/KnowledgeBase'
@@ -36,7 +37,9 @@ import FirewallManager from './apps/FirewallManager'
 import GhostUpdater from './apps/GhostUpdater'
 import GhostMail from './apps/GhostMail'
 import GhostBrowser from './apps/GhostBrowser'
+import ProcessManager from './apps/ProcessManager'
 import RemoteAccess from './apps/RemoteAccess'
+import GhostManager from './apps/GhostManager'
 
 // App-Komponenten Registry
 const APP_COMPONENTS = {
@@ -73,14 +76,16 @@ const APP_COMPONENTS = {
   GhostUpdater,
   GhostMail,
   GhostBrowser,
+  ProcessManager,
   RemoteAccess,
+  GhostManager,
 }
 
 // Icon-Mapping für Netzwerkknoten
 const NODE_ICON_MAP = {
   circle: '⭕', play: '▶️', search: '🔍', nas: '💾', phone: '📱',
   server: '🖥️', cloud: '☁️', printer: '🖨️', camera: '📷', iot: '📡',
-  chat: '💬', message: '✉️',
+  chat: '💬', message: '✉️', web: '🌐', app: '📦', api: '🔌',
 }
 
 // Icons pro Seite (Cube-Grid ~16 Spalten x 9 Reihen bei 80px)
@@ -267,6 +272,13 @@ export default function Desktop({ user, desktopState, tabInfo, onLogout }) {
   useEffect(() => {
     api.desktopNodes().then(data => setNodes(data.nodes || [])).catch(() => {})
   }, [])
+
+  // ── Desktop-Refresh bei Software-Store Install/Uninstall ──
+  useEffect(() => {
+    const handler = () => refreshDesktop()
+    window.addEventListener('dbai:desktop_refresh', handler)
+    return () => window.removeEventListener('dbai:desktop_refresh', handler)
+  }, [refreshDesktop])
 
   // Uhr
   useEffect(() => {
@@ -523,9 +535,11 @@ export default function Desktop({ user, desktopState, tabInfo, onLogout }) {
     try {
       await api.desktopNodeDelete(node.id)
       setResetConfirm(null)
+      // Desktop + Store-Liste aktualisieren (App wurde ggf. vollständig entfernt)
       refreshDesktop()
+      window.dispatchEvent(new Event('dbai:desktop_refresh'))
     } catch (e) {
-      console.error('Knoten-Reset fehlgeschlagen:', e)
+      console.error('Knoten-Entfernung fehlgeschlagen:', e)
     }
   }, [refreshDesktop])
 
@@ -597,12 +611,23 @@ export default function Desktop({ user, desktopState, tabInfo, onLogout }) {
                 <span style={{ fontWeight: 700, fontSize: 16 }}>{resetConfirm.label}</span>
               </div>
               <p style={{ color: '#b0b8c0', fontSize: 13, margin: '8px 0 16px', textAlign: 'center' }}>
-                Diesen Netzwerkknoten zurücksetzen?<br/>
-                <span style={{ fontSize: 11, color: '#6688aa' }}>Der Knoten wird entfernt und kann über die Schnellvorlagen neu erstellt werden.</span>
+                {resetConfirm.node_key?.startsWith('store:') ? (
+                  <>
+                    <strong>"{resetConfirm.label}"</strong> vollständig entfernen?<br/>
+                    <span style={{ fontSize: 11, color: '#ff6b6b' }}>Desktop-Symbol, Einstellungen und alle App-Daten werden gelöscht.</span>
+                  </>
+                ) : (
+                  <>
+                    Diesen Netzwerkknoten zurücksetzen?<br/>
+                    <span style={{ fontSize: 11, color: '#6688aa' }}>Der Knoten wird entfernt und kann über die Schnellvorlagen neu erstellt werden.</span>
+                  </>
+                )}
               </p>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                 <button className="node-reset-btn cancel" onClick={() => setResetConfirm(null)}>Abbrechen</button>
-                <button className="node-reset-btn confirm" onClick={() => handleResetNode(resetConfirm)}>🔄 Zurücksetzen</button>
+                <button className="node-reset-btn confirm" onClick={() => handleResetNode(resetConfirm)}>
+                  {resetConfirm.node_key?.startsWith('store:') ? '🗑️ Vollständig entfernen' : '🔄 Zurücksetzen'}
+                </button>
               </div>
             </div>
           </div>
@@ -756,17 +781,21 @@ function renderAppContent(win, openApp, refreshDesktop) {
   if (Component) {
     // NodeManager bekommt onRefreshNodes, um den Desktop nach Änderungen zu aktualisieren
     const extraProps = win.component === 'NodeManager' ? { onRefreshNodes: refreshDesktop } : {}
-    return <Component windowId={win.id} extra={win.extra} {...extraProps} onOpenWindow={(opts) => openApp(opts.app_id || opts.component, opts)} />
+    return (
+      <ErrorBoundary label={win.title || win.component}>
+        <Component windowId={win.id} extra={win.extra} {...extraProps} onOpenWindow={(opts) => openApp(opts.app_id || opts.component, opts)} />
+      </ErrorBoundary>
+    )
   }
 
   // SQL-View Apps
   if (win.sourceType === 'sql_view' && win.sourceTarget) {
-    return <SQLViewApp viewName={win.sourceTarget} />
+    return <ErrorBoundary label={win.sourceTarget}><SQLViewApp viewName={win.sourceTarget} /></ErrorBoundary>
   }
 
   // Terminal
   if (win.sourceType === 'terminal') {
-    return <SQLConsole windowId={win.id} />
+    return <ErrorBoundary label="Terminal"><SQLConsole windowId={win.id} /></ErrorBoundary>
   }
 
   return (

@@ -525,17 +525,29 @@ class NetworkFirewall:
                  source_ip: str = None, dest_ip: str = None,
                  source_port: str = None, dest_port: str = None,
                  description: str = None, priority: int = 100) -> dict:
-        """Neue Firewall-Regel hinzufügen."""
+        """Neue Firewall-Regel hinzufügen (Duplikate werden ignoriert)."""
         rows = self.db_query(
             """INSERT INTO dbai_system.firewall_rules
                (rule_name, chain, action, protocol, source_ip, dest_ip,
                 source_port, dest_port, description, priority)
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (rule_name, chain, protocol) DO NOTHING
                RETURNING id""",
             (rule_name, chain, action, protocol, source_ip, dest_ip,
              source_port, dest_port, description, priority)
         )
-        return {"id": str(rows[0]["id"]), "rule_name": rule_name} if rows else {"error": "Fehler"}
+        if rows:
+            return {"id": str(rows[0]["id"]), "rule_name": rule_name}
+        # Bereits vorhanden — existierende Regel zurückgeben
+        existing = self.db_query(
+            """SELECT id FROM dbai_system.firewall_rules
+               WHERE rule_name = %s AND chain = %s AND protocol IS NOT DISTINCT FROM %s
+               LIMIT 1""",
+            (rule_name, chain, protocol)
+        )
+        if existing:
+            return {"id": str(existing[0]["id"]), "rule_name": rule_name, "existed": True}
+        return {"error": "Fehler beim Anlegen der Regel"}
 
     def delete_rule(self, rule_id: str) -> dict:
         """Firewall-Regel löschen."""

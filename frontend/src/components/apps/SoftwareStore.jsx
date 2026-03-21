@@ -91,6 +91,7 @@ export default function SoftwareStore() {
     try {
       await api.storeGithubInstall(repo)
       await loadCatalog()
+      window.dispatchEvent(new Event('dbai:desktop_refresh'))
     } catch (e) {
       alert('Installation fehlgeschlagen: ' + e.message)
     }
@@ -102,6 +103,7 @@ export default function SoftwareStore() {
     try {
       await api.storeInstall(pkg.package_name, pkg.source_type)
       await loadCatalog()
+      window.dispatchEvent(new Event('dbai:desktop_refresh'))
     } catch (e) {
       alert('Installation fehlgeschlagen: ' + e.message)
     }
@@ -114,6 +116,7 @@ export default function SoftwareStore() {
     try {
       await api.storeUninstall(pkg.package_name, pkg.source_type)
       await loadCatalog()
+      window.dispatchEvent(new Event('dbai:desktop_refresh'))
     } catch (e) {
       alert('Entfernung fehlgeschlagen: ' + e.message)
     }

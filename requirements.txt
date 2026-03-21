@@ -34,9 +34,19 @@ httpx>=0.27.0
 PyJWT>=2.8.0
 bcrypt>=4.1.0
 
+# ─── Kryptografie ───────────────────────────────────────────────
+cryptography>=42.0.0
+
 # ─── Tests ───────────────────────────────────────────────────────
 pytest>=7.0.0
 pytest-cov>=4.0.0
+
+# ─── Security-Immunsystem ───────────────────────────────────────
+python-nmap>=0.7.1          # Nmap-Integration (Kali-Sidecar)
+schedule>=1.2.0             # Cron-ähnlicher Task-Scheduler
+scapy>=2.5.0                # Netzwerk-Paket-Analyse
+paramiko>=3.4.0             # SSH-Security-Checks
+pip-audit>=2.7.0            # Python-Dependency-CVE-Check
 
 # ─── Plattform-Hinweise ─────────────────────────────────────────
 # x86_64:  CUDA/AVX beschleunigt LLM-Inferenz stark

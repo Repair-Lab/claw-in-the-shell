@@ -50,7 +50,7 @@ case "${1:-help}" in
     echo ""
     echo -e "  ${C}API:${N}        http://localhost:3100"
     echo -e "  ${C}Dashboard:${N}  http://localhost:5174"
-    echo -e "  ${C}PostgreSQL:${N} localhost:5433 (User: admin / PW: dbai2026)"
+    echo -e "  ${C}PostgreSQL:${N} localhost:5433 (User: root / PW: dbai2026)"
     echo -e "  ${C}DB-Name:${N}    dbai_sandbox"
     echo ""
     echo -e "  ${Y}Tipp:${N} ./dev/sandbox.sh psql  → Direkt in die DB"
@@ -88,7 +88,7 @@ case "${1:-help}" in
 
   psql)
     header "PostgreSQL Shell"
-    PGPASSWORD=dbai2026 psql -h 127.0.0.1 -p 5433 -U admin -d dbai_sandbox
+    PGPASSWORD=dbai2026 psql -h 127.0.0.1 -p 5433 -U root -d dbai_sandbox
     ;;
 
   logs)

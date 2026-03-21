@@ -149,8 +149,8 @@ if [[ ! -f "$ENV_FILE" ]]; then
 DBAI_DB_HOST=127.0.0.1
 DBAI_DB_PORT=5432
 DBAI_DB_NAME=dbai
-DBAI_DB_USER=dbai_system
-DBAI_DB_PASSWORD=
+DBAI_DB_USER=root
+DBAI_DB_PASSWORD=dbai2026
 DBAI_RUNTIME_USER=dbai_runtime
 DBAI_RUNTIME_PASSWORD=dbai_runtime_2026
 DBAI_SECRET_KEY=dev-secret-key-change-in-production

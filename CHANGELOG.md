@@ -4,6 +4,35 @@ Alle wesentlichen Änderungen am Projekt werden hier dokumentiert.
 
 ---
 
+## [v0.12.8] — 2025-03-20
+
+### ✨ Neue Features
+
+- **Software Store → Desktop-Icon Integration**: Installierte Software aus dem Store erscheint automatisch als Desktop-Icon
+  - GitHub-Install: Erstellt Desktop-Node mit 🌐-Icon und Repository-URL
+  - Interner Install (apt/flatpak/pip): Erstellt Desktop-Node mit passender Icon-Zuordnung
+  - Already-installed Nachrüstung: Bereits installierte Pakete ohne Icon werden nachträglich ergänzt
+  - Uninstall: Entfernt den zugehörigen Desktop-Node automatisch
+
+### 🔧 Änderungen
+
+- **server.py**: `store_install()`, `store_github_install()` erstellen `desktop_nodes`-Einträge nach Installation
+- **server.py**: `store_uninstall()` löscht zugehörigen Desktop-Node via `node_key`
+- **SoftwareStore.jsx**: Dispatcht `dbai:desktop_refresh` Event nach Install/Uninstall
+- **Desktop.jsx**: Neuer Event-Listener für `dbai:desktop_refresh` → automatischer `refreshDesktop()`
+- **Desktop.jsx**: `NODE_ICON_MAP` erweitert um `web` (🌐), `app` (📦), `api` (🔌)
+- **Schema**: `valid_node_type` Constraint erweitert um `'app'`
+
+---
+
+## [v0.12.7] — 2025-03-19
+
+### ✨ Neue Features
+
+- **awesome-copilot Skill-Import**: 16 kuratierte Skills aus github/awesome-copilot in `openclaw_skills` importiert
+
+---
+
 ## [v0.10.0] — 2025-01-XX
 
 ### ✨ Neue Features

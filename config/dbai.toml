@@ -84,6 +84,75 @@ audit_log_enabled = true
 # Keine externen Verbindungen
 listen_addresses = "127.0.0.1"
 
+[security.immunsystem]
+# Self-Penetration Rückkopplungsschleife
+enabled = true
+kali_sidecar = true
+
+[security.fail2ban]
+max_attempts = 3
+window_minutes = 5
+ban_duration_hours = 24
+# PostgreSQL-Logs direkt mit Fail2Ban verknüpft
+pg_log_monitor = true
+
+[security.scanning]
+# Automatisierte Penetrationstests
+sqlmap_interval_seconds = 3600       # SQLMap: Jede Stunde
+nmap_interval_seconds = 1800         # Nmap:   Alle 30 Minuten
+nuclei_interval_seconds = 7200       # Nuclei: Alle 2 Stunden
+baseline_interval_seconds = 86400    # Lynis:  Täglich
+tls_check_interval_seconds = 43200   # TLS:    Alle 12 Stunden
+dependency_audit_seconds = 86400     # CVEs:   Täglich
+
+[security.firewall]
+# Netzwerk-Firewall (iptables/nftables)
+enabled = true
+default_policy = "DROP"
+# Erlaubte Ports
+allowed_ports = [5432, 3000, 5173]
+# Anti-Scanning
+block_null_scan = true
+block_xmas_scan = true
+block_syn_flood = true
+# Brute-Force-Schutz
+pg_conn_limit = 10
+api_conn_limit = 50
+ssh_conn_limit = 3
+
+[security.ids]
+# Intrusion Detection System (Suricata)
+enabled = true
+interface = "eth0"
+rule_update_cron = "0 2 * * *"
+
+[security.honeypots]
+# Honeypot-Fallen
+enabled = true
+ports = [2222, 3306, 8080, 8443, 21, 23]
+
+[security.dns_sinkhole]
+# DNS-basierte Stützmechanismen
+enabled = true
+block_malware = true
+block_cryptomining = true
+block_phishing = true
+
+[security.rate_limiting]
+# Dynamische Rate-Limits
+enabled = true
+default_ip_limit = 100          # Requests pro Minute pro IP
+default_user_limit = 200        # Requests pro Minute pro User
+login_endpoint_limit = 10       # Login-Versuche pro Minute
+
+[security.kernel_hardening]
+# Kernel-Netzwerk-Parameter
+tcp_syncookies = true
+ip_forward = false
+accept_redirects = false
+rp_filter = true
+log_martians = true
+
 [panic]
 # Kernel Panic Schema
 panic_schema = "dbai_panic"

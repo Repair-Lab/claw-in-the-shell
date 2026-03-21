@@ -19,12 +19,50 @@ async function request(path, options = {}) {
   }
   if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers })
+  // CSRF-Token aus Cookie lesen und als Header senden
+  const csrfToken = document.cookie.split('; ').find(c => c.startsWith('dbai_csrf='))?.split('=')[1]
+  const method = (options.method || 'GET').toUpperCase()
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken
+    } else if (path !== '/auth/login') {
+      // CSRF-Cookie fehlt → wahrscheinlich Cookie-Secure-Problem
+      console.warn(
+        '[DBAI] CSRF-Cookie fehlt! Mögliche Ursachen:\n' +
+        '  1) HTTPS erforderlich aber HTTP verwendet\n' +
+        '  2) Server DBAI_ENV nicht auf "development" gesetzt\n' +
+        '  3) Cookies vom Browser blockiert\n' +
+        'Aktuelles Protokoll: ' + window.location.protocol
+      )
+    }
+  }
+
+  // AbortSignal: Caller kann eigenen Controller übergeben
+  const fetchOptions = { ...options, headers }
+  if (options.signal) {
+    fetchOptions.signal = options.signal
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, fetchOptions)
 
   if (res.status === 401) {
     localStorage.removeItem('dbai_token')
-    // Kein window.location.reload() — App.jsx .catch() handler regelt den UI-Zustand
     throw new Error('Nicht authentifiziert')
+  }
+
+  if (res.status === 403) {
+    const err = await res.json().catch(() => ({ detail: 'Zugriff verweigert' }))
+    // Spezifische Meldung bei CSRF-Fehler
+    if (err.detail && err.detail.includes('CSRF')) {
+      console.error(
+        '[DBAI] CSRF-Fehler bei', method, path, '\n' +
+        'Hint:', err.hint || 'Cookie prüfen',
+        '\nProtokoll:', window.location.protocol,
+        '\nCookies sichtbar:', document.cookie ? 'Ja' : 'NEIN (Problem!)'
+      )
+      throw new Error('Sitzungsfehler — bitte Seite neu laden (Cookies nicht gesetzt)')
+    }
+    throw new Error(err.detail || 'Zugriff verweigert')
   }
 
   if (!res.ok) {
@@ -440,6 +478,59 @@ export const api = {
   firewallDeleteRule: (id) =>
     request(`/firewall/rules/${id}`, { method: 'DELETE' }),
 
+  // Security-Immunsystem (Feature 22b)
+  securityStatus: () => request('/security/status'),
+  securityVulnerabilities: (status = 'open', severity = null, limit = 50) =>
+    request(`/security/vulnerabilities?status=${status}${severity ? `&severity=${severity}` : ''}&limit=${limit}`),
+  securityMitigateVuln: (id, status = 'mitigated') =>
+    request(`/security/vulnerabilities/${id}/mitigate`, { method: 'POST', body: JSON.stringify({ status }) }),
+  securityIntrusions: (hours = 24, limit = 100) =>
+    request(`/security/intrusions?hours=${hours}&limit=${limit}`),
+  securityBans: () => request('/security/bans'),
+  securityBanIp: (ip, reason, hours = 24) =>
+    request('/security/bans', { method: 'POST', body: JSON.stringify({ ip, reason, hours }) }),
+  securityUnban: (id) =>
+    request(`/security/bans/${id}`, { method: 'DELETE' }),
+  securityScans: () => request('/security/scans'),
+  securityThreats: () => request('/security/threats'),
+  securityThreatScore: (ip) => request(`/security/threat-score/${ip}`),
+  securityBaselines: () => request('/security/baselines'),
+  securityResponses: (limit = 50) => request(`/security/responses?limit=${limit}`),
+  securityHoneypot: (hours = 24) => request(`/security/honeypot?hours=${hours}`),
+  securityFailedAuth: (hours = 24) => request(`/security/failed-auth?hours=${hours}`),
+
+  // Security-AI (Feature 22c) — Ghost-Monitor ↔ Immunsystem
+  securityAiStatus: () => request('/security/ai/status'),
+  securityAiTasks: (state, limit = 50) => request(`/security/ai/tasks?${state ? `state=${state}&` : ''}limit=${limit}`),
+  securityAiLog: (limit = 50) => request(`/security/ai/log?limit=${limit}`),
+  securityAiTaskDetail: (taskId) => request(`/security/ai/task/${taskId}`),
+  securityAiAnalyze: (taskType, inputData = {}) =>
+    request('/security/ai/analyze', { method: 'POST', body: JSON.stringify({ task_type: taskType, input_data: inputData }) }),
+  securityAiAnalyzeIp: (ip) =>
+    request('/security/ai/analyze-ip', { method: 'POST', body: JSON.stringify({ ip }) }),
+  securityAiConfig: () => request('/security/ai/config'),
+  securityAiConfigUpdate: (key, value) =>
+    request('/security/ai/config', { method: 'PUT', body: JSON.stringify({ key, value }) }),
+
+  // Security — Zusätzliche Subsysteme (Feature 22d)
+  securityMetrics: () => request('/security/metrics'),
+  securityTls: () => request('/security/tls'),
+  securityCve: () => request('/security/cve'),
+  securityDnsSinkhole: () => request('/security/dns-sinkhole'),
+  securityDnsSinkholeAdd: (domainPattern, reason) =>
+    request('/security/dns-sinkhole', { method: 'POST', body: JSON.stringify({ domain_pattern: domainPattern, reason }) }),
+  securityDnsSinkholeDelete: (id) =>
+    request(`/security/dns-sinkhole/${id}`, { method: 'DELETE' }),
+  securityRateLimits: () => request('/security/rate-limits'),
+  securityRateLimitUpdate: (id, maxRequests, windowSeconds) =>
+    request(`/security/rate-limits/${id}`, { method: 'PUT', body: JSON.stringify({ max_requests: maxRequests, window_seconds: windowSeconds }) }),
+  securityNetworkTraffic: (hours = 1, limit = 100) => request(`/security/network-traffic?hours=${hours}&limit=${limit}`),
+  securityPermissions: (limit = 100) => request(`/security/permissions?limit=${limit}`),
+  securityGhostRoles: () => request('/security/ghost-roles'),
+  securityGhostModels: () => request('/security/ghost-models'),
+  securityGhostSwap: (modelName, reason) =>
+    request('/security/ghost-swap', { method: 'POST', body: JSON.stringify({ model_name: modelName, reason }) }),
+
   // Terminal (Feature 23)
   terminalExec: (cmd, cwd) =>
     request('/terminal/exec', { method: 'POST', body: JSON.stringify({ command: cmd, cwd }) }),
@@ -584,6 +675,7 @@ export function createWebSocket(token, onMessage, onClose) {
   }
   ws.onerror = (e) => console.error('[WS] Fehler:', e)
   ws.onclose = (e) => {
+    clearInterval(pingInterval)
     console.log('[WS] Getrennt:', e.code)
     if (onClose) onClose(e)
   }
@@ -596,9 +688,9 @@ export function createWebSocket(token, onMessage, onClose) {
   }, 30000)
 
   const original = ws.close.bind(ws)
-  ws.close = () => {
+  ws.close = (code, reason) => {
     clearInterval(pingInterval)
-    original()
+    original(code, reason)
   }
 
   return ws

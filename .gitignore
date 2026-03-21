@@ -86,6 +86,20 @@ bridge/__pycache__/
 web/__pycache__/
 dist/
 
+# ─── Database Dumps ───
+# Keine Dumps im Repo (können Credentials enthalten)
+*.dump
+*.sql.gz
+*.pg_dump
+
+# ─── Versehentlich erstellte Shell-Output-Dateien ───
+# psql/Terminal-Kommandos die als Datei gespeichert wurden
+ql -h *
+ql -*
+tgres *
+chemaname *
+=42*
+
 # ─── Sandbox (lokale Testumgebung) ───
 # Persönliche Testdaten, niemals ins Repo
 dev/.sandbox-data/

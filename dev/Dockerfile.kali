@@ -1,0 +1,94 @@
+# =============================================================================
+# DBAI Security-Sidecar — Kali-Linux Container
+# =============================================================================
+# Läuft neben dem Hauptsystem als "Security-Wächter".
+# Enthält: sqlmap, nmap, nikto, suricata, fail2ban, lynis, nuclei
+#
+# Build:
+#   docker build -f dev/Dockerfile.kali -t dbai-kali-sidecar .
+# =============================================================================
+
+FROM kalilinux/kali-rolling AS base
+
+LABEL org.opencontainers.image.title="GhostShell OS — Security Sidecar"
+LABEL org.opencontainers.image.description="Kali-basierter Security-Wächter mit automatisierten Penetrationstests"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ─── Kali Security Tools ─────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Penetrationstest-Tools
+    sqlmap \
+    nmap \
+    nikto \
+    nuclei \
+    # IDS/IPS
+    suricata \
+    # Netzwerk-Analyse
+    tcpdump \
+    tshark \
+    netcat-openbsd \
+    dnsutils \
+    whois \
+    traceroute \
+    # Brute-Force / Auth-Testing
+    hydra \
+    medusa \
+    # System-Hardening-Audit
+    lynis \
+    # Fail2Ban
+    fail2ban \
+    # SSL/TLS Prüfung
+    sslscan \
+    testssl.sh \
+    # Allgemein
+    python3 \
+    python3-pip \
+    python3-venv \
+    postgresql-client \
+    curl \
+    wget \
+    jq \
+    cron \
+    iproute2 \
+    iptables \
+    nftables \
+    ipset \
+    conntrack \
+    procps \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# ─── Python-Abhängigkeiten ────────────────────────────────────────
+RUN pip3 install --no-cache-dir --break-system-packages \
+    psycopg2-binary \
+    asyncpg \
+    schedule \
+    requests \
+    python-nmap \
+    scapy \
+    paramiko \
+    cryptography \
+    pyyaml \
+    aiohttp
+
+# ─── Suricata Regeln ──────────────────────────────────────────────
+RUN mkdir -p /etc/suricata/rules /var/log/suricata
+
+# ─── Fail2Ban Konfiguration ──────────────────────────────────────
+COPY config/fail2ban/ /etc/fail2ban/
+RUN mkdir -p /var/run/fail2ban /var/log/fail2ban
+
+# ─── Arbeitsverzeichnis ──────────────────────────────────────────
+WORKDIR /app
+COPY bridge/security_immunsystem.py /app/security_immunsystem.py
+COPY scripts/security_cron.sh /app/security_cron.sh
+
+RUN chmod +x /app/security_cron.sh
+
+# ─── Healthcheck ─────────────────────────────────────────────────
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD python3 -c "import psycopg2; c=psycopg2.connect(host='postgres',dbname='dbai',user='dbai_system',password='${DBAI_DB_PASSWORD}'); c.close()" || exit 1
+
+# ─── Start ────────────────────────────────────────────────────────
+CMD ["python3", "/app/security_immunsystem.py", "--daemon"]

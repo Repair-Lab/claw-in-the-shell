@@ -166,6 +166,61 @@ services:
     profiles:
       - hw-sim
 
+  # ─── Security-Sidecar (Kali-basiert) — Das Immunsystem ───
+  security-sidecar:
+    build:
+      context: .
+      dockerfile: dev/Dockerfile.kali
+    container_name: dbai-security-sidecar
+    restart: unless-stopped
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_PTRACE
+    environment:
+      DBAI_DB_HOST: postgres
+      DBAI_DB_PORT: 5432
+      DBAI_DB_NAME: dbai
+      DBAI_DB_USER: dbai_system
+      DBAI_DB_PASSWORD: ${DBAI_DB_PASSWORD:-dbai_dev_2026}
+      DBAI_API_URL: http://ghost-api:3000
+      DBAI_INTERNAL_SUBNET: "172.28.0.0/16"
+      DBAI_ROUTER_IP: ${DBAI_ROUTER_IP:-192.168.1.1}
+      DBAI_TRUSTED_IPS: "127.0.0.1,::1,172.28.0.0/16"
+      # Fail2Ban Schwellen
+      DBAI_F2B_MAX_ATTEMPTS: ${DBAI_F2B_MAX_ATTEMPTS:-3}
+      DBAI_F2B_WINDOW_MINUTES: ${DBAI_F2B_WINDOW_MINUTES:-5}
+      DBAI_F2B_BAN_HOURS: ${DBAI_F2B_BAN_HOURS:-24}
+      # Scan-Intervalle (Sekunden)
+      DBAI_SQLMAP_INTERVAL: ${DBAI_SQLMAP_INTERVAL:-3600}
+      DBAI_NMAP_INTERVAL: ${DBAI_NMAP_INTERVAL:-1800}
+      DBAI_BASELINE_INTERVAL: ${DBAI_BASELINE_INTERVAL:-86400}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./bridge/security_immunsystem.py:/app/security_immunsystem.py:ro
+      - ./scripts/security_cron.sh:/app/security_cron.sh:ro
+      - ./schema:/app/schema:ro
+      - ./config/fail2ban:/etc/fail2ban:ro
+      - dbai_security_logs:/var/log/dbai
+      - dbai_suricata_logs:/var/log/suricata
+      # PostgreSQL-Logs für Fail2Ban
+      - dbai_pgdata:/var/lib/postgresql/data:ro
+    ports:
+      # Honeypot-Ports (Falsche Services als Fallen)
+      - "2222:2222"    # Fake-SSH
+      - "3306:3306"    # Fake-MySQL
+      - "8080:8080"    # Fake-Admin
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ghost-api:
+        condition: service_healthy
+    networks:
+      - dbai-net
+    profiles:
+      - security
+
 volumes:
   dbai_pgdata:
     driver: local
@@ -174,6 +229,10 @@ volumes:
   dbai_browser_screenshots:
     driver: local
   dbai_browser_results:
+    driver: local
+  dbai_security_logs:
+    driver: local
+  dbai_suricata_logs:
     driver: local
 
 networks:

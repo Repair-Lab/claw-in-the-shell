@@ -27,7 +27,7 @@ from typing import Optional
 from contextlib import asynccontextmanager
 
 # CUDA-Bibliotheken für llama-cpp-python (GPU-Offload)
-_cuda_lib_paths = [
+_cuda_lib_paths = os.getenv("DBAI_CUDA_LIB_PATH", "").split(":") if os.getenv("DBAI_CUDA_LIB_PATH") else [
     "/mnt/nvme/home/asus/Desktop/helios/Helios/venv/lib/python3.12/site-packages/nvidia/cublas/lib",
     "/mnt/nvme/home/asus/Desktop/helios/Helios/venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib",
 ]
@@ -67,6 +67,7 @@ DB_CONFIG = {
     "dbname": os.getenv("DBAI_DB_NAME", "dbai"),
     "user": os.getenv("DBAI_DB_USER", "dbai_system"),
     "password": os.getenv("DBAI_DB_PASSWORD", "dbai2026"),
+    "connect_timeout": 5,
 }
 
 # Runtime-Pool: dbai_runtime — Für alle normalen API-Operationen (KEIN Superuser)
@@ -76,45 +77,224 @@ DB_CONFIG_RUNTIME = {
     "dbname": os.getenv("DBAI_DB_NAME", "dbai"),
     "user": os.getenv("DBAI_DB_RUNTIME_USER", "dbai_runtime"),
     "password": os.getenv("DBAI_DB_RUNTIME_PASSWORD", "dbai_runtime_2026"),
+    "connect_timeout": 5,
 }
 
 WEB_HOST = os.getenv("DBAI_WEB_HOST", "127.0.0.1")
 WEB_PORT = int(os.getenv("DBAI_WEB_PORT", "3000"))
 
-LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+# Structured Logging: JSON-Format für maschinenlesbare Logs
+class _JSONFormatter(logging.Formatter):
+    def format(self, record):
+        log_entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "module": record.name,
+            "msg": record.getMessage(),
+        }
+        if record.exc_info and record.exc_info[0]:
+            log_entry["exception"] = self.formatException(record.exc_info)
+        return json.dumps(log_entry, ensure_ascii=False)
+
+_use_json_logs = os.getenv("DBAI_LOG_FORMAT", "text") == "json"
+if _use_json_logs:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(_JSONFormatter())
+    logging.basicConfig(level=logging.INFO, handlers=[_handler])
+else:
+    LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 logger = logging.getLogger("dbai.web")
+
+
+# ---------------------------------------------------------------------------
+# Generische Input-Validierung
+# ---------------------------------------------------------------------------
+import re as _re_mod
+
+def _validate_body(body: dict, required: list[str] = None, max_str_len: int = 10000) -> dict:
+    """
+    Validiert einen Request-Body:
+    - Prüft required Keys
+    - Sanitized Strings (trimmen, max Länge)
+    - Verhindert None-Injection auf required Fields
+    Wirft ValueError bei Verstoß.
+    """
+    if not isinstance(body, dict):
+        raise ValueError("Request-Body muss ein JSON-Objekt sein")
+    if required:
+        missing = [k for k in required if k not in body or body[k] is None]
+        if missing:
+            raise ValueError(f"Fehlende Pflichtfelder: {', '.join(missing)}")
+    # Strings sanitieren
+    sanitized = {}
+    for k, v in body.items():
+        if isinstance(v, str):
+            v = v.strip()
+            if len(v) > max_str_len:
+                v = v[:max_str_len]
+        sanitized[k] = v
+    return sanitized
+
+
+# ---------------------------------------------------------------------------
+# Kryptografie — Fernet-Verschlüsselung für API-Keys / Tokens
+# ---------------------------------------------------------------------------
+_FERNET_KEY_PATH = DBAI_ROOT / "config" / ".fernet.key"
+
+def _load_or_create_fernet_key() -> bytes:
+    """Fernet-Key laden oder erstellen. Datei wird mit 0600 geschützt."""
+    # 1. Aus Datei laden
+    if _FERNET_KEY_PATH.exists():
+        return _FERNET_KEY_PATH.read_bytes().strip()
+    # 2. Aus Env-Variable (Docker/Container-Umgebung)
+    env_key = os.getenv("DBAI_FERNET_KEY")
+    if env_key:
+        return env_key.encode()
+    # 3. Neuen Key erstellen und persistent speichern
+    from cryptography.fernet import Fernet
+    key = Fernet.generate_key()
+    try:
+        _FERNET_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _FERNET_KEY_PATH.write_bytes(key)
+        os.chmod(str(_FERNET_KEY_PATH), 0o600)
+        logger.info("Neuer Fernet-Schlüssel erstellt: %s", _FERNET_KEY_PATH)
+    except (PermissionError, OSError) as e:
+        logger.warning("Fernet-Key konnte nicht gespeichert werden (nur In-Memory): %s", e)
+    return key
+
+try:
+    from cryptography.fernet import Fernet
+    _fernet = Fernet(_load_or_create_fernet_key())
+    logger.info("Fernet-Verschlüsselung aktiv")
+except ImportError:
+    _fernet = None
+    logger.warning("cryptography nicht installiert — Fallback auf Base64 (UNSICHER)")
+except Exception as _fernet_err:
+    _fernet = None
+    logger.warning("Fernet-Init fehlgeschlagen: %s — Fallback auf Base64", _fernet_err)
+
+
+def encrypt_secret(plaintext: str) -> str:
+    """Verschlüsselt einen String mit Fernet. Fallback: Base64."""
+    if _fernet:
+        return _fernet.encrypt(plaintext.encode()).decode()
+    import base64
+    return base64.b64encode(plaintext.encode()).decode()
+
+
+def decrypt_secret(ciphertext: str) -> str:
+    """Entschlüsselt einen Fernet-Token. Fallback: Base64."""
+    if _fernet:
+        return _fernet.decrypt(ciphertext.encode()).decode()
+    import base64
+    return base64.b64decode(ciphertext.encode()).decode()
 
 
 # ---------------------------------------------------------------------------
 # Datenbank-Pool (synchron, für psycopg2)
 # ---------------------------------------------------------------------------
 class DBPool:
-    """Einfacher Connection-Pool für PostgreSQL."""
+    """Connection-Pool für PostgreSQL — Thread-safe mit Checkout/Checkin."""
 
     def __init__(self, config: dict, max_connections: int = 10):
         self.config = config
         self.max_connections = max_connections
-        self._connections: list = []
-        self._notify_conn = None  # Dedizierte LISTEN-Verbindung
+        self._idle: list = []         # Verfügbare Connections
+        self._in_use: set = set()     # Aktuell ausgeliehene Connections
+        self._lock = threading.Lock()
+        self._notify_conn = None
 
     def get_connection(self):
-        """Holt oder erstellt eine DB-Verbindung."""
-        # Versuche eine freie Verbindung zu finden
-        for conn in self._connections:
-            if not conn.closed:
+        """Holt eine exklusive DB-Verbindung (Checkout). Muss mit return_connection zurückgegeben werden."""
+        with self._lock:
+            # Kaputte idle-Connections entfernen
+            alive = []
+            for conn in self._idle:
+                if conn.closed:
+                    continue
                 try:
-                    conn.reset()
+                    if conn.status == psycopg2.extensions.STATUS_READY:
+                        alive.append(conn)
+                    elif conn.status == psycopg2.extensions.STATUS_IN_TRANSACTION:
+                        try:
+                            conn.rollback()
+                            alive.append(conn)
+                        except Exception:
+                            try: conn.close()
+                            except Exception: pass
+                    else:
+                        try: conn.close()
+                        except Exception: pass
+                except Exception:
+                    try: conn.close()
+                    except Exception: pass
+            self._idle = alive
+
+            # Erste verfügbare idle Connection auschecken (mit Health-Ping)
+            while self._idle:
+                conn = self._idle.pop(0)
+                try:
+                    cur = conn.cursor()
+                    cur.execute("SELECT 1")
+                    cur.close()
+                    self._in_use.add(id(conn))
                     return conn
                 except Exception:
-                    self._connections.remove(conn)
+                    # Stale Connection — verwerfen und nächste probieren
+                    try: conn.close()
+                    except Exception: pass
+                    continue
 
-        # Neue Verbindung erstellen
-        conn = psycopg2.connect(**self.config)
-        conn.autocommit = False
-        if len(self._connections) < self.max_connections:
-            self._connections.append(conn)
-        return conn
+            # Neue Connection erstellen falls Limit nicht erreicht
+            total = len(self._idle) + len(self._in_use)
+            if total < self.max_connections:
+                conn = psycopg2.connect(**self.config)
+                conn.autocommit = False
+                self._in_use.add(id(conn))
+                return conn
+
+        # Limit erreicht — blockierend warten (mit Timeout)
+        for _ in range(50):  # max 5s warten (50 × 0.1s)
+            time.sleep(0.1)
+            with self._lock:
+                if self._idle:
+                    conn = self._idle.pop(0)
+                    try:
+                        cur = conn.cursor()
+                        cur.execute("SELECT 1")
+                        cur.close()
+                        self._in_use.add(id(conn))
+                        return conn
+                    except Exception:
+                        try: conn.close()
+                        except Exception: pass
+                        # Slot frei → neue Connection probieren
+                        total = len(self._idle) + len(self._in_use)
+                        if total < self.max_connections:
+                            try:
+                                conn = psycopg2.connect(**self.config)
+                                conn.autocommit = False
+                                self._in_use.add(id(conn))
+                                return conn
+                            except Exception:
+                                pass
+        raise Exception("DBPool: Keine freie Connection verfügbar (Timeout)")
+
+    def return_connection(self, conn):
+        """Gibt eine ausgeliehene Connection zurück (Checkin)."""
+        with self._lock:
+            self._in_use.discard(id(conn))
+            if conn.closed:
+                return
+            try:
+                if conn.status == psycopg2.extensions.STATUS_IN_TRANSACTION:
+                    conn.rollback()
+                self._idle.append(conn)
+            except Exception:
+                # Rollback fehlgeschlagen → Connection komplett verwerfen (kein Leak)
+                try: conn.close()
+                except Exception: pass
 
     def get_notify_connection(self):
         """Dedizierte Verbindung für LISTEN/NOTIFY (autocommit!)."""
@@ -126,11 +306,14 @@ class DBPool:
         return self._notify_conn
 
     def close_all(self):
-        for conn in self._connections:
-            try:
-                conn.close()
-            except Exception:
-                pass
+        with self._lock:
+            for conn in self._idle:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            self._idle.clear()
+            self._in_use.clear()
         if self._notify_conn:
             try:
                 self._notify_conn.close()
@@ -161,6 +344,8 @@ def db_query(sql: str, params=None, commit=False) -> list:
     except Exception as e:
         conn.rollback()
         raise e
+    finally:
+        db_pool.return_connection(conn)
 
 
 def db_execute(sql: str, params=None) -> None:
@@ -173,6 +358,8 @@ def db_execute(sql: str, params=None) -> None:
     except Exception as e:
         conn.rollback()
         raise e
+    finally:
+        db_pool.return_connection(conn)
 
 
 def db_query_rt(sql: str, params=None, commit=False) -> list:
@@ -194,6 +381,8 @@ def db_query_rt(sql: str, params=None, commit=False) -> list:
     except Exception as e:
         conn.rollback()
         raise e
+    finally:
+        db_pool_runtime.return_connection(conn)
 
 
 def db_execute_rt(sql: str, params=None) -> None:
@@ -206,6 +395,8 @@ def db_execute_rt(sql: str, params=None) -> None:
     except Exception as e:
         conn.rollback()
         raise e
+    finally:
+        db_pool_runtime.return_connection(conn)
 
 
 def db_call_json_rt(sql: str, params=None):
@@ -231,6 +422,34 @@ def db_call_json(sql: str, params=None):
             return json.loads(result)
         return result
     return None
+
+
+# ---------------------------------------------------------------------------
+# Async Wrapper — verhindern Event-Loop-Blocking bei sync DB-Calls
+# ---------------------------------------------------------------------------
+async def adb_query_rt(sql: str, params=None, commit=False) -> list:
+    """Async-Wrapper: db_query_rt in separatem Thread ausführen."""
+    return await asyncio.to_thread(db_query_rt, sql, params, commit)
+
+async def adb_execute_rt(sql: str, params=None) -> None:
+    """Async-Wrapper: db_execute_rt in separatem Thread ausführen."""
+    return await asyncio.to_thread(db_execute_rt, sql, params)
+
+async def adb_call_json_rt(sql: str, params=None):
+    """Async-Wrapper: db_call_json_rt in separatem Thread ausführen."""
+    return await asyncio.to_thread(db_call_json_rt, sql, params)
+
+async def adb_query(sql: str, params=None, commit=False) -> list:
+    """Async-Wrapper: db_query in separatem Thread ausführen."""
+    return await asyncio.to_thread(db_query, sql, params, commit)
+
+async def adb_execute(sql: str, params=None) -> None:
+    """Async-Wrapper: db_execute in separatem Thread ausführen."""
+    return await asyncio.to_thread(db_execute, sql, params)
+
+async def adb_call_json(sql: str, params=None):
+    """Async-Wrapper: db_call_json in separatem Thread ausführen."""
+    return await asyncio.to_thread(db_call_json, sql, params)
 
 
 # ---------------------------------------------------------------------------
@@ -289,11 +508,12 @@ class ConnectionManager:
 
     async def broadcast(self, data: dict):
         dead = []
-        for key, ws in list(self.active_connections.items()):
+        async def _send(key, ws):
             try:
                 await ws.send_json(data)
             except Exception:
                 dead.append(key)
+        await asyncio.gather(*[_send(k, w) for k, w in list(self.active_connections.items())])
         for key in dead:
             self.active_connections.pop(key, None)
 
@@ -465,6 +685,25 @@ metrics_streamer = MetricsStreamer(ws_manager)
 async def lifespan(app: FastAPI):
     """Start/Stop Lifecycle mit Auto-Recovery."""
     logger.info("═══ DBAI Web Server startet ═══")
+
+    # ── STARTUP-DIAGNOSTIK: Konfigurationsprobleme sofort erkennen ──
+    _env = os.getenv("DBAI_ENV", "production")
+    logger.info("[CONFIG] DBAI_ENV=%s  Cookie-Secure=%s  Sandbox=%s",
+                _env, _COOKIE_SECURE, os.getenv("DBAI_SANDBOX", "false"))
+    if _COOKIE_SECURE:
+        logger.warning(
+            "[CONFIG] ⚠ Cookies setzen Secure-Flag → funktionieren NUR über HTTPS! "
+            "Falls kein TLS-Proxy vorhanden: DBAI_ENV=development setzen."
+        )
+    if _IS_DEVELOPMENT:
+        logger.info("[CONFIG] Development-Modus aktiv — Cookies ohne Secure-Flag (HTTP OK)")
+    # Prüfe ob DB erreichbar ist
+    try:
+        db_query_rt("SELECT 1")
+        logger.info("[CONFIG] ✓ Datenbank erreichbar")
+    except Exception as e:
+        logger.error("[CONFIG] ✗ Datenbank NICHT erreichbar: %s", e)
+
     await notify_bridge.start()
     await metrics_streamer.start()
 
@@ -477,7 +716,7 @@ async def lifespan(app: FastAPI):
             FROM dbai_llm.agent_instances ai
             JOIN dbai_llm.ghost_models gm ON ai.model_id = gm.id
             WHERE ai.state = 'running'
-            ORDER BY ai.started_at ASC
+            ORDER BY ai.created_at ASC
             LIMIT 1
         """)
         if running_instances:
@@ -502,7 +741,7 @@ async def lifespan(app: FastAPI):
                 if started:
                     logger.info(f"[RECOVERY] ✅ {inst['model_name']} erfolgreich wiederhergestellt")
                     db_execute_rt("""
-                        UPDATE dbai_llm.agent_instances SET started_at = NOW(), updated_at = NOW()
+                        UPDATE dbai_llm.agent_instances SET state = 'running', updated_at = NOW()
                         WHERE id = %s::UUID
                     """, (str(inst["id"]),))
                     db_execute_rt("""
@@ -522,8 +761,27 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"[RECOVERY] Fehler bei Auto-Recovery: {e}")
 
+    # ── LLM Watchdog starten wenn konfiguriert ──
+    try:
+        wd_cfg = db_query_rt("SELECT value FROM dbai_core.config WHERE key = 'llm_watchdog_enabled'")
+        if wd_cfg:
+            v = wd_cfg[0]["value"]
+            enabled = v if isinstance(v, bool) else (str(v).lower().strip('"') == "true") if isinstance(v, str) else bool(v)
+            if enabled:
+                asyncio.create_task(_llm_watchdog_loop())
+                logger.info("[WATCHDOG] LLM Watchdog automatisch gestartet")
+    except Exception as e:
+        logger.debug(f"[WATCHDOG] Start-Check Fehler: {e}")
+
     yield
     logger.info("═══ DBAI Web Server stoppt ═══")
+    global _watchdog_running
+    _watchdog_running = False
+    # LLM-Server sauber beenden (VRAM freigeben, Prozess killen)
+    try:
+        await asyncio.to_thread(_llm_server_stop)
+    except Exception as e:
+        logger.warning("LLM-Server Stop fehlgeschlagen: %s", e)
     await notify_bridge.stop()
     await metrics_streamer.stop()
     db_pool.close_all()
@@ -562,28 +820,213 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
-# Rate Limiting Middleware (einfaches In-Memory-Tracking)
+# Rate Limiting Middleware (Sliding-Window-Counter, Memory-safe)
 # ---------------------------------------------------------------------------
 from collections import defaultdict
-_rate_limit_store = defaultdict(list)
+# Jeder Eintrag: (count, window_start_time)  —  max 2 Floats pro IP statt unbegrenzter Liste
+_rate_limit_store: dict[str, list[float]] = {}
+_rate_limit_last_cleanup = 0.0
 _RATE_LIMIT = 120  # max Requests
 _RATE_WINDOW = 60  # pro Sekunde
+_RATE_MAX_ENTRIES = 200  # Hard-Cap → aggressive Bereinigung bei Überschreitung
+
+# Download-Task-Tracking
+_download_tasks: dict[str, dict] = {}
+
+# API-Version
+_API_VERSION = "0.14.3"
+
+# ── Cookie/Environment-Erkennung ──
+_IS_DEVELOPMENT = os.getenv("DBAI_ENV", "production").lower() in ("development", "dev", "sandbox", "local")
+_COOKIE_SECURE = not _IS_DEVELOPMENT
+# Automatische Erkennung: Wenn kein TLS-Terminator konfiguriert ist, Secure=False erzwingen
+if _COOKIE_SECURE and not os.getenv("DBAI_TLS_PROXY"):
+    # Prüfe ob wir in Docker ohne TLS-Proxy laufen
+    if os.path.exists("/.dockerenv") and os.getenv("DBAI_SANDBOX") == "true":
+        _COOKIE_SECURE = False
+        logger.warning("[SECURITY] Sandbox erkannt ohne TLS — Cookie Secure=False (OK für lokale Entwicklung)")
+
+@app.middleware("http")
+async def api_version_middleware(request: Request, call_next):
+    """Fügt API-Versioning-Header zu allen Responses hinzu."""
+    response = await call_next(request)
+    response.headers["X-API-Version"] = _API_VERSION
+    response.headers["X-DBAI-Version"] = _API_VERSION
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
+
+@app.middleware("http")
+async def csrf_middleware(request: Request, call_next):
+    """CSRF-Schutz: State-changing Requests brauchen gültigen X-CSRF-Token Header."""
+    if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        path = request.url.path
+        # Whitelist: Login, Health-Check, WS und Static Files brauchen kein CSRF
+        csrf_exempt = (
+            path.startswith("/api/auth/login") or
+            path.startswith("/api/health") or
+            path.startswith("/ws") or
+            not path.startswith("/api/")
+        )
+        if not csrf_exempt:
+            csrf_cookie = request.cookies.get("dbai_csrf", "")
+            csrf_header = request.headers.get("x-csrf-token", "")
+            if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
+                client_ip = request.client.host if request.client else "unknown"
+                # Unterscheide fehlenden Cookie (Config-Problem) von Mismatch (echter Angriff)
+                if not csrf_cookie:
+                    logger.warning(
+                        "[CSRF] Cookie fehlt — wahrscheinlich Secure-Flag Problem! "
+                        "path=%s ip=%s cookie_secure=%s env=%s",
+                        path, client_ip, _COOKIE_SECURE,
+                        os.getenv('DBAI_ENV', 'production')
+                    )
+                else:
+                    logger.warning("[CSRF] Token-Mismatch: path=%s ip=%s", path, client_ip)
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "CSRF-Token fehlt oder ungültig",
+                             "hint": "Cookie möglicherweise nicht gesetzt (HTTP ohne Secure-Flag?)" if not csrf_cookie else "Token stimmt nicht überein"}
+                )
+    response = await call_next(request)
+    return response
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    """Einfaches Rate-Limiting: max 120 Requests/Minute pro IP."""
+    """Sliding-Window Rate-Limiting: max 120 Req/Min pro IP, Memory-safe."""
+    global _rate_limit_last_cleanup
     client_ip = request.client.host if request.client else "unknown"
     now = time.time()
-    # Alte Einträge bereinigen
-    _rate_limit_store[client_ip] = [t for t in _rate_limit_store[client_ip] if now - t < _RATE_WINDOW]
-    if len(_rate_limit_store[client_ip]) >= _RATE_LIMIT:
-        return JSONResponse(
-            status_code=429,
-            content={"detail": "Zu viele Anfragen. Bitte warten."}
-        )
-    _rate_limit_store[client_ip].append(now)
+
+    # ── Security-Immunsystem: IP-Ban-Prüfung ──
+    if client_ip not in ("127.0.0.1", "::1", "unknown"):
+        try:
+            banned = db_query_rt("""
+                SELECT EXISTS(
+                    SELECT 1 FROM dbai_security.ip_bans
+                    WHERE ip_address = %s::INET AND is_active = TRUE
+                    AND (expires_at IS NULL OR expires_at > now())
+                ) AS b
+            """, (client_ip,))
+            if banned and banned[0].get("b"):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Zugriff gesperrt. IP ist gebannt."}
+                )
+        except Exception:
+            pass  # Security-Schema noch nicht vorhanden → weiter
+
+    entry = _rate_limit_store.get(client_ip)
+    if entry:
+        count, window_start = entry
+        if now - window_start >= _RATE_WINDOW:
+            # Fenster abgelaufen → Reset
+            _rate_limit_store[client_ip] = [1, now]
+        elif count >= _RATE_LIMIT:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Zu viele Anfragen. Bitte warten."}
+            )
+        else:
+            entry[0] = count + 1
+    else:
+        _rate_limit_store[client_ip] = [1, now]
+
+    # Periodische Bereinigung: alle 30s oder bei Hard-Cap
+    if now - _rate_limit_last_cleanup > 30 or len(_rate_limit_store) > _RATE_MAX_ENTRIES:
+        _rate_limit_last_cleanup = now
+        cutoff = now - _RATE_WINDOW * 2
+        stale = [ip for ip, (_, ws) in _rate_limit_store.items() if ws < cutoff]
+        for ip in stale:
+            del _rate_limit_store[ip]
+
     response = await call_next(request)
     return response
+
+
+# ---------------------------------------------------------------------------
+# Globaler Exception-Handler — Middleware-basiert (verhindert ASGI-Leak)
+# ---------------------------------------------------------------------------
+import traceback as _tb_mod
+
+def _classify_exception(exc: Exception, request: Request):
+    """Klassifiziert eine Exception und gibt (status_code, error_detail) zurück."""
+    # ---- KeyError / ValueError / TypeError → 400 Bad Request ----
+    if isinstance(exc, (KeyError, ValueError, TypeError)):
+        msg = str(exc).strip("'\"") if str(exc) else exc.__class__.__name__
+        logging.warning("Input-Fehler in %s %s: %s", request.method, request.url.path, msg)
+        return 400, f"Ungültige Eingabe: {msg}"
+
+    # ---- psycopg2-Fehler: semantisches Mapping ----
+    if isinstance(exc, psycopg2.Error):
+        msg_primary = ""
+        pg_code = ""
+        if hasattr(exc, 'diag') and exc.diag:
+            msg_primary = exc.diag.message_primary or ""
+            pg_code = exc.diag.sqlstate or ""
+        error_detail = f"Datenbankfehler: {msg_primary}" if msg_primary else str(exc)
+        err_lower = error_detail.lower()
+
+        status = 500
+        if pg_code.startswith("22") or pg_code.startswith("42"):
+            status = 400
+        elif pg_code == "23505":
+            status = 409
+            error_detail = f"Bereits vorhanden: {msg_primary}"
+        elif pg_code.startswith("23"):
+            status = 422
+        elif "invalid input syntax" in err_lower:
+            status = 400
+        elif "duplicate key" in err_lower:
+            status = 409
+            error_detail = f"Bereits vorhanden: {msg_primary or str(exc)}"
+        elif "violates check constraint" in err_lower or "violates not-null" in err_lower or "null value in column" in err_lower:
+            status = 422
+        elif "violates foreign key" in err_lower:
+            status = 422
+        elif "does not exist" in err_lower and not pg_code.startswith("42"):
+            # Nur echte "Ressource nicht gefunden"-Fälle, nicht Schema-/Struktur-Fehler
+            status = 404
+
+        logging.error("DB-Fehler [%s] in %s %s: %s", pg_code, request.method, request.url.path, error_detail)
+        return status, error_detail
+
+    # ---- FileNotFoundError → 404 ----
+    if isinstance(exc, FileNotFoundError):
+        logging.warning("Datei nicht gefunden in %s %s: %s", request.method, request.url.path, exc)
+        return 404, f"Nicht gefunden: {exc}"
+
+    # ---- PermissionError → 403 ----
+    if isinstance(exc, PermissionError):
+        logging.warning("Zugriff verweigert in %s %s: %s", request.method, request.url.path, exc)
+        return 403, f"Zugriff verweigert: {exc}"
+
+    # ---- TimeoutError → 504 ----
+    if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+        logging.error("Timeout in %s %s: %s", request.method, request.url.path, exc)
+        return 504, "Zeitüberschreitung"
+
+    # ---- Alles andere → 500 ----
+    logging.error(
+        "Unbehandelte Exception in %s %s:\n%s",
+        request.method, request.url.path,
+        _tb_mod.format_exc()
+    )
+    return 500, str(exc) if str(exc) else exc.__class__.__name__
+
+
+@app.middleware("http")
+async def catch_all_exceptions_middleware(request: Request, call_next):
+    """
+    Fängt ALLE Exceptions auf Middleware-Ebene ab, BEVOR Starlettes
+    ServerErrorMiddleware sie loggen kann. Verhindert 'Exception in ASGI application'-Spam.
+    """
+    try:
+        response = await call_next(request)
+        return response
+    except Exception as exc:
+        status, detail = _classify_exception(exc, request)
+        return JSONResponse(status_code=status, content={"error": detail})
 
 
 # ---------------------------------------------------------------------------
@@ -628,7 +1071,7 @@ async def get_current_session(request: Request) -> dict:
     if not token:
         raise HTTPException(status_code=401, detail="Nicht authentifiziert")
 
-    result = db_call_json_rt(
+    result = await adb_call_json_rt(
         "SELECT dbai_ui.validate_session(%s)",
         (token,)
     )
@@ -653,7 +1096,7 @@ async def login(req: LoginRequest, request: Request):
     ip = request.client.host if request.client else None
     ua = request.headers.get("User-Agent", "")
 
-    result = db_call_json_rt(
+    result = await adb_call_json_rt(
         "SELECT dbai_ui.login(%s, %s, %s::INET, %s)",
         (req.username, req.password, ip, ua)
     )
@@ -666,20 +1109,37 @@ async def login(req: LoginRequest, request: Request):
         key="dbai_token",
         value=result["token"],
         httponly=True,
-        samesite="lax",
+        secure=_COOKIE_SECURE,
+        samesite="strict",
         max_age=86400,
     )
+    # CSRF-Token im separaten Cookie (JS-lesbar, nicht httponly)
+    import secrets as _secrets_mod
+    csrf_token = _secrets_mod.token_hex(32)
+    response.set_cookie(
+        key="dbai_csrf",
+        value=csrf_token,
+        httponly=False,
+        secure=_COOKIE_SECURE,
+        samesite="strict",
+        max_age=86400,
+    )
+    logger.debug("[AUTH] Login erfolgreich: user=%s, cookie_secure=%s, env=%s",
+                 req.username, _COOKIE_SECURE, os.getenv('DBAI_ENV', 'production'))
     return response
 
 
 @app.post("/api/auth/logout")
 async def logout(session: dict = Depends(get_current_session)):
-    """Logout: Session deaktivieren."""
-    db_execute_rt(
+    """Logout: Session deaktivieren + Cookies löschen."""
+    await adb_execute_rt(
         "UPDATE dbai_ui.sessions SET is_active = FALSE WHERE id = %s::UUID",
         (session["session_id"],)
     )
-    return {"success": True}
+    response = JSONResponse(content={"success": True})
+    response.delete_cookie("dbai_token")
+    response.delete_cookie("dbai_csrf")
+    return response
 
 
 @app.get("/api/auth/me")
@@ -694,7 +1154,7 @@ async def get_me(session: dict = Depends(get_current_session)):
 @app.get("/api/boot/sequence")
 async def get_boot_sequence():
     """Boot-Sequenz für die Browser-Animation. Kein Auth nötig."""
-    rows = db_query_rt("SELECT * FROM dbai_ui.vw_boot_sequence ORDER BY step")
+    rows = await adb_query_rt("SELECT * FROM dbai_ui.vw_boot_sequence ORDER BY step")
     return rows
 
 
@@ -706,12 +1166,12 @@ async def get_desktop(request: Request, session: dict = Depends(get_current_sess
     """Kompletter Desktop-State — Tab-isoliert wenn X-Tab-Id Header vorhanden."""
     tab_id = request.headers.get("X-Tab-Id", "")
     if tab_id:
-        result = db_call_json_rt(
+        result = await adb_call_json_rt(
             "SELECT dbai_ui.get_tab_desktop_state(%s::UUID, %s)",
             (session["session_id"], tab_id)
         )
     else:
-        result = db_call_json_rt(
+        result = await adb_call_json_rt(
             "SELECT dbai_ui.get_desktop_state(%s::UUID)",
             (session["session_id"],)
         )
@@ -728,7 +1188,7 @@ async def register_tab(request: Request, session: dict = Depends(get_current_ses
     tab_id = data.get("tab_id", "")
     if not tab_id:
         raise HTTPException(400, "tab_id fehlt")
-    result = db_call_json_rt(
+    result = await adb_call_json_rt(
         "SELECT dbai_ui.register_tab(%s::UUID, %s, %s, %s)",
         (session["session_id"], tab_id, data.get("hostname"), data.get("label"))
     )
@@ -738,7 +1198,7 @@ async def register_tab(request: Request, session: dict = Depends(get_current_ses
 @app.get("/api/tabs")
 async def list_tabs(session: dict = Depends(get_current_session)):
     """Alle aktiven Tabs dieser Session auflisten."""
-    rows = db_query_rt("""
+    rows = await adb_query_rt("""
         SELECT tab_id, hostname, label, wallpaper, is_active, last_heartbeat, created_at
         FROM dbai_ui.tab_instances
         WHERE session_id = %s::UUID AND is_active
@@ -764,7 +1224,7 @@ async def update_tab(tab_id: str, request: Request, session: dict = Depends(get_
         return {"ok": True}
     params.append(tab_id)
     params.append(session["session_id"])
-    db_execute_rt(
+    await adb_execute_rt(
         f"UPDATE dbai_ui.tab_instances SET {', '.join(sets)} WHERE tab_id = %s AND session_id = %s::UUID",
         tuple(params))
     return {"ok": True}
@@ -773,7 +1233,7 @@ async def update_tab(tab_id: str, request: Request, session: dict = Depends(get_
 @app.post("/api/tabs/{tab_id}/heartbeat")
 async def tab_heartbeat(tab_id: str, session: dict = Depends(get_current_session)):
     """Tab-Heartbeat — hält den Tab aktiv."""
-    db_execute_rt(
+    await adb_execute_rt(
         "UPDATE dbai_ui.tab_instances SET last_heartbeat = NOW() WHERE tab_id = %s AND session_id = %s::UUID",
         (tab_id, session["session_id"]))
     return {"ok": True}
@@ -782,8 +1242,8 @@ async def tab_heartbeat(tab_id: str, session: dict = Depends(get_current_session
 @app.delete("/api/tabs/{tab_id}")
 async def close_tab(tab_id: str, session: dict = Depends(get_current_session)):
     """Tab schließen — Windows + Tab-Instanz deaktivieren."""
-    db_execute_rt("DELETE FROM dbai_ui.windows WHERE tab_id = %s", (tab_id,))
-    db_execute_rt(
+    await adb_execute_rt("DELETE FROM dbai_ui.windows WHERE tab_id = %s", (tab_id,))
+    await adb_execute_rt(
         "UPDATE dbai_ui.tab_instances SET is_active = FALSE WHERE tab_id = %s AND session_id = %s::UUID",
         (tab_id, session["session_id"]))
     return {"ok": True}
@@ -792,7 +1252,7 @@ async def close_tab(tab_id: str, session: dict = Depends(get_current_session)):
 @app.get("/api/apps")
 async def get_apps(session: dict = Depends(get_current_session)):
     """Liste aller verfügbaren Apps."""
-    rows = db_query_rt("SELECT * FROM dbai_ui.apps ORDER BY sort_order")
+    rows = await adb_query_rt("SELECT * FROM dbai_ui.apps ORDER BY sort_order")
     return rows
 
 
@@ -800,14 +1260,14 @@ async def get_apps(session: dict = Depends(get_current_session)):
 async def open_window(app_id: str, request: Request, session: dict = Depends(get_current_session)):
     """Öffnet ein neues Fenster für eine App (Tab-isoliert)."""
     tab_id = request.headers.get("X-Tab-Id", "")
-    rows = db_query_rt(
+    rows = await adb_query_rt(
         "SELECT * FROM dbai_ui.apps WHERE app_id = %s", (app_id,)
     )
     if not rows:
         raise HTTPException(status_code=404, detail=f"App '{app_id}' nicht gefunden")
 
     app_data = rows[0]
-    result = db_query_rt("""
+    result = await adb_query_rt("""
         INSERT INTO dbai_ui.windows (session_id, app_id, width, height, tab_id)
         VALUES (%s::UUID, %s::UUID, %s, %s, %s)
         RETURNING id, pos_x, pos_y, width, height, state, z_index
@@ -841,7 +1301,7 @@ async def update_window(window_id: str, update: WindowUpdate, session: dict = De
         return {"ok": True}
 
     params.append(window_id)
-    db_execute_rt(
+    await adb_execute_rt(
         f"UPDATE dbai_ui.windows SET {', '.join(sets)} WHERE id = %s::UUID",
         tuple(params)
     )
@@ -851,7 +1311,7 @@ async def update_window(window_id: str, update: WindowUpdate, session: dict = De
 @app.delete("/api/windows/{window_id}")
 async def close_window(window_id: str, session: dict = Depends(get_current_session)):
     """Schließt ein Fenster."""
-    db_execute_rt("DELETE FROM dbai_ui.windows WHERE id = %s::UUID", (window_id,))
+    await adb_execute_rt("DELETE FROM dbai_ui.windows WHERE id = %s::UUID", (window_id,))
     await ws_manager.broadcast({"type": "window_closed", "window_id": window_id})
     return {"ok": True}
 
@@ -862,10 +1322,10 @@ async def close_window(window_id: str, session: dict = Depends(get_current_sessi
 @app.get("/api/ghosts")
 async def get_ghosts(session: dict = Depends(get_current_session)):
     """Alle aktiven Ghosts und verfügbaren Modelle."""
-    active = db_query_rt("SELECT * FROM dbai_llm.vw_active_ghosts")
-    models = db_query_rt("SELECT * FROM dbai_llm.ghost_models ORDER BY name")
-    roles = db_query_rt("SELECT * FROM dbai_llm.ghost_roles ORDER BY priority")
-    compatibility = db_query_rt("""
+    active = await adb_query_rt("SELECT * FROM dbai_llm.vw_active_ghosts")
+    models = await adb_query_rt("SELECT * FROM dbai_llm.ghost_models ORDER BY name")
+    roles = await adb_query_rt("SELECT * FROM dbai_llm.ghost_roles ORDER BY priority")
+    compatibility = await adb_query_rt("""
         SELECT gc.*, gm.name AS model_name, gr.name AS role_name
         FROM dbai_llm.ghost_compatibility gc
         JOIN dbai_llm.ghost_models gm ON gc.model_id = gm.id
@@ -928,6 +1388,8 @@ _llm_server_device = "gpu"            # "gpu" oder "cpu"
 _llm_server_gpu_layers = 99           # n_gpu_layers (0 = rein CPU)
 _llm_server_ctx_size = 8192
 _llm_server_threads = 12
+_llm_lock = threading.Lock()           # Schützt _llm_server_* Globals (kurze Operationen)
+_llm_op_lock = threading.Lock()        # Serialisiert Start/Stop-Operationen (non-blocking)
 
 import urllib.request
 import urllib.error
@@ -946,81 +1408,172 @@ def _llm_server_health() -> bool:
 
 
 def _llm_server_stop():
-    """Laufenden llama-server stoppen."""
+    """Laufenden llama-server stoppen + GPU-Speicher korrekt freigeben.
+
+    Lock-Strategie: _llm_lock wird NUR für den Prozess-Zugriff gehalten,
+    NICHT für DB-Aufrufe oder time.sleep() — verhindert Deadlocks.
+    """
     global _llm_server_process
-    # Eigenen Prozess stoppen
-    if _llm_server_process and _llm_server_process.poll() is None:
-        _llm_server_process.terminate()
-        try:
-            _llm_server_process.wait(timeout=10)
-        except Exception:
-            _llm_server_process.kill()
-        _llm_server_process = None
-    # Auch eventuell extern gestartete Prozesse killen
+
+    # Phase 1: DB-Aufrufe AUSSERHALB des Locks (verhindert Lock-Ordering-Deadlock)
     try:
-        _sp.run(["pkill", "-f", f"llama-server.*--port {_llm_server_port}"], timeout=5, capture_output=True)
+        db_execute_rt("""
+            UPDATE dbai_llm.vram_allocations SET is_active = FALSE, released_at = NOW()
+            WHERE is_active = TRUE
+        """)
     except Exception:
         pass
+
+    # Phase 2: Prozess stoppen UNTER Lock (kurze Dauer, kein sleep/DB)
+    with _llm_lock:
+        if _llm_server_process and _llm_server_process.poll() is None:
+            _llm_server_process.terminate()
+            try:
+                _llm_server_process.wait(timeout=10)
+            except Exception:
+                _llm_server_process.kill()
+            _llm_server_process = None
+        # Auch eventuell extern gestartete Prozesse killen
+        try:
+            _sp.run(["pkill", "-f", f"llama-server.*--port {_llm_server_port}"], timeout=5, capture_output=True)
+        except Exception:
+            pass
+
+    # Phase 3: Cooldown AUSSERHALB des Locks (blockiert keine anderen Threads)
     import time
-    time.sleep(1)
+    cooldown = 3
+    try:
+        cd_rows = db_query_rt("SELECT value FROM dbai_core.config WHERE key = 'gpu_cooldown_after_unload_sec'")
+        if cd_rows:
+            val = cd_rows[0]["value"]
+            cooldown = int(val) if isinstance(val, (int, float)) else int(json.loads(val)) if isinstance(val, str) else 3
+    except Exception:
+        pass
+    time.sleep(cooldown)
+
+    # Phase 4: Watchdog-Log AUSSERHALB des Locks
+    try:
+        db_execute_rt("""
+            INSERT INTO dbai_llm.watchdog_log (target, is_healthy, action_taken, details)
+            VALUES ('llama-server', FALSE, 'stopped', %s::jsonb)
+        """, (json.dumps({"reason": "manual_stop", "cooldown_sec": cooldown}),))
+    except Exception:
+        pass
 
 
 def _llm_server_start(device: str = "gpu", n_gpu_layers: int = 99,
                        ctx_size: int = 8192, threads: int = 12,
                        model_path: str = None, model_name: str = None):
-    """llama-server starten mit CPU oder GPU Konfiguration."""
+    """llama-server starten mit CPU oder GPU Konfiguration.
+
+    Lock-Strategie:
+      _llm_op_lock — Serialisiert ganze Start/Stop-Operationen (non-blocking).
+                     Verhindert Race-Condition bei parallelen Start-Aufrufen.
+      _llm_lock    — Schützt nur kurz _llm_server_* Globals (State + Popen).
+                     NICHT für DB-Aufrufe oder time.sleep() gehalten.
+    Verhindert: Deadlock durch Lock-Ordering (llm_lock → db_pool._lock)
+                und blockierendes 120s Lock-Halten.
+    """
     global _llm_server_process, _llm_server_device, _llm_server_gpu_layers
     global _llm_server_ctx_size, _llm_server_threads, _llm_model_path, _llm_model_name
 
-    # Erst stoppen
-    _llm_server_stop()
+    # Prüfen ob Binary existiert
+    if not Path(_llm_server_bin).exists():
+        logger.warning("[LLM] llama-server Binary nicht gefunden: %s — Überspringe Start", _llm_server_bin)
+        return False
 
-    if model_path:
-        _llm_model_path = model_path
-    if model_name:
-        _llm_model_name = model_name
+    # Fail-Fast: Wenn bereits eine Start-Operation läuft, nicht blockierend warten
+    if not _llm_op_lock.acquire(blocking=False):
+        logger.warning("[LLM] Start-Operation bereits aktiv — überspringe parallelen Start")
+        return False
 
-    _llm_server_device = device
-    gpu_layers = n_gpu_layers if device == "gpu" else 0
-    _llm_server_gpu_layers = gpu_layers
-    _llm_server_ctx_size = ctx_size
-    _llm_server_threads = threads
+    try:
+        # Phase 1: Alten Server stoppen (hat eigene Lock-Strategie)
+        _llm_server_stop()
 
-    cmd = [
-        _llm_server_bin,
-        "--model", _llm_model_path,
-        "--host", "0.0.0.0",
-        "--port", str(_llm_server_port),
-        "--n-gpu-layers", str(gpu_layers),
-        "--ctx-size", str(ctx_size),
-        "--threads", str(threads),
-        "--alias", _llm_model_name,
-    ]
+        # Phase 2: State setzen + Prozess starten UNTER Lock (kurze Dauer)
+        with _llm_lock:
+            if model_path:
+                _llm_model_path = model_path
+            if model_name:
+                _llm_model_name = model_name
 
-    logger.info(f"[LLM] Starte llama-server: device={device}, gpu_layers={gpu_layers}, ctx={ctx_size}")
-    logger.info(f"[LLM] Befehl: {' '.join(cmd)}")
+            _llm_server_device = device
+            gpu_layers = n_gpu_layers if device == "gpu" else 0
+            _llm_server_gpu_layers = gpu_layers
+            _llm_server_ctx_size = ctx_size
+            _llm_server_threads = threads
 
-    log_file = open("/tmp/llama-server.log", "w")
-    _llm_server_process = _sp.Popen(
-        cmd,
-        stdout=log_file,
-        stderr=_sp.STDOUT,
-        preexec_fn=os.setsid,
-    )
+            cmd = [
+                _llm_server_bin,
+                "--model", _llm_model_path,
+                "--host", "0.0.0.0",
+                "--port", str(_llm_server_port),
+                "--n-gpu-layers", str(gpu_layers),
+                "--ctx-size", str(ctx_size),
+                "--threads", str(threads),
+                "--alias", _llm_model_name,
+            ]
 
-    # Warte bis Server bereit ist (max 120s — Modell-laden kann dauern)
-    import time
-    for _ in range(120):
-        time.sleep(1)
-        if _llm_server_health():
-            logger.info(f"[LLM] llama-server bereit auf {_llm_server_url} ({device.upper()})")
-            return True
-        if _llm_server_process.poll() is not None:
-            logger.error(f"[LLM] llama-server beendet mit Code {_llm_server_process.returncode}")
-            return False
+            logger.info(f"[LLM] Starte llama-server: device={device}, gpu_layers={gpu_layers}, ctx={ctx_size}")
+            logger.info(f"[LLM] Befehl: {' '.join(cmd)}")
 
-    logger.error("[LLM] llama-server Timeout nach 120s")
-    return False
+            # ── CUDA / llama.cpp Shared-Libs erreichbar machen ──
+            llm_env = os.environ.copy()
+            _extra_lib_paths = [
+                os.path.dirname(_llm_server_bin),          # libggml-cuda.so neben Binary
+                "/usr/local/cuda/lib64",                   # CUDA Toolkit (symlink)
+                "/usr/local/cuda-12.8/lib64",              # CUDA 12.8 explizit
+                "/usr/local/cuda-12/lib64",                # CUDA 12 generisch
+            ]
+            existing_ld = llm_env.get("LD_LIBRARY_PATH", "")
+            llm_env["LD_LIBRARY_PATH"] = ":".join(
+                p for p in _extra_lib_paths + [existing_ld] if p
+            )
+
+            log_file = open("/tmp/llama-server.log", "w")
+            _llm_server_process = _sp.Popen(
+                cmd,
+                stdout=log_file,
+                stderr=_sp.STDOUT,
+                preexec_fn=os.setsid,
+                env=llm_env,
+            )
+            # Lokale Referenz für Health-Check ohne Lock
+            proc_ref = _llm_server_process
+            started_model = _llm_model_name
+
+        # Phase 3: Health-Wait AUSSERHALB des Locks (bis 120s, blockiert keine anderen Threads)
+        import time
+        for _ in range(120):
+            time.sleep(1)
+            if _llm_server_health():
+                logger.info(f"[LLM] llama-server bereit auf {_llm_server_url} ({device.upper()})")
+                # VRAM-Allokation tracken (DB-Aufrufe außerhalb des Locks)
+                try:
+                    model_rows = db_query_rt("SELECT id, required_vram_mb FROM dbai_llm.ghost_models WHERE name = %s", (started_model,))
+                    if model_rows:
+                        mid = str(model_rows[0]["id"])
+                        vram = model_rows[0].get("required_vram_mb") or 0
+                        db_execute_rt("""
+                            INSERT INTO dbai_llm.vram_allocations (gpu_index, model_id, vram_allocated_mb, is_active)
+                            VALUES (0, %s::UUID, %s, TRUE)
+                        """, (mid, vram))
+                    db_execute_rt("""
+                        INSERT INTO dbai_llm.watchdog_log (target, is_healthy, response_ms, action_taken, details)
+                        VALUES ('llama-server', TRUE, NULL, 'started', %s::jsonb)
+                    """, (json.dumps({"model": started_model, "device": device, "gpu_layers": gpu_layers}),))
+                except Exception as e:
+                    logger.debug(f"[LLM] VRAM-Tracking Fehler: {e}")
+                return True
+            if proc_ref.poll() is not None:
+                logger.error(f"[LLM] llama-server beendet mit Code {proc_ref.returncode}")
+                return False
+
+        logger.error("[LLM] llama-server Timeout nach 120s")
+        return False
+    finally:
+        _llm_op_lock.release()
 
 
 def _llm_chat_completion(messages: list, max_tokens: int = 2048, temperature: float = 0.7) -> dict:
@@ -1252,8 +1805,8 @@ async def system_status(session: dict = Depends(get_current_session)):
     """Aktueller System-Status — psutil live + DB-Persistenz."""
     import psutil, socket
 
-    # Live-Daten via psutil (immer aktuell, auch wenn DB leer)
-    cpu_percent = psutil.cpu_percent(interval=0.3, percpu=True)
+    # Live-Daten via psutil — blocking call in Thread auslagern
+    cpu_percent = await asyncio.to_thread(psutil.cpu_percent, interval=0.3, percpu=True)
     cpu_freq = psutil.cpu_freq()
     temps = {}
     try:
@@ -1330,12 +1883,17 @@ async def system_status(session: dict = Depends(get_current_session)):
         "load_avg": list(os.getloadavg()) if hasattr(os, 'getloadavg') else [],
     }
 
-    # Async in DB persistieren (für Verlaufsdaten)
+    # In DB persistieren (Batch-INSERT für CPU-Cores)
     try:
-        for i, pct in enumerate(cpu_percent):
-            db_execute_rt(
-                "INSERT INTO dbai_system.cpu (core_id, usage_percent, frequency_mhz, temperature_c) VALUES (%s, %s, %s, %s)",
-                (i, pct, cpu_freq.current if cpu_freq else None, max_temp))
+        if cpu_percent:
+            cpu_values = ", ".join(
+                f"({i}, {pct}, {cpu_freq.current if cpu_freq else 'NULL'}, {max_temp if max_temp else 'NULL'})"
+                for i, pct in enumerate(cpu_percent)
+            )
+            db_execute_rt(f"""
+                INSERT INTO dbai_system.cpu (core_id, usage_percent, frequency_mhz, temperature_c)
+                VALUES {cpu_values}
+            """)
         db_execute_rt(
             "INSERT INTO dbai_system.memory (total_mb, used_mb, free_mb, cached_mb, buffers_mb, swap_total_mb, swap_used_mb, usage_percent, pressure_level) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (int(mem.total/(1024**2)), int(mem.used/(1024**2)), int(mem.available/(1024**2)),
@@ -1376,12 +1934,107 @@ async def system_processes(session: dict = Depends(get_current_session)):
 
 @app.get("/api/health")
 async def health_check_simple():
-    """Einfacher Health-Check (ohne Auth) für Docker/Systemd Healthchecks."""
+    """Erweiterter Health-Check (ohne Auth) für Docker/Systemd Healthchecks.
+    Prüft: DB, Disk, Memory. Gibt 503 bei kritischem Problem."""
+    checks = {"status": "ok"}
+
+    # 1. Datenbank
     try:
-        db_query_rt("SELECT 1")
-        return {"status": "ok", "db": "connected"}
+        await asyncio.to_thread(db_query_rt, "SELECT 1")
+        checks["db"] = "connected"
     except Exception:
-        raise HTTPException(503, "DB nicht erreichbar")
+        checks["db"] = "disconnected"
+        checks["status"] = "degraded"
+
+    # 2. Disk-Space (/ muss >5% frei haben)
+    try:
+        st = os.statvfs("/")
+        free_pct = (st.f_bavail / st.f_blocks) * 100 if st.f_blocks else 100
+        checks["disk_free_pct"] = round(free_pct, 1)
+        if free_pct < 5:
+            checks["status"] = "critical"
+            checks["disk"] = "critical"
+        elif free_pct < 15:
+            checks["disk"] = "warning"
+        else:
+            checks["disk"] = "ok"
+    except Exception:
+        checks["disk"] = "unknown"
+
+    # 3. Memory
+    try:
+        with open("/proc/meminfo") as f:
+            mem = {}
+            for line in f:
+                parts = line.split()
+                if parts[0] in ("MemTotal:", "MemAvailable:"):
+                    mem[parts[0]] = int(parts[1])
+            total = mem.get("MemTotal:", 0)
+            avail = mem.get("MemAvailable:", 0)
+            if total > 0:
+                used_pct = round((1 - avail / total) * 100, 1)
+                checks["memory_used_pct"] = used_pct
+                checks["memory"] = "critical" if used_pct > 95 else ("warning" if used_pct > 85 else "ok")
+                if used_pct > 95:
+                    checks["status"] = "critical"
+            else:
+                checks["memory"] = "unknown"
+    except Exception:
+        checks["memory"] = "unknown"
+
+    # 4. LLM-Server (schneller Connect-Check)
+    try:
+        llm_url = os.environ.get("LLM_SERVER_URL", "http://127.0.0.1:8080")
+        import urllib.request
+        req = urllib.request.Request(f"{llm_url}/health", method="GET")
+        with urllib.request.urlopen(req, timeout=1) as resp:
+            checks["llm"] = "ok" if resp.status == 200 else "degraded"
+    except Exception:
+        checks["llm"] = "offline"
+
+    status_code = 503 if checks["status"] == "critical" else (
+        200 if checks["db"] == "connected" else 503
+    )
+    return JSONResponse(content=checks, status_code=status_code)
+
+
+@app.get("/api/health/auth-config")
+async def health_auth_config(request: Request):
+    """Diagnose-Endpoint: Zeigt ob Cookie/Auth-Konfiguration für den aktuellen Client stimmt.
+    Kein Auth nötig — hilft beim Debuggen von Login-Problemen."""
+    protocol = request.headers.get("x-forwarded-proto", request.url.scheme)
+    is_https = protocol == "https"
+    problems = []
+
+    if _COOKIE_SECURE and not is_https:
+        problems.append({
+            "severity": "critical",
+            "issue": "Cookie Secure=True aber Client nutzt HTTP",
+            "fix": "Entweder HTTPS verwenden oder DBAI_ENV=development setzen"
+        })
+
+    csrf_cookie = request.cookies.get("dbai_csrf", "")
+    token_cookie = request.cookies.get("dbai_token", "")
+
+    if not csrf_cookie and not token_cookie:
+        # Könnte OK sein (noch nicht eingeloggt) oder Problem
+        problems.append({
+            "severity": "info",
+            "issue": "Keine Auth-Cookies vorhanden (noch nicht eingeloggt oder Cookies blockiert)",
+            "fix": "Nach Login prüfen ob Cookies gesetzt werden"
+        })
+
+    return {
+        "cookie_secure_flag": _COOKIE_SECURE,
+        "dbai_env": os.getenv("DBAI_ENV", "production"),
+        "is_development": _IS_DEVELOPMENT,
+        "client_protocol": protocol,
+        "client_is_https": is_https,
+        "csrf_cookie_present": bool(csrf_cookie),
+        "token_cookie_present": bool(token_cookie),
+        "problems": problems,
+        "verdict": "OK" if not [p for p in problems if p["severity"] == "critical"] else "BROKEN"
+    }
 
 
 @app.get("/api/system/health")
@@ -1488,8 +2141,8 @@ async def system_diagnostics(session: dict = Depends(get_current_session)):
     # 5. Ghost-System (lokales LLM)
     try:
         rows = db_query_rt("""
-            SELECT model_name, is_loaded, model_size_mb
-            FROM dbai_llm.models WHERE is_active = TRUE LIMIT 5
+            SELECT name, is_loaded, required_vram_mb
+            FROM dbai_llm.ghost_models WHERE state != 'removed' LIMIT 5
         """)
         if rows:
             loaded = [r for r in rows if r.get('is_loaded')]
@@ -1636,9 +2289,10 @@ async def workshop_ml_models(session: dict = Depends(get_current_session)):
     # Lokale Modelle aus DB
     try:
         rows = db_query_rt("""
-            SELECT model_name, model_path, model_size_mb, is_loaded, is_active,
+            SELECT name, model_path, required_vram_mb, is_loaded,
+                   CASE WHEN state != 'removed' THEN TRUE ELSE FALSE END AS is_active,
                    capabilities, created_at
-            FROM dbai_llm.models ORDER BY model_name
+            FROM dbai_llm.ghost_models ORDER BY name
         """)
         for r in rows:
             models.append({**dict(r), "source": "local"})
@@ -1774,11 +2428,9 @@ async def store_catalog(session: dict = Depends(get_current_session)):
 @app.post("/api/store/install")
 async def store_install(request: Request, session: dict = Depends(get_current_session)):
     """Paket installieren (setzt Status auf 'installing')."""
-    body = await request.json()
-    pkg = body.get("package_name")
+    body = _validate_body(await request.json(), required=["package_name"])
+    pkg = body["package_name"]
     src = body.get("source_type", "apt")
-    if not pkg:
-        raise HTTPException(status_code=400, detail="package_name fehlt")
 
     db_execute_rt("""
         UPDATE dbai_core.software_catalog
@@ -1802,25 +2454,82 @@ async def store_install(request: Request, session: dict = Depends(get_current_se
         WHERE package_name = %s AND source_type = %s
     """, (pkg, src))
 
+    # Desktop-Icon erstellen (Node), falls noch nicht vorhanden
+    node_key = f"store:{src}:{pkg}"
+    existing_node = db_query_rt(
+        "SELECT id FROM dbai_ui.desktop_nodes WHERE node_key = %s", (node_key,)
+    )
+    if not existing_node:
+        icon_map = {
+            'apt': 'server', 'flatpak': 'cloud', 'snap': 'cloud',
+            'pip': 'play', 'github': 'web', 'system': 'server',
+        }
+        db_execute_rt("""
+            INSERT INTO dbai_ui.desktop_nodes
+                (node_key, label, node_type, icon_type, color, is_visible, sort_order)
+            VALUES (%s, %s, 'app', %s, '#00f5ff', true,
+                    COALESCE((SELECT MAX(sort_order) FROM dbai_ui.desktop_nodes), 0) + 1)
+        """, (node_key, pkg, icon_map.get(src, 'circle')))
+
     return {"ok": True, "package": pkg, "state": "installed"}
 
 
 @app.post("/api/store/uninstall")
 async def store_uninstall(request: Request, session: dict = Depends(get_current_session)):
-    """Paket entfernen."""
+    """Paket vollständig entfernen: Katalog, Desktop-Icon, Settings, offene Fenster."""
+    require_admin(session)
     body = await request.json()
     pkg = body.get("package_name")
     src = body.get("source_type", "apt")
     if not pkg:
         raise HTTPException(status_code=400, detail="package_name fehlt")
 
+    # 1) Katalog-Status zurücksetzen
     db_execute_rt("""
         UPDATE dbai_core.software_catalog
         SET install_state = 'available', installed_at = NULL, updated_at = NOW()
         WHERE package_name = %s AND source_type = %s
     """, (pkg, src))
 
-    return {"ok": True, "package": pkg, "state": "available"}
+    # 2) Desktop-Icon (Node) entfernen
+    node_key = f"store:{src}:{pkg}"
+    db_execute_rt(
+        "DELETE FROM dbai_ui.desktop_nodes WHERE node_key = %s", (node_key,)
+    )
+
+    # 3) App-spezifische Einstellungen entfernen
+    #    app_id in app_user_settings ist text, node_key als Identifier nutzen
+    db_execute_rt(
+        "DELETE FROM dbai_ui.app_user_settings WHERE app_id = %s", (node_key,)
+    )
+    #    Auch nach package_name suchen (manche Apps nutzen den als app_id)
+    db_execute_rt(
+        "DELETE FROM dbai_ui.app_user_settings WHERE app_id = %s", (pkg,)
+    )
+
+    # 4) Offene Fenster dieser App schließen (content_state enthält ggf. node_key)
+    #    windows.app_id ist UUID → über apps-Tabelle joinen wenn app_id == node_key
+    try:
+        app_row = db_query_rt(
+            "SELECT id FROM dbai_ui.apps WHERE app_id = %s", (node_key,)
+        )
+        if app_row:
+            db_execute_rt(
+                "DELETE FROM dbai_ui.windows WHERE app_id = %s", (app_row[0]["id"],)
+            )
+    except Exception:
+        pass  # Kein registriertes App-Fenster — OK
+
+    # 5) Event loggen
+    try:
+        db_execute_rt("""
+            INSERT INTO dbai_event.events (event_type, source, payload)
+            VALUES ('app_uninstall', 'store_ui', %s::JSONB)
+        """, (json.dumps({"package": pkg, "source_type": src, "cleanup": ["catalog", "desktop_node", "settings", "windows"]}),))
+    except Exception:
+        pass
+
+    return {"ok": True, "package": pkg, "state": "available", "cleanup": ["catalog", "desktop_node", "settings", "windows"]}
 
 
 @app.post("/api/store/refresh")
@@ -1873,8 +2582,8 @@ async def store_github_search(q: str = "", session: dict = Depends(get_current_s
 @app.post("/api/store/github/install")
 async def store_github_install(request: Request, session: dict = Depends(get_current_session)):
     """GitHub-Repo in den Software-Katalog aufnehmen und als 'installed' markieren."""
-    body = await request.json()
-    full_name = body.get("full_name", "")
+    body = _validate_body(await request.json(), required=["full_name"])
+    full_name = body["full_name"]
     name = body.get("name", full_name.split("/")[-1] if "/" in full_name else full_name)
     description = body.get("description", "")
     html_url = body.get("html_url", "")
@@ -1885,9 +2594,6 @@ async def store_github_install(request: Request, session: dict = Depends(get_cur
     topics = body.get("topics", [])
     size_kb = body.get("size_kb", 0)
 
-    if not full_name:
-        raise HTTPException(status_code=400, detail="full_name fehlt")
-
     # Prüfe ob schon vorhanden
     existing = db_query_rt("""
         SELECT id, install_state FROM dbai_core.software_catalog
@@ -1895,6 +2601,19 @@ async def store_github_install(request: Request, session: dict = Depends(get_cur
     """, (full_name,))
 
     if existing and existing[0].get("install_state") == "installed":
+        # Sicherstellen, dass das Desktop-Icon existiert (Nachrüstung)
+        node_key = f"store:github:{full_name}"
+        existing_node = db_query_rt(
+            "SELECT id FROM dbai_ui.desktop_nodes WHERE node_key = %s", (node_key,)
+        )
+        if not existing_node:
+            display = name or (full_name.split("/")[-1] if "/" in full_name else full_name)
+            db_execute_rt("""
+                INSERT INTO dbai_ui.desktop_nodes
+                    (node_key, label, node_type, icon_type, color, url, is_visible, sort_order)
+                VALUES (%s, %s, 'app', 'web', '#00f5ff', %s, true,
+                        COALESCE((SELECT MAX(sort_order) FROM dbai_ui.desktop_nodes), 0) + 1)
+            """, (node_key, display, html_url))
         return {"ok": True, "package": full_name, "state": "already_installed"}
 
     if existing:
@@ -1931,6 +2650,20 @@ async def store_github_install(request: Request, session: dict = Depends(get_cur
         """, (json.dumps({"repo": full_name, "url": html_url}),))
     except Exception:
         pass
+
+    # Desktop-Icon erstellen (Node), falls noch nicht vorhanden
+    node_key = f"store:github:{full_name}"
+    existing_node = db_query_rt(
+        "SELECT id FROM dbai_ui.desktop_nodes WHERE node_key = %s", (node_key,)
+    )
+    if not existing_node:
+        display = name or full_name.split("/")[-1] if "/" in full_name else full_name
+        db_execute_rt("""
+            INSERT INTO dbai_ui.desktop_nodes
+                (node_key, label, node_type, icon_type, color, url, is_visible, sort_order)
+            VALUES (%s, %s, 'app', 'web', '#00f5ff', %s, true,
+                    COALESCE((SELECT MAX(sort_order) FROM dbai_ui.desktop_nodes), 0) + 1)
+        """, (node_key, display, html_url))
 
     return {"ok": True, "package": full_name, "state": "installed"}
 
@@ -2228,7 +2961,7 @@ async def llm_update_config(request: Request, session: dict = Depends(get_curren
         INSERT INTO dbai_core.config (key, value, category)
         VALUES (%s, %s, 'llm')
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-    """, (key, json.dumps(value) if isinstance(value, (dict, list)) else str(value)))
+    """, (key, json.dumps(value)))
 
     return {"ok": True}
 
@@ -2267,7 +3000,7 @@ async def llm_models(session: dict = Depends(get_current_session)):
 @app.post("/api/llm/models")
 async def llm_add_model(request: Request, session: dict = Depends(get_current_session)):
     """Neues Modell hinzufügen (nach Disk-Scan & Admin-Bestätigung)."""
-    body = await request.json()
+    body = _validate_body(await request.json())
     name = body.get("name", body.get("name_guess", "unknown"))
     display_name = body.get("display_name", name)
     path = body.get("path", body.get("model_path", ""))
@@ -2307,6 +3040,7 @@ async def llm_add_model(request: Request, session: dict = Depends(get_current_se
 @app.delete("/api/llm/models/{model_id}")
 async def llm_remove_model(model_id: str, session: dict = Depends(get_current_session)):
     """Modell entfernen (nach Admin-Bestätigung)."""
+    require_admin(session)
     db_execute_rt("DELETE FROM dbai_llm.ghost_models WHERE id = %s::UUID", (model_id,))
     return {"ok": True}
 
@@ -2435,36 +3169,38 @@ async def llm_scan_disks(request: Request, session: dict = Depends(get_current_s
 @app.post("/api/llm/download")
 async def llm_download_model(request: Request, session: dict = Depends(get_current_session)):
     """Modell von HuggingFace Hub herunterladen."""
+    require_admin(session)
     import asyncio
-    body = await request.json()
-    repo_id = body.get("repo_id", "").strip()  # z.B. "Qwen/Qwen2.5-7B-Instruct-GGUF"
+    body = _validate_body(await request.json(), required=["repo_id"], max_str_len=500)
+    repo_id = body["repo_id"]
     target_dir = body.get("target_dir", "/mnt/nvme/models")
     filename = body.get("filename")  # optional: nur bestimmte Datei
 
-    if not repo_id:
-        return JSONResponse(status_code=400, content={"error": "repo_id erforderlich"})
+    # Pfad-Traversal verhindern
+    import pathlib
+    _target = pathlib.Path(target_dir).resolve()
+    if ".." in str(_target) or not str(_target).startswith("/"):
+        return JSONResponse(status_code=400, content={"error": "Ungültiger Zielpfad"})
 
     task_id = str(uuid.uuid4())
+    _download_tasks[task_id] = {"state": "running", "repo_id": repo_id, "error": None, "path": None}
 
-    async def _download():
+    def _download_sync():
         import pathlib
         pathlib.Path(target_dir).mkdir(parents=True, exist_ok=True)
         try:
-            # Versuche huggingface_hub
             from huggingface_hub import snapshot_download, hf_hub_download
             if filename:
                 path = hf_hub_download(repo_id=repo_id, filename=filename, local_dir=target_dir)
             else:
                 path = snapshot_download(repo_id=repo_id, local_dir=f"{target_dir}/{repo_id.split('/')[-1]}")
-            # In DB registrieren
             db_execute_rt("""
-                INSERT INTO dbai_llm.ghost_models (name, model_path, model_format, state)
-                VALUES (%s, %s, 'huggingface', 'inactive')
+                INSERT INTO dbai_llm.ghost_models (name, model_path, model_type, state)
+                VALUES (%s, %s, 'chat', 'available')
                 ON CONFLICT DO NOTHING
             """, (repo_id.split('/')[-1], str(path)))
-            return {"ok": True, "path": str(path), "task_id": task_id}
+            _download_tasks[task_id].update({"state": "done", "path": str(path)})
         except ImportError:
-            # Fallback: git clone
             import subprocess
             clone_dir = f"{target_dir}/{repo_id.split('/')[-1]}"
             result = subprocess.run(
@@ -2473,22 +3209,29 @@ async def llm_download_model(request: Request, session: dict = Depends(get_curre
             )
             if result.returncode == 0:
                 db_execute_rt("""
-                    INSERT INTO dbai_llm.ghost_models (name, model_path, model_format, state)
-                    VALUES (%s, %s, 'huggingface', 'inactive')
+                    INSERT INTO dbai_llm.ghost_models (name, model_path, model_type, state)
+                    VALUES (%s, %s, 'chat', 'available')
                     ON CONFLICT DO NOTHING
                 """, (repo_id.split('/')[-1], clone_dir))
-                return {"ok": True, "path": clone_dir, "task_id": task_id}
-            return {"ok": False, "error": result.stderr[:500]}
+                _download_tasks[task_id].update({"state": "done", "path": clone_dir})
+            else:
+                _download_tasks[task_id].update({"state": "error", "error": result.stderr[:500]})
+        except Exception as exc:
+            logger.exception("Download %s fehlgeschlagen", repo_id)
+            _download_tasks[task_id].update({"state": "error", "error": str(exc)[:500]})
 
-    # Run in background
-    import asyncio
-    result = await asyncio.to_thread(lambda: asyncio.run(_download()) if False else None)
-    # Actually start as background task
-    background_tasks = {}
-    loop = asyncio.get_event_loop()
-    future = loop.run_in_executor(None, lambda: None)
+    asyncio.create_task(asyncio.to_thread(_download_sync))
 
     return {"ok": True, "task_id": task_id, "message": f"Download von {repo_id} gestartet nach {target_dir}"}
+
+
+@app.get("/api/llm/download/{task_id}")
+async def llm_download_status(task_id: str, session: dict = Depends(get_current_session)):
+    """Status eines laufenden Downloads abfragen."""
+    task = _download_tasks.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Download-Task nicht gefunden")
+    return task
 
 
 # ---------------------------------------------------------------------------
@@ -3098,7 +3841,7 @@ async def llm_start_model(model_id: str, request: Request, session: dict = Depen
         """, (new_state, server_started, model_id))
         if server_started:
             db_execute_rt("""
-                UPDATE dbai_llm.agent_instances SET state = 'running', started_at = NOW()
+                UPDATE dbai_llm.agent_instances SET state = 'running', updated_at = NOW()
                 WHERE id = %s::UUID
             """, (inst_id,))
         return {
@@ -3128,8 +3871,10 @@ async def llm_stop_model(model_id: str, session: dict = Depends(get_current_sess
     model_name = model_rows[0]["name"] if model_rows else ""
 
     # Wenn das aktive Modell gestoppt wird, llama-server beenden
+    # WICHTIG: run_in_executor verhindert Blockierung des asyncio Event-Loops
     if model_name and model_name == _llm_model_name:
-        _llm_server_stop()
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _llm_server_stop)
         _llm_model_name = ""
         _llm_model_path = ""
         logger.info(f"[LLM] llama-server gestoppt für Modell {model_name}")
@@ -3139,6 +3884,14 @@ async def llm_stop_model(model_id: str, session: dict = Depends(get_current_sess
         UPDATE dbai_llm.agent_instances SET state = 'stopped', updated_at = NOW()
         WHERE model_id = %s::UUID AND state IN ('running', 'starting')
     """, (model_id,))
+    # VRAM-Allokation freigeben
+    try:
+        db_execute_rt("""
+            UPDATE dbai_llm.vram_allocations SET is_active = FALSE, released_at = NOW()
+            WHERE model_id = %s::UUID AND is_active = TRUE
+        """, (model_id,))
+    except Exception:
+        pass
     # Modell-Status aktualisieren
     db_execute_rt("""
         UPDATE dbai_llm.ghost_models SET state = 'available', is_loaded = FALSE, updated_at = NOW()
@@ -3151,26 +3904,36 @@ async def llm_stop_model(model_id: str, session: dict = Depends(get_current_sess
 
 class ServiceInstallRequest(BaseModel):
     name: str
-    command: str
     port: int = 0
+
+
+# Server-seitige Befehle für erlaubte Services — KEINE User-Eingabe!
+_SERVICE_COMMANDS: dict[str, list[str]] = {
+    'n8n':                    ['docker', 'run', '-d', '--name', 'n8n', '-p', '5678:5678', 'n8nio/n8n'],
+    'Ollama WebUI':           ['docker', 'run', '-d', '--name', 'ollama-webui', '-p', '3000:8080', 'ghcr.io/ollama-webui/ollama-webui:main'],
+    'ComfyUI':                ['docker', 'run', '-d', '--name', 'comfyui', '-p', '8188:8188', 'comfyanonymous/comfyui'],
+    'text-generation-webui':  ['docker', 'run', '-d', '--name', 'text-gen-webui', '-p', '7860:7860', 'atinoda/text-generation-webui'],
+    'Stable Diffusion WebUI': ['docker', 'run', '-d', '--name', 'sd-webui', '-p', '7861:7860', 'sd-webui'],
+    'LocalAI':                ['docker', 'run', '-d', '--name', 'localai', '-p', '8080:8080', 'localai/localai'],
+    'vLLM Server':            ['docker', 'run', '-d', '--name', 'vllm', '-p', '8000:8000', 'vllm/vllm-openai'],
+    'VS Code Server':         ['docker', 'run', '-d', '--name', 'code-server', '-p', '8443:8443', 'codercom/code-server'],
+}
 
 
 @app.post("/api/services/install")
 async def install_service(req: ServiceInstallRequest, session: dict = Depends(get_current_session)):
     """Installiert einen Service (Docker-Container oder nativer Befehl)."""
+    require_admin(session)
     import subprocess as _sp
 
-    allowed_services = {
-        'n8n', 'Ollama WebUI', 'ComfyUI', 'text-generation-webui',
-        'Stable Diffusion WebUI', 'LocalAI', 'vLLM Server', 'VS Code Server',
-    }
-    if req.name not in allowed_services:
+    cmd = _SERVICE_COMMANDS.get(req.name)
+    if cmd is None:
         return JSONResponse(status_code=400, content={"error": f"Service '{req.name}' nicht erlaubt"})
 
-    logger.info(f"[SERVICE] Installiere {req.name}: {req.command}")
+    logger.info(f"[SERVICE] Installiere {req.name} (server-side command)")
     try:
         result = _sp.run(
-            req.command, shell=True, capture_output=True, text=True, timeout=300
+            cmd, shell=False, capture_output=True, text=True, timeout=300
         )
         success = result.returncode == 0
         log_msg = result.stdout[-2000:] if result.stdout else ""
@@ -3183,7 +3946,7 @@ async def install_service(req: ServiceInstallRequest, session: dict = Depends(ge
                 VALUES ('0.12.0', 'feature', %s, %s, %s, 'ghost-system')
             """, (
                 f"Service installiert: {req.name}",
-                f"Befehl: {req.command}\nErgebnis: {'Erfolg' if success else 'Fehler'}\n{log_msg or err_msg}",
+                f"Ergebnis: {'Erfolg' if success else 'Fehler'}\n{log_msg or err_msg}",
                 '{services,webui}',
             ))
         except Exception as e:
@@ -3397,6 +4160,504 @@ async def llm_webuis_list(session: dict = Depends(get_current_session)):
             "url": val.get("url", ""),
         })
     return result
+
+
+# ---------------------------------------------------------------------------
+# LLM Auto-Config — Model Presets + Provider-Empfehlung
+# ---------------------------------------------------------------------------
+@app.get("/api/llm/presets")
+async def llm_presets_list(session: dict = Depends(get_current_session)):
+    """Alle Model-Presets mit optimalen Einstellungen — für die UI-Konfiguration."""
+    rows = db_query_rt("SELECT * FROM dbai_llm.model_presets ORDER BY is_default DESC, model_name")
+    return rows or []
+
+
+@app.get("/api/llm/presets/{model_name}")
+async def llm_preset_detail(model_name: str, session: dict = Depends(get_current_session)):
+    """Preset für ein bestimmtes Modell — liefert empfohlene Einstellungen."""
+    rows = db_query_rt("SELECT * FROM dbai_llm.model_presets WHERE model_name = %s", (model_name,))
+    if not rows:
+        return {"error": f"Kein Preset für '{model_name}' gefunden", "hint": "Nutze /api/llm/presets für die Liste"}
+    return rows[0]
+
+
+@app.get("/api/llm/models/{model_id}/auto-config")
+async def llm_model_auto_config(model_id: str, session: dict = Depends(get_current_session)):
+    """Auto-Config: Wählt passenden Backend + optimale Einstellungen automatisch.
+    Gibt alles zurück was der User nur noch mit OK bestätigen muss."""
+    # Modell aus DB laden
+    model_rows = db_query_rt("SELECT * FROM dbai_llm.ghost_models WHERE id = %s::UUID", (model_id,))
+    if not model_rows:
+        raise HTTPException(status_code=404, detail="Modell nicht gefunden")
+    model = model_rows[0]
+
+    # Preset suchen (exakt oder Fuzzy)
+    preset = None
+    preset_rows = db_query_rt(
+        "SELECT * FROM dbai_llm.model_presets WHERE model_name = %s",
+        (model.get("name", ""),)
+    )
+    if preset_rows:
+        preset = preset_rows[0]
+    else:
+        # Fuzzy-Match: Modell-Familie
+        family = (model.get("name") or "").split("-")[0].lower()
+        if family:
+            fam_rows = db_query_rt(
+                "SELECT * FROM dbai_llm.model_presets WHERE model_family = %s ORDER BY is_default DESC LIMIT 1",
+                (family,)
+            )
+            if fam_rows:
+                preset = fam_rows[0]
+
+    # GPU-VRAM ermitteln (für Layer-Empfehlung)
+    gpu_info = {"available": False, "vram_free_mb": 0, "vram_total_mb": 0, "name": "Keine GPU"}
+    try:
+        import subprocess
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total,memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            parts = [p.strip() for p in r.stdout.strip().split("\n")[0].split(",")]
+            if len(parts) >= 3:
+                gpu_info = {
+                    "available": True,
+                    "name": parts[0],
+                    "vram_total_mb": int(float(parts[1])),
+                    "vram_free_mb": int(float(parts[2])),
+                }
+    except Exception:
+        pass
+
+    # Empfohlene Einstellungen berechnen
+    required_vram = model.get("required_vram_mb") or (preset.get("min_vram_mb") if preset else 0) or 0
+    vram_free = gpu_info.get("vram_free_mb", 0)
+
+    recommended_gpu_layers = -1  # Default: alles auf GPU
+    if required_vram > 0 and vram_free > 0:
+        safety_margin = 512
+        usable_vram = vram_free - safety_margin
+        if usable_vram >= required_vram:
+            recommended_gpu_layers = -1  # Passt komplett
+        elif usable_vram > 0:
+            total_layers = (preset.get("total_layers") if preset else None) or 40
+            ratio = usable_vram / required_vram
+            recommended_gpu_layers = max(1, int(ratio * total_layers))
+        else:
+            recommended_gpu_layers = 0  # CPU-only
+
+    recommended_backend = "llamacpp"
+    if preset and preset.get("recommended_backend"):
+        recommended_backend = preset["recommended_backend"]
+
+    # Kompatible Provider ermitteln
+    compatible = []
+    providers = db_query_rt("SELECT * FROM dbai_llm.llm_providers ORDER BY provider_key")
+    for p in (providers or []):
+        pk = p.get("provider_key", "")
+        compat = {"provider_key": pk, "display_name": p.get("display_name", pk), "is_enabled": p.get("is_enabled", False)}
+        if preset and preset.get("compatible_providers"):
+            cp = preset["compatible_providers"]
+            compat["is_compatible"] = pk in cp
+        else:
+            compat["is_compatible"] = pk in ("llamacpp", "ollama", "vllm") if model.get("provider") == "llama.cpp" else pk == model.get("provider", "")
+        compat["is_recommended"] = pk == recommended_backend
+        compatible.append(compat)
+
+    return {
+        "model": {
+            "id": str(model["id"]),
+            "name": model["name"],
+            "display_name": model.get("display_name", model["name"]),
+            "quantization": model.get("quantization"),
+            "required_vram_mb": required_vram,
+        },
+        "gpu": gpu_info,
+        "preset_found": preset is not None,
+        "recommended": {
+            "backend": recommended_backend,
+            "gpu_layers": recommended_gpu_layers,
+            "ctx_size": (preset.get("recommended_ctx_size") if preset else None) or model.get("context_size") or 4096,
+            "threads": (preset.get("recommended_threads") if preset else None) or 8,
+            "batch_size": (preset.get("recommended_batch_size") if preset else None) or 512,
+        },
+        "hints": {
+            "gpu_layers": (preset.get("hint_gpu_layers") if preset else None) or "Anzahl der Layer auf der GPU. -1 = alle.",
+            "ctx_size": (preset.get("hint_ctx_size") if preset else None) or "Kontextfenster in Tokens.",
+            "backend": (preset.get("hint_backend") if preset else None) or "Inferenz-Backend auswählen.",
+            "description": (preset.get("description") if preset else None) or model.get("display_name", ""),
+        },
+        "compatible_providers": compatible,
+        "vram_fits": recommended_gpu_layers == -1,
+        "vram_warning": f"Modell braucht {required_vram}MB, GPU hat {vram_free}MB frei. Nur {recommended_gpu_layers} von {(preset.get('total_layers') if preset else None) or 40} Layers passen auf die GPU." if recommended_gpu_layers > 0 and recommended_gpu_layers != -1 else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Provider-Fallback-Chain — Automatisches Umschalten bei Ausfall
+# ---------------------------------------------------------------------------
+@app.get("/api/llm/fallback-chain")
+async def llm_fallback_chain_list(session: dict = Depends(get_current_session)):
+    """Provider-Fallback-Chain mit Prioritäten auflisten."""
+    rows = db_query_rt("""
+        SELECT fc.*, lp.display_name AS provider_display, lp.icon, lp.is_enabled AS provider_enabled
+        FROM dbai_llm.provider_fallback_chain fc
+        LEFT JOIN dbai_llm.llm_providers lp ON fc.provider_key = lp.provider_key
+        ORDER BY fc.priority ASC
+    """)
+    return rows or []
+
+
+@app.patch("/api/llm/fallback-chain/{chain_id}")
+async def llm_fallback_chain_update(chain_id: str, request: Request, session: dict = Depends(get_current_session)):
+    """Fallback-Chain-Eintrag aktualisieren (Priorität, Aktivierung, etc.)."""
+    body = await request.json()
+    sets, params = [], []
+    for field in ("priority", "is_enabled", "max_retries", "timeout_ms", "model_name"):
+        if field in body:
+            sets.append(f"{field} = %s")
+            params.append(body[field])
+    if not sets:
+        return {"ok": False, "error": "Keine Felder angegeben"}
+    params.append(chain_id)
+    db_execute_rt(f"UPDATE dbai_llm.provider_fallback_chain SET {', '.join(sets)} WHERE id = %s::UUID", tuple(params))
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# LLM Watchdog — Health-Check + Auto-Restart + Fallback
+# ---------------------------------------------------------------------------
+_watchdog_running = False
+_watchdog_restart_count = 0
+_watchdog_fallback_active = False
+
+
+async def _llm_watchdog_loop():
+    """Background-Task: Prüft alle X Sekunden ob der LLM-Server gesund ist."""
+    global _watchdog_running, _watchdog_restart_count, _watchdog_fallback_active
+    _watchdog_running = True
+    _watchdog_fallback_active = False
+    logger.info("[WATCHDOG] LLM Watchdog gestartet")
+
+    while _watchdog_running:
+        interval = 10
+        max_restarts = 3
+        auto_fallback = True
+        try:
+            cfg = db_query_rt("SELECT key, value FROM dbai_core.config WHERE key LIKE 'llm_watchdog%' OR key = 'llm_auto_fallback'")
+            for c in (cfg or []):
+                v = c["value"]
+                if isinstance(v, str):
+                    try:
+                        v = json.loads(v)
+                    except Exception:
+                        pass
+                if c["key"] == "llm_watchdog_interval_sec": interval = int(v)
+                elif c["key"] == "llm_watchdog_max_restarts": max_restarts = int(v)
+                elif c["key"] == "llm_auto_fallback": auto_fallback = bool(v)
+        except Exception:
+            pass
+
+        await asyncio.sleep(interval)
+
+        # Nur prüfen wenn ein Modell geladen sein sollte
+        if not _llm_model_name:
+            continue
+
+        import time
+        t0 = time.time()
+        healthy = _llm_server_health()
+        response_ms = int((time.time() - t0) * 1000)
+
+        if healthy:
+            if _watchdog_fallback_active:
+                logger.info("[WATCHDOG] llama-server wieder erreichbar — Fallback deaktiviert")
+                _watchdog_fallback_active = False
+            _watchdog_restart_count = 0
+            # Erfolg nur selten loggen (jede 6. Prüfung = ~60s)
+            import random
+            if random.random() < 0.17:
+                try:
+                    db_execute_rt("""
+                        INSERT INTO dbai_llm.watchdog_log (target, is_healthy, response_ms, action_taken) 
+                        VALUES ('llama-server', TRUE, %s, 'none')
+                    """, (response_ms,))
+                except Exception:
+                    pass
+        else:
+            # Wenn Fallback bereits aktiv, nicht erneut warnen (nur still weiterchecken)
+            if _watchdog_fallback_active:
+                continue
+
+            _watchdog_restart_count += 1
+            logger.warning(f"[WATCHDOG] llama-server nicht erreichbar! Restart-Versuch {_watchdog_restart_count}/{max_restarts}")
+            action = "none"
+
+            if _watchdog_restart_count < max_restarts:
+                # Auto-Restart versuch
+                action = f"restart_attempt_{_watchdog_restart_count}"
+                loop = asyncio.get_event_loop()
+                success = await loop.run_in_executor(
+                    None,
+                    lambda: _llm_server_start(
+                        device=_llm_server_device,
+                        n_gpu_layers=_llm_server_gpu_layers,
+                        ctx_size=_llm_server_ctx_size,
+                        threads=_llm_server_threads,
+                    )
+                )
+                if success:
+                    action = "restart_success"
+                    _watchdog_restart_count = 0
+                    logger.info("[WATCHDOG] llama-server erfolgreich neugestartet")
+                else:
+                    action = "restart_failed"
+            else:
+                if auto_fallback:
+                    action = "fallback_to_cloud"
+                    _watchdog_fallback_active = True
+                    logger.warning("[WATCHDOG] Alle Restart-Versuche gescheitert → Cloud-Fallback aktiv")
+
+            try:
+                db_execute_rt("""
+                    INSERT INTO dbai_llm.watchdog_log (target, is_healthy, response_ms, action_taken, details)
+                    VALUES ('llama-server', FALSE, %s, %s, %s::jsonb)
+                """, (response_ms, action, json.dumps({
+                    "model": _llm_model_name,
+                    "restart_count": _watchdog_restart_count,
+                    "max_restarts": max_restarts,
+                })))
+            except Exception:
+                pass
+
+    logger.info("[WATCHDOG] LLM Watchdog gestoppt")
+
+
+@app.get("/api/llm/watchdog/status")
+async def llm_watchdog_status(session: dict = Depends(get_current_session)):
+    """Watchdog-Status und letzte Health-Checks."""
+    logs = db_query_rt("""
+        SELECT * FROM dbai_llm.watchdog_log ORDER BY check_time DESC LIMIT 20
+    """)
+    return {
+        "running": _watchdog_running,
+        "restart_count": _watchdog_restart_count,
+        "fallback_active": _watchdog_fallback_active,
+        "current_model": _llm_model_name or None,
+        "server_healthy": _llm_server_health() if _llm_model_name else None,
+        "recent_logs": logs or [],
+    }
+
+
+@app.post("/api/llm/watchdog/start")
+async def llm_watchdog_start(session: dict = Depends(get_current_session)):
+    """Watchdog manuell starten."""
+    global _watchdog_running
+    if not _watchdog_running:
+        asyncio.create_task(_llm_watchdog_loop())
+    return {"ok": True, "running": True}
+
+
+@app.post("/api/llm/watchdog/stop")
+async def llm_watchdog_stop(session: dict = Depends(get_current_session)):
+    """Watchdog stoppen."""
+    global _watchdog_running
+    _watchdog_running = False
+    return {"ok": True, "running": False}
+
+
+# ---------------------------------------------------------------------------
+# CrewAI CRUD — Crews, Agents, Tasks (fest in DB)
+# ---------------------------------------------------------------------------
+@app.get("/api/crews")
+async def crews_list(session: dict = Depends(get_current_session)):
+    """Alle CrewAI Crew-Definitionen auflisten."""
+    crews = db_query_rt("SELECT * FROM dbai_llm.crew_definitions ORDER BY is_active DESC, name")
+    result = []
+    for c in (crews or []):
+        cid = str(c["id"])
+        agents = db_query_rt("SELECT * FROM dbai_llm.crew_agents WHERE crew_id = %s::UUID ORDER BY sort_order", (cid,))
+        tasks = db_query_rt("SELECT * FROM dbai_llm.crew_tasks WHERE crew_id = %s::UUID ORDER BY sort_order", (cid,))
+        c["agents"] = agents or []
+        c["tasks"] = tasks or []
+        c["agent_count"] = len(c["agents"])
+        c["task_count"] = len(c["tasks"])
+        result.append(c)
+    return result
+
+
+@app.get("/api/crews/{crew_id}")
+async def crews_detail(crew_id: str, session: dict = Depends(get_current_session)):
+    """Crew-Details mit Agents und Tasks."""
+    rows = db_query_rt("SELECT * FROM dbai_llm.crew_definitions WHERE id = %s::UUID", (crew_id,))
+    if not rows:
+        raise HTTPException(status_code=404, detail="Crew nicht gefunden")
+    crew = rows[0]
+    crew["agents"] = db_query_rt(
+        "SELECT * FROM dbai_llm.crew_agents WHERE crew_id = %s::UUID ORDER BY sort_order", (crew_id,)
+    ) or []
+    crew["tasks"] = db_query_rt(
+        "SELECT * FROM dbai_llm.crew_tasks WHERE crew_id = %s::UUID ORDER BY sort_order", (crew_id,)
+    ) or []
+    return crew
+
+
+@app.post("/api/crews")
+async def crews_create(request: Request, session: dict = Depends(get_current_session)):
+    """Neue Crew erstellen."""
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name ist erforderlich")
+    db_execute_rt("""
+        INSERT INTO dbai_llm.crew_definitions (name, display_name, description, process_type, config)
+        VALUES (%s, %s, %s, %s, %s::jsonb)
+    """, (name, body.get("display_name", name), body.get("description", ""),
+          body.get("process_type", "sequential"), json.dumps(body.get("config", {}))))
+    return {"ok": True, "name": name}
+
+
+@app.patch("/api/crews/{crew_id}")
+async def crews_update(crew_id: str, request: Request, session: dict = Depends(get_current_session)):
+    """Crew aktualisieren (auch is_locked Crews können konfiguriert werden)."""
+    body = await request.json()
+    sets, params = [], []
+    for field in ("display_name", "description", "process_type", "is_verbose", "use_memory",
+                  "max_rpm", "is_active", "default_model_id"):
+        if field in body:
+            sets.append(f"{field} = %s")
+            params.append(body[field])
+    if "config" in body:
+        sets.append("config = %s::jsonb")
+        params.append(json.dumps(body["config"]))
+    if not sets:
+        return {"ok": False, "error": "Keine Felder"}
+    sets.append("updated_at = NOW()")
+    params.append(crew_id)
+    db_execute_rt(f"UPDATE dbai_llm.crew_definitions SET {', '.join(sets)} WHERE id = %s::UUID", tuple(params))
+    return {"ok": True}
+
+
+@app.delete("/api/crews/{crew_id}")
+async def crews_delete(crew_id: str, session: dict = Depends(get_current_session)):
+    """Crew löschen (nicht wenn is_locked)."""
+    rows = db_query_rt("SELECT is_locked, name FROM dbai_llm.crew_definitions WHERE id = %s::UUID", (crew_id,))
+    if not rows:
+        raise HTTPException(status_code=404, detail="Crew nicht gefunden")
+    if rows[0].get("is_locked"):
+        raise HTTPException(status_code=403, detail=f"Crew '{rows[0]['name']}' ist gesperrt und kann nicht gelöscht werden")
+    db_execute_rt("DELETE FROM dbai_llm.crew_definitions WHERE id = %s::UUID", (crew_id,))
+    return {"ok": True}
+
+
+# ─── Crew Agents ───────────────────────────────────────────────────────
+@app.post("/api/crews/{crew_id}/agents")
+async def crews_add_agent(crew_id: str, request: Request, session: dict = Depends(get_current_session)):
+    """Agent zu einer Crew hinzufügen."""
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Agent-Name erforderlich")
+    db_execute_rt("""
+        INSERT INTO dbai_llm.crew_agents
+            (crew_id, name, display_name, role, goal, backstory, tools, allow_delegation, sort_order, model_id)
+        VALUES (%s::UUID, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """, (crew_id, name, body.get("display_name", name), body.get("role", ""),
+          body.get("goal", ""), body.get("backstory", ""),
+          body.get("tools", []), body.get("allow_delegation", False),
+          body.get("sort_order", 0), body.get("model_id")))
+    return {"ok": True, "name": name}
+
+
+@app.patch("/api/crews/agents/{agent_id}")
+async def crews_update_agent(agent_id: str, request: Request, session: dict = Depends(get_current_session)):
+    """Crew-Agent aktualisieren."""
+    body = await request.json()
+    sets, params = [], []
+    for field in ("display_name", "role", "goal", "backstory", "tools",
+                  "allow_delegation", "sort_order", "model_id", "is_active"):
+        if field in body:
+            sets.append(f"{field} = %s")
+            params.append(body[field])
+    if not sets:
+        return {"ok": False, "error": "Keine Felder"}
+    sets.append("updated_at = NOW()")
+    params.append(agent_id)
+    db_execute_rt(f"UPDATE dbai_llm.crew_agents SET {', '.join(sets)} WHERE id = %s::UUID", tuple(params))
+    return {"ok": True}
+
+
+@app.delete("/api/crews/agents/{agent_id}")
+async def crews_delete_agent(agent_id: str, session: dict = Depends(get_current_session)):
+    """Agent aus Crew entfernen."""
+    db_execute_rt("DELETE FROM dbai_llm.crew_agents WHERE id = %s::UUID", (agent_id,))
+    return {"ok": True}
+
+
+# ─── Crew Tasks ───────────────────────────────────────────────────────
+@app.post("/api/crews/{crew_id}/tasks")
+async def crews_add_task(crew_id: str, request: Request, session: dict = Depends(get_current_session)):
+    """Task zu einer Crew hinzufügen."""
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Task-Name erforderlich")
+    db_execute_rt("""
+        INSERT INTO dbai_llm.crew_tasks
+            (crew_id, agent_id, name, display_name, description, expected_output, is_async, sort_order)
+        VALUES (%s::UUID, %s, %s, %s, %s, %s, %s, %s)
+    """, (crew_id, body.get("agent_id"), name, body.get("display_name", name),
+          body.get("description", ""), body.get("expected_output", ""),
+          body.get("is_async", False), body.get("sort_order", 0)))
+    return {"ok": True, "name": name}
+
+
+@app.patch("/api/crews/tasks/{task_id}")
+async def crews_update_task(task_id: str, request: Request, session: dict = Depends(get_current_session)):
+    """Task aktualisieren."""
+    body = await request.json()
+    sets, params = [], []
+    for field in ("display_name", "description", "expected_output", "agent_id",
+                  "is_async", "sort_order"):
+        if field in body:
+            sets.append(f"{field} = %s")
+            params.append(body[field])
+    if not sets:
+        return {"ok": False, "error": "Keine Felder"}
+    sets.append("updated_at = NOW()")
+    params.append(task_id)
+    db_execute_rt(f"UPDATE dbai_llm.crew_tasks SET {', '.join(sets)} WHERE id = %s::UUID", tuple(params))
+    return {"ok": True}
+
+
+@app.delete("/api/crews/tasks/{task_id}")
+async def crews_delete_task(task_id: str, session: dict = Depends(get_current_session)):
+    """Task aus Crew entfernen."""
+    db_execute_rt("DELETE FROM dbai_llm.crew_tasks WHERE id = %s::UUID", (task_id,))
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# VRAM Tracking — GPU-Speicher Allokationen einsehen
+# ---------------------------------------------------------------------------
+@app.get("/api/llm/vram")
+async def llm_vram_allocations(session: dict = Depends(get_current_session)):
+    """Aktive VRAM-Allokationen und Historie."""
+    active = db_query_rt("""
+        SELECT va.*, gm.name AS model_name, gm.display_name
+        FROM dbai_llm.vram_allocations va
+        LEFT JOIN dbai_llm.ghost_models gm ON va.model_id = gm.id
+        WHERE va.is_active = TRUE
+        ORDER BY va.allocated_at DESC
+    """)
+    recent = db_query_rt("""
+        SELECT va.*, gm.name AS model_name
+        FROM dbai_llm.vram_allocations va
+        LEFT JOIN dbai_llm.ghost_models gm ON va.model_id = gm.id
+        ORDER BY va.allocated_at DESC LIMIT 20
+    """)
+    return {"active": active or [], "history": recent or []}
 
 
 # ---------------------------------------------------------------------------
@@ -3676,8 +4937,10 @@ async def agents_delete_instance(instance_id: str, session: dict = Depends(get_c
                     pass
 
             # Aktiven llama-server stoppen wenn dieses Modell geladen ist
+            # WICHTIG: run_in_executor verhindert Blockierung des asyncio Event-Loops
             if model_name and model_name == _llm_model_name:
-                _llm_server_stop()
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, _llm_server_stop)
                 _llm_model_name = ""
                 _llm_model_path = ""
                 logger.info(f"[AGENT] llama-server gestoppt beim Löschen von Instanz (Modell: {model_name})")
@@ -3813,6 +5076,7 @@ async def agents_stop_instance(instance_id: str, session: dict = Depends(get_cur
 @app.get("/api/fs/browse")
 async def fs_browse(path: str = "/", session: dict = Depends(get_current_session)):
     """Dateisystem durchsuchen — zeigt Verzeichnisse, Dateien, Mountpoints."""
+    require_admin(session)
     import pathlib
     target = pathlib.Path(path).resolve()
     if not target.exists():
@@ -4052,15 +5316,24 @@ async def agents_list_tasks(instance_id: str, session: dict = Depends(get_curren
 async def agents_create_task(request: Request, session: dict = Depends(get_current_session)):
     """Neue Aufgabe einem Agenten zuweisen."""
     body = await request.json()
-    result = db_query_rt("""
-        INSERT INTO dbai_llm.agent_tasks
-            (instance_id, task_type, name, description, system_prompt, priority, auto_route)
-        VALUES (%s::UUID, %s, %s, %s, %s, %s, %s)
-        RETURNING id
-    """, (body["instance_id"], body.get("task_type", "chat"), body["name"],
-          body.get("description"), body.get("system_prompt"), body.get("priority", 5),
-          body.get("auto_route", False)))
-    return {"ok": bool(result), "id": str(result[0]["id"]) if result else None}
+    instance_id = body.get("instance_id")
+    name = body.get("name", "").strip()
+    if not instance_id:
+        raise HTTPException(400, "instance_id ist erforderlich")
+    if not name:
+        raise HTTPException(400, "name ist erforderlich")
+    try:
+        result = db_query_rt("""
+            INSERT INTO dbai_llm.agent_tasks
+                (instance_id, task_type, name, description, system_prompt, priority, auto_route)
+            VALUES (%s::UUID, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (instance_id, body.get("task_type", "chat"), name,
+              body.get("description"), body.get("system_prompt"), body.get("priority", 5),
+              body.get("auto_route", False)))
+        return {"ok": bool(result), "id": str(result[0]["id"]) if result else None}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 @app.delete("/api/agents/tasks/{task_id}")
@@ -4087,15 +5360,24 @@ async def agents_scheduled_jobs(session: dict = Depends(get_current_session)):
 async def agents_create_scheduled_job(request: Request, session: dict = Depends(get_current_session)):
     """Neuen geplanten Job erstellen."""
     body = await request.json()
-    result = db_query_rt("""
-        INSERT INTO dbai_llm.scheduled_jobs
-            (name, description, cron_expr, instance_id, role_id, task_prompt, enabled)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
-        RETURNING id
-    """, (body["name"], body.get("description"), body.get("cron_expr", "0 */6 * * *"),
-          body.get("instance_id"), body.get("role_id"),
-          body["task_prompt"], body.get("enabled", True)))
-    return {"ok": bool(result), "id": str(result[0]["id"]) if result else None}
+    name = body.get("name", "").strip()
+    task_prompt = body.get("task_prompt", "").strip()
+    if not name:
+        raise HTTPException(400, "name ist erforderlich")
+    if not task_prompt:
+        raise HTTPException(400, "task_prompt ist erforderlich")
+    try:
+        result = db_query_rt("""
+            INSERT INTO dbai_llm.scheduled_jobs
+                (name, description, cron_expr, instance_id, role_id, task_prompt, enabled)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (name, body.get("description"), body.get("cron_expr", "0 */6 * * *"),
+              body.get("instance_id"), body.get("role_id"),
+              task_prompt, body.get("enabled", True)))
+        return {"ok": bool(result), "id": str(result[0]["id"]) if result else None}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 @app.delete("/api/agents/scheduled-jobs/{job_id}")
@@ -4219,7 +5501,7 @@ async def sql_explorer_rows(schema: str, table: str, session: dict = Depends(get
         raise HTTPException(status_code=400, detail="Ungültiger Schema/Tabellen-Name")
 
     # Spalten-Info
-    columns = db_query("""
+    columns = db_query_rt("""
         SELECT column_name AS name, data_type, is_nullable, column_default
         FROM information_schema.columns
         WHERE table_schema = %s AND table_name = %s
@@ -4227,7 +5509,7 @@ async def sql_explorer_rows(schema: str, table: str, session: dict = Depends(get
     """, (schema, table))
 
     # Primary Key ermitteln
-    pk_cols = db_query("""
+    pk_cols = db_query_rt("""
         SELECT a.attname
         FROM pg_index i
         JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
@@ -4239,10 +5521,10 @@ async def sql_explorer_rows(schema: str, table: str, session: dict = Depends(get
 
     # Daten (max 200 Zeilen)
     fq_table = f'"{schema}"."{table}"'
-    rows = db_query(f"SELECT * FROM {fq_table} LIMIT 200")
+    rows = db_query_rt(f"SELECT * FROM {fq_table} LIMIT 200")
 
     # Tabellen-Stats
-    stats_rows = db_query(f"""
+    stats_rows = db_query_rt(f"""
         SELECT pg_size_pretty(pg_total_relation_size('{fq_table}')) AS size
     """)
 
@@ -4261,6 +5543,7 @@ async def sql_explorer_rows(schema: str, table: str, session: dict = Depends(get
 @app.post("/api/sql-explorer/rows/{schema}/{table}")
 async def sql_explorer_insert(schema: str, table: str, request: Request, session: dict = Depends(get_current_session)):
     """Neue Zeile einfügen (mit Admin-Bestätigung)."""
+    require_admin(session)
     if not schema.replace('_', '').isalnum() or not table.replace('_', '').isalnum():
         raise HTTPException(status_code=400, detail="Ungültiger Schema/Tabellen-Name")
 
@@ -4270,25 +5553,46 @@ async def sql_explorer_insert(schema: str, table: str, request: Request, session
     if not fields:
         raise HTTPException(status_code=400, detail="Keine Daten zum Einfügen")
 
+    # Spaltenvalidierung gegen information_schema (verhindert SQL-Injection via Spaltennamen)
+    valid_cols_rows = db_query_rt(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = %s AND table_name = %s",
+        (schema, table)
+    )
+    valid_cols = {r["column_name"] for r in valid_cols_rows}
+    invalid = set(fields.keys()) - valid_cols
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Ungültige Spalten: {', '.join(sorted(invalid))}")
+
     cols = ', '.join(f'"{k}"' for k in fields.keys())
     placeholders = ', '.join(['%s'] * len(fields))
-    values = list(fields.values())
+    values = [json.dumps(v) if isinstance(v, (dict, list)) else v for v in fields.values()]
 
     fq_table = f'"{schema}"."{table}"'
-    db_execute(f"INSERT INTO {fq_table} ({cols}) VALUES ({placeholders})", values)
+    db_execute_rt(f"INSERT INTO {fq_table} ({cols}) VALUES ({placeholders})", values)
     return {"ok": True}
 
 
 @app.patch("/api/sql-explorer/rows/{schema}/{table}")
 async def sql_explorer_update(schema: str, table: str, request: Request, session: dict = Depends(get_current_session)):
     """Zeile aktualisieren (mit Admin-Bestätigung)."""
+    require_admin(session)
     if not schema.replace('_', '').isalnum() or not table.replace('_', '').isalnum():
         raise HTTPException(status_code=400, detail="Ungültiger Schema/Tabellen-Name")
 
     body = await request.json()
 
+    # Spaltenvalidierung gegen information_schema
+    valid_cols_rows = db_query_rt(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = %s AND table_name = %s",
+        (schema, table)
+    )
+    valid_cols = {r["column_name"] for r in valid_cols_rows}
+    invalid = set(body.keys()) - valid_cols
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Ungültige Spalten: {', '.join(sorted(invalid))}")
+
     # PK ermitteln
-    pk_cols = db_query("""
+    pk_cols = db_query_rt("""
         SELECT a.attname
         FROM pg_index i
         JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
@@ -4315,20 +5619,31 @@ async def sql_explorer_update(schema: str, table: str, request: Request, session
 
     fq_table = f'"{schema}"."{table}"'
     sql = f"UPDATE {fq_table} SET {', '.join(set_parts)} WHERE {' AND '.join(where_parts)}"
-    db_execute(sql, set_values + where_values)
+    db_execute_rt(sql, set_values + where_values)
     return {"ok": True}
 
 
 @app.delete("/api/sql-explorer/rows/{schema}/{table}")
 async def sql_explorer_delete(schema: str, table: str, request: Request, session: dict = Depends(get_current_session)):
     """Zeile löschen (mit Admin-Bestätigung)."""
+    require_admin(session)
     if not schema.replace('_', '').isalnum() or not table.replace('_', '').isalnum():
         raise HTTPException(status_code=400, detail="Ungültiger Schema/Tabellen-Name")
 
     body = await request.json()
 
+    # Spaltenvalidierung gegen information_schema
+    valid_cols_rows = db_query_rt(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = %s AND table_name = %s",
+        (schema, table)
+    )
+    valid_cols = {r["column_name"] for r in valid_cols_rows}
+    invalid = set(body.keys()) - valid_cols
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Ungültige Spalten: {', '.join(sorted(invalid))}")
+
     # PK ermitteln
-    pk_cols = db_query("""
+    pk_cols = db_query_rt("""
         SELECT a.attname
         FROM pg_index i
         JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
@@ -4350,9 +5665,8 @@ async def sql_explorer_delete(schema: str, table: str, request: Request, session
         raise HTTPException(status_code=400, detail="Keine Identifikationsdaten für Löschung")
 
     fq_table = f'"{schema}"."{table}"'
-    sql = f"DELETE FROM {fq_table} WHERE {' AND '.join(where_parts)} LIMIT 1"
     try:
-        db_execute(f"DELETE FROM {fq_table} WHERE {' AND '.join(where_parts)}", where_values)
+        db_execute_rt(f"DELETE FROM {fq_table} WHERE {' AND '.join(where_parts)}", where_values)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"ok": True}
@@ -4367,6 +5681,13 @@ async def export_table(schema: str, table: str, format: str = "json", session: d
     import io, csv
     fq_table = f'"{schema}"."{table}"'
     try:
+        # Prüfe ob Tabelle existiert
+        exists = db_query_rt(
+            "SELECT 1 FROM information_schema.tables WHERE table_schema = %s AND table_name = %s",
+            (schema, table)
+        )
+        if not exists:
+            raise HTTPException(404, f"Tabelle {schema}.{table} nicht gefunden")
         rows = db_query_rt(f"SELECT * FROM {fq_table} ORDER BY 1 LIMIT 10000")
         if not rows:
             return {"data": [], "count": 0}
@@ -4402,6 +5723,8 @@ async def export_table(schema: str, table: str, format: str = "json", session: d
                         clean[k] = v
                 serialized.append(clean)
             return {"data": serialized, "count": len(serialized), "schema": schema, "table": table}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -4441,6 +5764,7 @@ async def export_logs(format: str = "json", limit: int = 500, session: dict = De
 @app.get("/api/users")
 async def list_users(session: dict = Depends(get_current_session)):
     """Alle Benutzer auflisten."""
+    require_admin(session)
     try:
         rows = db_query_rt(
             """SELECT id, username, display_name, role, created_at, last_login, is_active
@@ -4454,30 +5778,42 @@ async def list_users(session: dict = Depends(get_current_session)):
 @app.post("/api/users")
 async def create_user(body: dict, session: dict = Depends(get_current_session)):
     """Neuen Benutzer anlegen."""
-    import hashlib
+    require_admin(session)
+    # Mapping: Frontend-Rollen → DB-Rollen
+    ROLE_MAP = {
+        "admin": "dbai_system", "system": "dbai_system",
+        "user": "dbai_monitor", "viewer": "dbai_monitor", "monitor": "dbai_monitor",
+        "editor": "dbai_llm", "llm": "dbai_llm",
+        "recovery": "dbai_recovery",
+    }
     try:
         username = body.get("username", "").strip()
         password = body.get("password", "")
         display_name = body.get("display_name", username)
         role = body.get("role", "user")
+        db_role = ROLE_MAP.get(role, "dbai_monitor")
         if not username or not password:
             raise HTTPException(400, "username und password erforderlich")
-        pw_hash = hashlib.sha256(password.encode()).hexdigest()
+        # Passwort-Hash via pgcrypto bcrypt (gen_salt('bf') = Blowfish/bcrypt)
         db_execute_rt(
             """INSERT INTO dbai_core.users (username, password_hash, display_name, role, is_active, created_at)
-               VALUES (%s, %s, %s, %s, true, NOW())""",
-            (username, pw_hash, display_name, role)
+               VALUES (%s, crypt(%s, gen_salt('bf')), %s, %s, true, NOW())""",
+            (username, password, display_name, db_role)
         )
         return {"status": "ok", "message": f"Benutzer '{username}' erstellt"}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, str(e))
+        err = str(e)
+        if "duplicate key" in err or "already exists" in err:
+            raise HTTPException(409, f"Benutzer '{username}' existiert bereits")
+        raise HTTPException(500, err)
 
 
 @app.patch("/api/users/{user_id}")
 async def update_user(user_id: str, body: dict, session: dict = Depends(get_current_session)):
     """Benutzer aktualisieren."""
+    require_admin(session)
     try:
         updates = []
         values = []
@@ -4499,6 +5835,7 @@ async def update_user(user_id: str, body: dict, session: dict = Depends(get_curr
 @app.delete("/api/users/{user_id}")
 async def delete_user(user_id: str, session: dict = Depends(get_current_session)):
     """Benutzer deaktivieren."""
+    require_admin(session)
     try:
         db_execute_rt("UPDATE dbai_core.users SET is_active = false WHERE id = %s", (user_id,))
         return {"status": "ok", "message": f"Benutzer {user_id} deaktiviert"}
@@ -4541,17 +5878,33 @@ async def audit_changes(limit: int = 100, session: dict = Depends(get_current_se
 @app.post("/api/backup/trigger")
 async def backup_trigger(session: dict = Depends(get_current_session)):
     """Manuelles Backup auslösen."""
+    import shutil, subprocess
+    pg_dump = shutil.which("pg_dump")
+    if not pg_dump:
+        # Häufige Pfade prüfen
+        for p in ["/usr/bin/pg_dump", "/usr/lib/postgresql/16/bin/pg_dump",
+                   "/usr/lib/postgresql/15/bin/pg_dump", "/usr/local/bin/pg_dump"]:
+            if os.path.isfile(p):
+                pg_dump = p
+                break
+    if not pg_dump:
+        raise HTTPException(503, "pg_dump nicht verfügbar — postgresql-client muss im Container installiert sein")
     try:
-        import subprocess
+        ts = int(__import__('time').time())
+        dump_file = f"/tmp/dbai_backup_{ts}.dump"
         result = subprocess.run(
-            ["pg_dump", "-U", "dbai_system", "-d", "dbai", "--format=custom",
-             "-f", f"/tmp/dbai_backup_{int(__import__('time').time())}.dump"],
-            capture_output=True, text=True, timeout=120
+            [pg_dump, "-h", os.environ.get("DB_HOST", "postgres"), "-p", os.environ.get("DB_PORT", "5432"),
+             "-U", os.environ.get("DB_USER", "dbai_system"), "-d", os.environ.get("DB_NAME", "dbai"),
+             "--format=custom", "-f", dump_file],
+            capture_output=True, text=True, timeout=120,
+            env={**os.environ, "PGPASSWORD": os.environ.get("DB_PASSWORD", "dbai2026")}
         )
         if result.returncode == 0:
-            return {"status": "ok", "message": "Backup erfolgreich erstellt"}
+            return {"status": "ok", "message": "Backup erfolgreich erstellt", "file": os.path.basename(dump_file)}
         else:
             return {"status": "error", "message": result.stderr}
+    except subprocess.TimeoutExpired:
+        raise HTTPException(504, "Backup-Timeout (120s überschritten)")
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -4596,14 +5949,14 @@ async def llm_providers_list(session: dict = Depends(get_current_session)):
 async def llm_provider_update(provider_key: str, request: Request,
                                session: dict = Depends(get_current_session)):
     """Provider konfigurieren: API-Key setzen, aktivieren/deaktivieren, Base-URL ändern."""
-    import base64
-    body = await request.json()
+    require_admin(session)
+    body = _validate_body(await request.json(), max_str_len=2000)
     updates = []
     params = []
 
     if "api_key" in body and body["api_key"]:
         key = body["api_key"]
-        enc = base64.b64encode(key.encode()).decode()
+        enc = encrypt_secret(key)
         preview = key[:6] + "..." + key[-4:] if len(key) > 10 else "***"
         updates.extend(["api_key_enc = %s", "api_key_preview = %s", "is_configured = TRUE"])
         params.extend([enc, preview])
@@ -4724,7 +6077,7 @@ async def settings_update_user(request: Request,
             col = key
             if key == "user_interests":
                 updates.append(f"{col} = %s::JSONB")
-                params.append(json.dumps(val) if not isinstance(val, str) else val)
+                params.append(json.dumps(val))
             else:
                 updates.append(f"{col} = %s")
                 params.append(val)
@@ -4737,17 +6090,15 @@ async def settings_update_user(request: Request,
                 WHERE user_id = %s::UUID
             """, (body["theme"], user_id))
         except Exception:
-            pass
+            logger.warning("Profil: Theme-Update fehlgeschlagen", exc_info=True)
 
     if "password" in body and body["password"]:
-        import hashlib
-        pw_hash = hashlib.sha256(body["password"].encode()).hexdigest()
-        updates.append("password_hash = %s")
-        params.append(pw_hash)
+        # Passwort-Hash via pgcrypto bcrypt
+        updates.append("password_hash = crypt(%s, gen_salt('bf'))")
+        params.append(body["password"])
 
     if "github_token" in body and body["github_token"]:
-        import base64
-        enc = base64.b64encode(body["github_token"].encode()).decode()
+        enc = encrypt_secret(body["github_token"])
         updates.append("github_token_enc = %s")
         params.append(enc)
 
@@ -4790,14 +6141,12 @@ async def settings_get_system(session: dict = Depends(get_current_session)):
 async def settings_update_system(request: Request,
                                   session: dict = Depends(get_current_session)):
     """System-Einstellung updaten oder anlegen."""
-    body = await request.json()
-    key = body.get("key")
+    require_admin(session)
+    body = _validate_body(await request.json(), required=["key"], max_str_len=5000)
+    key = body["key"]
     value = body.get("value")
     category = body.get("category", "general")
     description = body.get("description")
-
-    if not key:
-        raise HTTPException(status_code=400, detail="key required")
 
     db_execute_rt("""
         INSERT INTO dbai_core.config (key, value, category, description)
@@ -4806,7 +6155,7 @@ async def settings_update_system(request: Request,
         SET value = EXCLUDED.value, category = EXCLUDED.category,
             description = COALESCE(EXCLUDED.description, dbai_core.config.description),
             updated_at = NOW()
-    """, (key, json.dumps(value) if not isinstance(value, str) else value, category, description))
+    """, (key, json.dumps(value), category, description))
     return {"ok": True}
 
 
@@ -5236,8 +6585,9 @@ async def linux_settings_get(category: str, session: dict = Depends(get_current_
 @app.put("/api/settings/linux/{category}")
 async def linux_settings_update(category: str, request: Request, session: dict = Depends(get_current_session)):
     """Linux-Systemeinstellung ändern."""
+    require_admin(session)
     import subprocess
-    data = await request.json()
+    data = _validate_body(await request.json(), max_str_len=500)
     result = {"ok": True, "applied": []}
 
     for key, value in data.items():
@@ -5310,9 +6660,19 @@ async def linux_settings_update(category: str, request: Request, session: dict =
 @app.post("/api/settings/linux/{category}/action")
 async def linux_settings_action(category: str, request: Request, session: dict = Depends(get_current_session)):
     """Linux-System-Aktionen ausführen (Scan, Check etc.)."""
+    require_admin(session)
     import subprocess
-    data = await request.json()
-    action = data.get("action", "")
+    data = _validate_body(await request.json(), required=["action"], max_str_len=200)
+    action = data["action"]
+
+    # Whitelist: Nur erlaubte Aktionen
+    _ALLOWED_ACTIONS = {
+        "bluetooth": ["scan"],
+        "printers": ["scan"],
+        "updates": ["check"],
+    }
+    if category not in _ALLOWED_ACTIONS or action not in _ALLOWED_ACTIONS.get(category, []):
+        raise HTTPException(status_code=400, detail=f"Unbekannte Aktion: {category}/{action}")
 
     if category == "bluetooth" and action == "scan":
         subprocess.Popen(["bluetoothctl", "scan", "on"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -5434,7 +6794,7 @@ async def setup_complete(request: Request, session: dict = Depends(get_current_s
                 ON CONFLICT (user_id, category, key) DO UPDATE SET value = EXCLUDED.value
             """, (user_id, settings["userName"]))
         except Exception:
-            pass
+            logger.warning("Setup: user_name speichern fehlgeschlagen", exc_info=True)
 
     if settings.get("ghostName"):
         try:
@@ -5444,19 +6804,18 @@ async def setup_complete(request: Request, session: dict = Depends(get_current_s
                 ON CONFLICT (user_id, category, key) DO UPDATE SET value = EXCLUDED.value
             """, (user_id, settings["ghostName"]))
         except Exception:
-            pass
+            logger.warning("Setup: ghost_name speichern fehlgeschlagen", exc_info=True)
 
     # GitHub-Token verschlüsselt speichern (falls angegeben)
     if settings.get("githubToken"):
         try:
-            import base64
-            enc = base64.b64encode(settings["githubToken"].encode()).decode()
+            enc = encrypt_secret(settings["githubToken"])
             db_execute_rt(
                 "UPDATE dbai_ui.users SET github_token_enc = %s WHERE id = %s::UUID",
                 (enc, user_id)
             )
         except Exception:
-            pass
+            logger.warning("Setup: github_token speichern fehlgeschlagen", exc_info=True)
 
     # Theme setzen
     theme_name = settings.get("theme", "ghost-dark")
@@ -5467,15 +6826,15 @@ async def setup_complete(request: Request, session: dict = Depends(get_current_s
             WHERE user_id = %s::UUID
         """, (theme_name, user_id))
     except Exception:
-        pass
+        logger.warning("Setup: Theme setzen fehlgeschlagen", exc_info=True)
 
     # Config-Einträge setzen
     config_entries = [
-        ("hostname", settings.get("hostname", "dbai"), "system"),
-        ("default_model", settings.get("defaultModel", "qwen2.5-7b-instruct"), "llm"),
-        ("auto_ghost_swap", str(settings.get("enableGhostSwap", True)).lower(), "ghost"),
-        ("auto_heal", str(settings.get("enableAutoHeal", True)).lower(), "system"),
-        ("telemetry_enabled", str(settings.get("enableTelemetry", True)).lower(), "system"),
+        ("hostname", json.dumps(settings.get("hostname", "dbai")), "system"),
+        ("default_model", json.dumps(settings.get("defaultModel", "qwen2.5-7b-instruct")), "llm"),
+        ("auto_ghost_swap", json.dumps(settings.get("enableGhostSwap", True)), "ghost"),
+        ("auto_heal", json.dumps(settings.get("enableAutoHeal", True)), "system"),
+        ("telemetry_enabled", json.dumps(settings.get("enableTelemetry", True)), "system"),
     ]
     for key, value, cat in config_entries:
         try:
@@ -5485,18 +6844,17 @@ async def setup_complete(request: Request, session: dict = Depends(get_current_s
                 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
             """, (key, value, cat))
         except Exception:
-            pass
+            logger.warning("Setup: Config '%s' speichern fehlgeschlagen", key, exc_info=True)
 
     # Provider-Konfigurationen speichern (aus KI-Setup-Step)
     providers_config = settings.get("providers", {})
     if providers_config:
-        import base64
         for pkey, pdata in providers_config.items():
             try:
                 upd = []
                 prm = []
                 if pdata.get("api_key"):
-                    enc = base64.b64encode(pdata["api_key"].encode()).decode()
+                    enc = encrypt_secret(pdata["api_key"])
                     k = pdata["api_key"]
                     preview = k[:6] + "..." + k[-4:] if len(k) > 10 else "***"
                     upd.extend(["api_key_enc = %s", "api_key_preview = %s", "is_configured = TRUE"])
@@ -5789,16 +7147,25 @@ async def network_device_add_desktop(device_id: str, session: dict = Depends(get
 async def learning_save(request: Request, session: dict = Depends(get_current_session)):
     """Benutzer-Präferenz / Lern-Eintrag speichern."""
     data = await request.json()
+    key = data.get("key", "").strip() if isinstance(data.get("key"), str) else data.get("key")
+    value = data.get("value")
+    if not key:
+        raise HTTPException(400, "key ist erforderlich")
+    if value is None:
+        raise HTTPException(400, "value ist erforderlich")
     user_id = session["user"]["id"]
-    db_execute_rt("""
-        INSERT INTO dbai_llm.learning_entries (user_id, category, key, value, context, confidence)
-        VALUES (%s::UUID, %s, %s, %s, %s::JSONB, %s)
-        ON CONFLICT (user_id, category, key)
-        DO UPDATE SET value = EXCLUDED.value, context = EXCLUDED.context,
-                      confidence = EXCLUDED.confidence, updated_at = NOW()
-    """, (user_id, data.get("category", "preference"), data["key"], data["value"],
-          json.dumps(data.get("context", {})), data.get("confidence", 1.0)))
-    return {"ok": True}
+    try:
+        db_execute_rt("""
+            INSERT INTO dbai_llm.learning_entries (user_id, category, key, value, context, confidence)
+            VALUES (%s::UUID, %s, %s, %s, %s::JSONB, %s)
+            ON CONFLICT (user_id, category, key)
+            DO UPDATE SET value = EXCLUDED.value, context = EXCLUDED.context,
+                          confidence = EXCLUDED.confidence, updated_at = NOW()
+        """, (user_id, data.get("category", "preference"), key, value,
+              json.dumps(data.get("context", {})), data.get("confidence", 1.0)))
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 @app.get("/api/learning/profile")
@@ -5970,6 +7337,7 @@ async def workshop_create_project(request: Request, session: dict = Depends(get_
             INSERT INTO dbai_workshop.projects 
                 (user_id, name, description, icon, project_type, smart_home_enabled, ai_config)
             VALUES (%s::UUID, %s, %s, %s, %s, %s, %s::JSONB)
+            ON CONFLICT (user_id, name) DO NOTHING
             RETURNING id, name, description, icon, project_type, state, created_at
         """, (
             user_id,
@@ -5991,6 +7359,14 @@ async def workshop_create_project(request: Request, session: dict = Depends(get_
             except Exception:
                 pass
             return rows[0]
+
+        # ON CONFLICT → Projekt existiert bereits, existierendes zurückgeben
+        existing = db_query_rt("""
+            SELECT id, name, description, icon, project_type, state, created_at
+            FROM dbai_workshop.projects WHERE user_id = %s::UUID AND name = %s LIMIT 1
+        """, (user_id, name))
+        if existing:
+            return existing[0]
 
         raise HTTPException(status_code=500, detail="Projekt konnte nicht erstellt werden")
     except HTTPException:
@@ -6042,10 +7418,8 @@ async def workshop_media(project_id: str, session: dict = Depends(get_current_se
         """, (project_id,))
         return rows
     except Exception:
+        logger.exception("workshop_media query failed for project %s", project_id)
         return []
-
-
-@app.get("/api/workshop/projects/{project_id}/search")
 async def workshop_search(project_id: str, q: str = "", session: dict = Depends(get_current_session)):
     """Semantische Suche über Medien-Items."""
     if not q:
@@ -6070,6 +7444,7 @@ async def workshop_search(project_id: str, q: str = "", session: dict = Depends(
         """, (project_id, q, q, q, q, q, q))
         return rows
     except Exception:
+        logger.exception("workshop_search failed for project %s", project_id)
         return []
 
 
@@ -6084,6 +7459,7 @@ async def workshop_collections(project_id: str, session: dict = Depends(get_curr
         """, (project_id,))
         return rows
     except Exception:
+        logger.exception("workshop_collections query failed for project %s", project_id)
         return []
 
 
@@ -6118,6 +7494,7 @@ async def workshop_devices(project_id: str, session: dict = Depends(get_current_
         """, (project_id,))
         return rows
     except Exception:
+        logger.exception("workshop_devices query failed for project %s", project_id)
         return []
 
 
@@ -6168,6 +7545,7 @@ async def workshop_import_jobs(project_id: str, session: dict = Depends(get_curr
         """, (project_id,))
         return rows
     except Exception:
+        logger.exception("workshop_import_jobs query failed for project %s", project_id)
         return []
 
 
@@ -6279,6 +7657,7 @@ async def workshop_chat_history(project_id: str, session: dict = Depends(get_cur
         """, (project_id,))
         return rows
     except Exception:
+        logger.exception("workshop_chat_history query failed for project %s", project_id)
         return []
 
 
@@ -6801,6 +8180,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
     except Exception as e:
         logger.error("WebSocket Fehler: %s", e)
         ws_manager.disconnect(session_id, tab_id=tab_id or None)
+        try:
+            await websocket.close(code=1011, reason="Server-Fehler")
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -6896,11 +8279,67 @@ async def update_desktop_node(node_id: int, body: NodeUpdate, session: dict = De
 
 @app.delete("/api/desktop/nodes/{node_id}")
 async def delete_desktop_node(node_id: int, session: dict = Depends(get_current_session)):
-    """Netzwerk-Knoten löschen."""
+    """Desktop-Knoten löschen — bei Store-Apps auch Katalog, Settings und Fenster aufräumen."""
+    # Node-Daten holen bevor wir löschen
+    node_rows = db_query_rt(
+        "SELECT node_key, label FROM dbai_ui.desktop_nodes WHERE id = %s", (node_id,)
+    )
+    node_key = node_rows[0]["node_key"] if node_rows else None
+    node_label = node_rows[0]["label"] if node_rows else None
+
+    # Node löschen
     db_execute_rt(
         "DELETE FROM dbai_ui.desktop_nodes WHERE id = %s", (node_id,)
     )
-    return {"deleted": True}
+
+    cleanup = ["desktop_node"]
+
+    # Wenn Store-App (node_key = "store:source:package") → vollständiges Cleanup
+    if node_key and node_key.startswith("store:"):
+        parts = node_key.split(":", 2)  # ["store", source_type, package_name]
+        if len(parts) == 3:
+            src, pkg = parts[1], parts[2]
+
+            # Katalog zurücksetzen
+            db_execute_rt("""
+                UPDATE dbai_core.software_catalog
+                SET install_state = 'available', installed_at = NULL, updated_at = NOW()
+                WHERE package_name = %s AND source_type = %s
+            """, (pkg, src))
+            cleanup.append("catalog")
+
+            # App-Settings entfernen
+            db_execute_rt(
+                "DELETE FROM dbai_ui.app_user_settings WHERE app_id = %s", (node_key,)
+            )
+            db_execute_rt(
+                "DELETE FROM dbai_ui.app_user_settings WHERE app_id = %s", (pkg,)
+            )
+            cleanup.append("settings")
+
+            # Offene Fenster schließen
+            try:
+                app_row = db_query_rt(
+                    "SELECT id FROM dbai_ui.apps WHERE app_id = %s", (node_key,)
+                )
+                if app_row:
+                    db_execute_rt(
+                        "DELETE FROM dbai_ui.windows WHERE app_id = %s", (app_row[0]["id"],)
+                    )
+                    cleanup.append("windows")
+            except Exception:
+                pass
+
+            # Event loggen
+            try:
+                db_execute_rt("""
+                    INSERT INTO dbai_event.events (event_type, source, payload)
+                    VALUES ('app_removed_from_desktop', 'desktop_ui', %s::JSONB)
+                """, (json.dumps({"node_key": node_key, "package": pkg, "source_type": src, "label": node_label, "cleanup": cleanup}),))
+            except Exception:
+                pass
+
+    return {"deleted": True, "node_key": node_key, "cleanup": cleanup}
 
 
 @app.get("/api/desktop/scene")
@@ -6948,8 +8387,14 @@ async def browser_import(body: dict, session: dict = Depends(get_current_session
     try:
         from bridge.browser_migration import BrowserMigrator
         migrator = BrowserMigrator(db_execute_rt, db_query_rt)
-        result = migrator.import_profile(body.get("browser_type", ""), body.get("profile_name", ""), body.get("profile_path", ""))
+        browser_type = body.get("browser_type", "")
+        valid_types = ("chrome", "firefox", "chromium", "brave", "edge", "vivaldi", "opera")
+        if browser_type not in valid_types:
+            raise HTTPException(422, f"Ungültiger Browser-Typ. Erlaubt: {', '.join(valid_types)}")
+        result = migrator.import_profile(browser_type, body.get("profile_name", ""), body.get("profile_path", ""))
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -7153,7 +8598,7 @@ async def synaptic_consolidate(session: dict = Depends(get_current_session)):
 async def synaptic_delete_memory(memory_id: str, session: dict = Depends(get_current_session)):
     """Einzelne Synaptic-Memory löschen."""
     try:
-        db_execute_rt("DELETE FROM dbai_system.synaptic_memories WHERE id = %s", (memory_id,))
+        db_execute_rt("DELETE FROM dbai_vector.synaptic_memory WHERE id = %s", (memory_id,))
         return {"status": "ok", "message": f"Memory {memory_id} gelöscht"}
     except Exception as e:
         raise HTTPException(500, str(e))
@@ -7189,10 +8634,13 @@ async def rag_stats(session: dict = Depends(get_current_session)):
 @app.post("/api/rag/query")
 async def rag_query(body: dict, session: dict = Depends(get_current_session)):
     """RAG-Abfrage mit Kontext-Augmentierung."""
+    question = body.get("query", body.get("question", "")).strip()
+    if not question:
+        raise HTTPException(400, "Leere Abfrage")
     try:
         from bridge.rag_pipeline import RAGPipeline
         pipeline = RAGPipeline(db_execute_rt, db_query_rt, None)
-        result = pipeline.query(body.get("question", ""))
+        result = pipeline.query(question)
         return result
     except Exception as e:
         raise HTTPException(500, str(e))
@@ -7248,9 +8696,8 @@ async def rag_add_source(body: dict, session: dict = Depends(get_current_session
 
 @app.delete("/api/rag/sources/{name}")
 async def rag_delete_source(name: str, session: dict = Depends(get_current_session)):
-    """RAG-Quelle löschen."""
+    """RAG-Quelle löschen (Chunks werden per FK CASCADE mitgelöscht)."""
     try:
-        db_execute_rt("DELETE FROM dbai_llm.rag_chunks WHERE source_name = %s", (name,))
         db_execute_rt("DELETE FROM dbai_llm.rag_sources WHERE source_name = %s", (name,))
         return {"status": "ok", "message": f"Quelle '{name}' und zugehörige Chunks gelöscht"}
     except Exception as e:
@@ -7379,10 +8826,13 @@ async def hotspot_update_config(body: dict, session: dict = Depends(get_current_
             if channel: config["channel"] = channel
             if band: config["band"] = band
             db_execute_rt(
-                """INSERT INTO dbai_system.service_config (service_name, config_data)
-                   VALUES ('wlan_hotspot', %s::jsonb)
-                   ON CONFLICT (service_name) DO UPDATE SET config_data = EXCLUDED.config_data, updated_at = NOW()""",
-                (json.dumps(config),)
+                """UPDATE dbai_system.hotspot_config
+                   SET ssid = COALESCE(%s, ssid),
+                       password = COALESCE(%s, password),
+                       channel = COALESCE(%s, channel),
+                       band = COALESCE(%s, band)
+                   WHERE is_active = true""",
+                (config.get("ssid"), config.get("password"), config.get("channel"), config.get("band"))
             )
             result = {"status": "ok", "config": config}
         return result
@@ -7437,9 +8887,9 @@ async def immutable_create_snapshot(body: dict, session: dict = Depends(get_curr
             import uuid, time
             snap_id = str(uuid.uuid4())
             db_execute_rt(
-                """INSERT INTO dbai_system.fs_snapshots (id, label, snapshot_type, status, created_at)
-                   VALUES (%s, %s, 'manual', 'completed', NOW())""",
-                (snap_id, label)
+                """INSERT INTO dbai_system.fs_snapshots (id, snapshot_name, label, snapshot_type, status, created_at)
+                   VALUES (%s, %s, %s, 'manual', 'completed', NOW())""",
+                (snap_id, label, label)
             )
             result = {"status": "ok", "snapshot_id": snap_id, "label": label}
         return result
@@ -7515,7 +8965,8 @@ async def anomaly_resolve(detection_id: str, body: dict = {}, session: dict = De
         resolution = body.get("resolution", "Manuell gelöst")
         db_execute_rt(
             """UPDATE dbai_system.anomaly_detections
-               SET resolved = true, resolved_at = NOW(), resolution_note = %s
+               SET auto_resolved = true, resolved_at = NOW(),
+                   metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('resolution_note', %s)
                WHERE id = %s""",
             (resolution, detection_id)
         )
@@ -7541,7 +8992,7 @@ async def sandbox_launch(body: dict, session: dict = Depends(get_current_session
     try:
         from bridge.stufe4_utils import AppSandbox
         sandbox = AppSandbox(db_execute_rt, db_query_rt)
-        result = sandbox.launch(body.get("app_name", ""), body.get("executable_path", ""), body.get("profile_name", "default"))
+        result = sandbox.launch_app(body.get("app_name", ""), body.get("executable_path", ""), body.get("profile_name", "default"))
         return result
     except Exception as e:
         raise HTTPException(500, str(e))
@@ -7565,7 +9016,7 @@ async def sandbox_stop(pid: int, session: dict = Depends(get_current_session)):
     try:
         from bridge.stufe4_utils import AppSandbox
         sandbox = AppSandbox(db_execute_rt, db_query_rt)
-        result = sandbox.stop(pid)
+        result = sandbox.stop_app(pid)
         return result
     except Exception as e:
         raise HTTPException(500, str(e))
@@ -7585,10 +9036,24 @@ async def firewall_rules(session: dict = Depends(get_current_session)):
 @app.post("/api/firewall/rules")
 async def firewall_add_rule(body: dict, session: dict = Depends(get_current_session)):
     """Firewall-Regel hinzufügen."""
+    rule_name = body.get("name", body.get("rule_name", "")).strip()
+    if not rule_name:
+        raise HTTPException(400, "rule_name ist erforderlich")
     try:
         from bridge.stufe4_utils import NetworkFirewall
         fw = NetworkFirewall(db_execute_rt, db_query_rt)
-        result = fw.add_rule(body)
+        result = fw.add_rule(
+            rule_name=rule_name,
+            chain=body.get("chain", "INPUT"),
+            action=body.get("action", "DROP"),
+            protocol=body.get("protocol"),
+            source_ip=body.get("source_ip"),
+            dest_ip=body.get("dest_ip"),
+            source_port=body.get("source_port", str(body["port"]) if "port" in body else None),
+            dest_port=body.get("dest_port"),
+            description=body.get("description"),
+            priority=body.get("priority", 100)
+        )
         return result
     except Exception as e:
         raise HTTPException(500, str(e))
@@ -7638,10 +9103,1306 @@ async def firewall_delete_rule(rule_id: str, session: dict = Depends(get_current
         raise HTTPException(500, str(e))
 
 
+# --- Feature 22b: Security-Immunsystem API ---
+
+@app.get("/api/security/status")
+async def security_status(session: dict = Depends(get_current_session)):
+    """Gesamter Security-Status des Immunsystems."""
+    try:
+        status = db_query_rt("""
+            SELECT
+                (SELECT COUNT(*) FROM dbai_security.vulnerability_findings
+                 WHERE status IN ('open', 'confirmed')) AS open_vulns,
+                (SELECT COUNT(*) FROM dbai_security.vulnerability_findings
+                 WHERE status = 'open' AND severity = 'critical') AS critical_vulns,
+                (SELECT COUNT(*) FROM dbai_security.ip_bans
+                 WHERE is_active = TRUE) AS active_bans,
+                (SELECT COUNT(*) FROM dbai_security.intrusion_events
+                 WHERE detected_at > now() - INTERVAL '24 hours') AS ids_24h,
+                (SELECT COUNT(*) FROM dbai_security.failed_auth_log
+                 WHERE attempt_at > now() - INTERVAL '24 hours') AS failed_auth_24h,
+                (SELECT COUNT(*) FROM dbai_security.scan_jobs
+                 WHERE status = 'completed'
+                 AND last_run_at > now() - INTERVAL '24 hours') AS scans_24h,
+                (SELECT COALESCE(ROUND(100.0 * COUNT(*) FILTER (WHERE compliant)
+                 / NULLIF(COUNT(*), 0), 1), 0)
+                 FROM dbai_security.security_baselines) AS compliance_pct,
+                (SELECT COUNT(*) FROM dbai_security.threat_intelligence
+                 WHERE is_active = TRUE) AS threat_indicators,
+                (SELECT COUNT(*) FROM dbai_security.honeypot_events
+                 WHERE detected_at > now() - INTERVAL '24 hours') AS honeypot_24h
+        """)
+        return {"security": status[0] if status else {}}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/vulnerabilities")
+async def security_vulnerabilities(
+    status: str = "open",
+    severity: str = None,
+    limit: int = 50,
+    session: dict = Depends(get_current_session),
+):
+    """Schwachstellen auflisten."""
+    try:
+        sql = """
+            SELECT id, severity, category, title, description,
+                   affected_target, affected_param, cve_id, cvss_score,
+                   status, auto_mitigated, remediation,
+                   first_seen_at, last_seen_at
+            FROM dbai_security.vulnerability_findings
+            WHERE status = %s
+        """
+        params = [status]
+        if severity:
+            sql += " AND severity = %s"
+            params.append(severity)
+        sql += " ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END, first_seen_at DESC LIMIT %s"
+        params.append(limit)
+        rows = db_query_rt(sql, tuple(params))
+        return {"vulnerabilities": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/security/vulnerabilities/{vuln_id}/mitigate")
+async def security_mitigate_vuln(vuln_id: str, body: dict = {}, session: dict = Depends(get_current_session)):
+    """Schwachstelle als mitigiert markieren."""
+    try:
+        new_status = body.get("status", "mitigated")
+        db_execute_rt("""
+            UPDATE dbai_security.vulnerability_findings
+            SET status = %s, resolved_at = now()
+            WHERE id = %s::UUID
+        """, (new_status, vuln_id))
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/intrusions")
+async def security_intrusions(
+    hours: int = 24,
+    limit: int = 100,
+    session: dict = Depends(get_current_session),
+):
+    """IDS-Events der letzten X Stunden."""
+    try:
+        rows = db_query_rt("""
+            SELECT id, event_type, source_ip, source_port, dest_ip, dest_port,
+                   protocol, signature_name, classification, priority,
+                   action_taken, detected_at
+            FROM dbai_security.intrusion_events
+            WHERE detected_at > now() - (%s || ' hours')::INTERVAL
+            ORDER BY detected_at DESC LIMIT %s
+        """, (str(hours), limit))
+        return {"intrusions": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/bans")
+async def security_bans(session: dict = Depends(get_current_session)):
+    """Aktive IP-Bans."""
+    try:
+        rows = db_query_rt("""
+            SELECT id, ip_address, cidr_mask, reason, ban_type, source,
+                   banned_at, expires_at
+            FROM dbai_security.ip_bans
+            WHERE is_active = TRUE
+            ORDER BY banned_at DESC
+        """)
+        return {"bans": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/security/bans")
+async def security_ban_ip(body: dict, session: dict = Depends(get_current_session)):
+    """IP manuell bannen."""
+    try:
+        ip = body.get("ip")
+        reason = body.get("reason", "Manueller Ban")
+        hours = body.get("hours", 24)
+        if not ip:
+            raise HTTPException(400, "IP-Adresse erforderlich")
+        db_execute_rt("""
+            INSERT INTO dbai_security.ip_bans (ip_address, reason, ban_type, source, expires_at)
+            VALUES (%s::INET, %s, 'temporary', 'manual',
+                    now() + (%s || ' hours')::INTERVAL)
+            ON CONFLICT (ip_address, cidr_mask) DO UPDATE SET
+                is_active = TRUE, banned_at = now(), reason = EXCLUDED.reason,
+                expires_at = EXCLUDED.expires_at
+        """, (ip, reason, str(hours)))
+        return {"status": "ok", "message": f"IP {ip} gebannt für {hours}h"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.delete("/api/security/bans/{ban_id}")
+async def security_unban(ban_id: str, session: dict = Depends(get_current_session)):
+    """IP-Ban aufheben."""
+    try:
+        db_execute_rt("""
+            UPDATE dbai_security.ip_bans
+            SET is_active = FALSE, unban_reason = 'Manuell aufgehoben', unbanned_at = now()
+            WHERE id = %s::UUID
+        """, (ban_id,))
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/scans")
+async def security_scans(session: dict = Depends(get_current_session)):
+    """Scan-Jobs auflisten."""
+    try:
+        rows = db_query_rt("""
+            SELECT id, scan_type, target, target_type, status, priority,
+                   schedule_cron, last_run_at, next_run_at, findings_count,
+                   created_at
+            FROM dbai_security.scan_jobs
+            ORDER BY priority DESC, created_at DESC LIMIT 50
+        """)
+        return {"scans": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/threats")
+async def security_threats(session: dict = Depends(get_current_session)):
+    """Threat-Intelligence-Einträge."""
+    try:
+        rows = db_query_rt("""
+            SELECT id, ioc_type, ioc_value, threat_type, confidence,
+                   source, hit_count, first_seen_at, last_seen_at
+            FROM dbai_security.threat_intelligence
+            WHERE is_active = TRUE
+            ORDER BY confidence DESC, last_seen_at DESC LIMIT 100
+        """)
+        return {"threats": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/threat-score/{ip}")
+async def security_threat_score(ip: str, session: dict = Depends(get_current_session)):
+    """Threat-Score für eine IP berechnen."""
+    try:
+        rows = db_query_rt("SELECT dbai_security.calculate_threat_score(%s::INET) AS score", (ip,))
+        return {"ip": ip, "threat_score": rows[0]["score"] if rows else 0}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/baselines")
+async def security_baselines(session: dict = Depends(get_current_session)):
+    """Security-Baselines und Compliance-Status."""
+    try:
+        rows = db_query_rt("""
+            SELECT component, check_name, expected_value, current_value,
+                   compliant, severity, last_checked_at
+            FROM dbai_security.security_baselines
+            ORDER BY
+                CASE WHEN NOT compliant THEN 0 ELSE 1 END,
+                CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END,
+                component, check_name
+        """)
+        return {"baselines": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/responses")
+async def security_responses(limit: int = 50, session: dict = Depends(get_current_session)):
+    """Automatische Sicherheits-Reaktionen (Feedback-Loop Log)."""
+    try:
+        rows = db_query_rt("""
+            SELECT id, trigger_type, response_type, description,
+                   success, executed_at
+            FROM dbai_security.security_responses
+            ORDER BY executed_at DESC LIMIT %s
+        """, (limit,))
+        return {"responses": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/honeypot")
+async def security_honeypot(hours: int = 24, session: dict = Depends(get_current_session)):
+    """Honeypot-Events."""
+    try:
+        rows = db_query_rt("""
+            SELECT id, honeypot_type, source_ip, source_port,
+                   interaction, detected_at
+            FROM dbai_security.honeypot_events
+            WHERE detected_at > now() - (%s || ' hours')::INTERVAL
+            ORDER BY detected_at DESC LIMIT 100
+        """, (str(hours),))
+        return {"honeypot_events": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/failed-auth")
+async def security_failed_auth(hours: int = 24, session: dict = Depends(get_current_session)):
+    """Fehlgeschlagene Authentifizierungs-Versuche."""
+    try:
+        rows = db_query_rt("""
+            SELECT source_ip, auth_type, COUNT(*) as attempts,
+                   MAX(attempt_at) as last_attempt
+            FROM dbai_security.failed_auth_log
+            WHERE attempt_at > now() - (%s || ' hours')::INTERVAL
+            GROUP BY source_ip, auth_type
+            ORDER BY attempts DESC LIMIT 50
+        """, (str(hours),))
+        return {"failed_auth": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+# --- Feature 22c: Security-AI-Integration (Ghost-Monitor ↔ Immunsystem) ---
+
+# ── Security-AI Engine: Prompt-Builder, Context-Builder, Response-Parser ──
+# Verbindet die Firewall-App direkt mit dem geladenen LLM über llama-server.
+
+_SECURITY_TASK_PROMPTS = {
+    "threat_analysis": (
+        "Analysiere die folgende Bedrohung und bewerte das Risiko. "
+        "Berücksichtige bekannte Angriffsmuster (MITRE ATT&CK). "
+        "Gib eine strukturierte Bewertung mit risk_level, Beschreibung "
+        "und empfohlenen Maßnahmen."
+    ),
+    "vuln_assessment": (
+        "Bewerte die folgende Schwachstelle im Kontext des DBAI-Systems. "
+        "Prüfe ob ein bekannter CVE vorliegt, wie ausnutzbar die Schwachstelle ist, "
+        "und welche Gegenmaßnahmen sofort ergriffen werden sollten."
+    ),
+    "incident_response": (
+        "Es wurde ein Sicherheitsvorfall erkannt. Analysiere die Daten, "
+        "bewerte die Schwere, identifiziere den Angriffsvektor und "
+        "empfiehl konkrete Sofortmaßnahmen und langfristige Absicherung."
+    ),
+    "baseline_audit": (
+        "Prüfe die folgenden Security-Baseline-Ergebnisse. "
+        "Identifiziere alle nicht-konformen Checks, bewerte deren Risiko "
+        "und empfiehl konkrete Korrekturen in Reihenfolge der Dringlichkeit."
+    ),
+    "anomaly_detection": (
+        "Analysiere die folgenden Daten auf Anomalien. "
+        "Suche nach ungewöhnlichen Mustern, Zeitabweichungen, "
+        "verdächtigen IP-Adressen oder atypischem Verhalten."
+    ),
+    "log_analysis": (
+        "Analysiere die folgenden Log-Daten auf Sicherheitsrelevanz. "
+        "Identifiziere Brute-Force-Versuche, Lateral Movement, "
+        "Privilege Escalation oder andere verdächtige Aktivitäten."
+    ),
+    "network_forensics": (
+        "Führe eine Netzwerk-Forensik durch. Analysiere Traffic-Muster, "
+        "identifiziere verdächtige Verbindungen, C2-Kommunikation "
+        "oder Datenexfiltration."
+    ),
+    "risk_scoring": (
+        "Berechne einen Gesamt-Risikoscore für das System basierend "
+        "auf den bereitgestellten Metriken. Berücksichtige alle "
+        "Sicherheitssubsysteme und gewichte nach Relevanz."
+    ),
+    "policy_recommendation": (
+        "Empfiehl basierend auf den aktuellen Sicherheitsdaten "
+        "Verbesserungen der Security-Policies. "
+        "Berücksichtige CIS-Benchmarks und Best Practices."
+    ),
+    "periodic_report": (
+        "Erstelle einen strukturierten Sicherheitsbericht. "
+        "Fasse die wichtigsten Ereignisse zusammen, bewerte den "
+        "Gesamtzustand und gib priorisierte Empfehlungen."
+    ),
+}
+
+
+def _security_ai_build_context(task_type: str, input_data: dict) -> dict:
+    """Sammelt relevanten Kontext aus der DB für die Security-Analyse."""
+    context = {}
+
+    if task_type in ("threat_analysis", "incident_response", "anomaly_detection"):
+        bans = db_query_rt(
+            "SELECT ip_address, reason, source FROM dbai_security.ip_bans "
+            "WHERE is_active = TRUE LIMIT 20"
+        )
+        context["active_bans"] = len(bans)
+        context["ban_ips"] = [str(b["ip_address"]) for b in bans[:10]]
+
+        intrusions = db_query_rt("""
+            SELECT event_type, source_ip::TEXT, classification, priority, COUNT(*) AS cnt
+            FROM dbai_security.intrusion_events
+            WHERE detected_at > NOW() - INTERVAL '6 hours'
+            GROUP BY event_type, source_ip, classification, priority
+            ORDER BY cnt DESC LIMIT 10
+        """)
+        context["recent_intrusion_patterns"] = intrusions
+
+        auth = db_query_rt("""
+            SELECT source_ip::TEXT, auth_type, COUNT(*) AS attempts
+            FROM dbai_security.failed_auth_log
+            WHERE attempt_at > NOW() - INTERVAL '6 hours'
+            GROUP BY source_ip, auth_type
+            ORDER BY attempts DESC LIMIT 10
+        """)
+        context["failed_auth_summary"] = auth
+
+    elif task_type == "vuln_assessment":
+        if input_data.get("cve_id"):
+            cves = db_query_rt(
+                "SELECT cve_id, title, cvss_score, is_patched FROM dbai_security.cve_tracking WHERE cve_id = %s",
+                (input_data["cve_id"],)
+            )
+            context["cve_info"] = cves
+        vulns = db_query_rt("""
+            SELECT severity, COUNT(*) AS cnt FROM dbai_security.vulnerability_findings
+            WHERE status = 'open' GROUP BY severity
+        """)
+        context["open_vulns_by_severity"] = {v["severity"]: v["cnt"] for v in vulns}
+
+    elif task_type == "baseline_audit":
+        baselines = db_query_rt("""
+            SELECT component, check_name, expected_value, current_value, compliant, severity
+            FROM dbai_security.security_baselines WHERE NOT compliant
+            ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2
+                     WHEN 'medium' THEN 3 ELSE 4 END LIMIT 20
+        """)
+        context["non_compliant_baselines"] = baselines
+
+    elif task_type in ("risk_scoring", "periodic_report"):
+        context["open_vulns"] = db_query_rt(
+            "SELECT severity, COUNT(*) AS cnt FROM dbai_security.vulnerability_findings "
+            "WHERE status = 'open' GROUP BY severity"
+        )
+        context["active_bans"] = db_query_rt(
+            "SELECT COUNT(*) AS cnt FROM dbai_security.ip_bans WHERE is_active = TRUE"
+        )
+        context["intrusions_24h"] = db_query_rt(
+            "SELECT COUNT(*) AS cnt FROM dbai_security.intrusion_events "
+            "WHERE detected_at > NOW() - INTERVAL '24 hours'"
+        )
+        context["failed_auth_24h"] = db_query_rt(
+            "SELECT COUNT(*) AS cnt FROM dbai_security.failed_auth_log "
+            "WHERE attempt_at > NOW() - INTERVAL '24 hours'"
+        )
+        context["compliance"] = db_query_rt("""
+            SELECT COUNT(*) AS total,
+                   COUNT(*) FILTER (WHERE compliant) AS compliant,
+                   ROUND(100.0 * COUNT(*) FILTER (WHERE compliant) / NULLIF(COUNT(*), 0), 1) AS pct
+            FROM dbai_security.security_baselines
+        """)
+        context["honeypot_24h"] = db_query_rt(
+            "SELECT COUNT(*) AS cnt FROM dbai_security.honeypot_events "
+            "WHERE detected_at > NOW() - INTERVAL '24 hours'"
+        )
+        context["tls_expiring"] = db_query_rt(
+            "SELECT COUNT(*) AS cnt FROM dbai_security.tls_certificates "
+            "WHERE expires_at < NOW() + INTERVAL '30 days'"
+        )
+
+    elif task_type == "log_analysis":
+        context["recent_auth_failures"] = db_query_rt("""
+            SELECT source_ip::TEXT, auth_type, username, COUNT(*) AS attempts,
+                   MAX(attempt_at) AS last_attempt
+            FROM dbai_security.failed_auth_log
+            WHERE attempt_at > NOW() - INTERVAL '24 hours'
+            GROUP BY source_ip, auth_type, username ORDER BY attempts DESC LIMIT 20
+        """)
+        context["recent_responses"] = db_query_rt("""
+            SELECT trigger_type, response_type, description, created_at
+            FROM dbai_security.security_responses
+            ORDER BY created_at DESC LIMIT 10
+        """)
+
+    elif task_type == "network_forensics":
+        context["traffic_summary"] = db_query_rt("""
+            SELECT protocol, direction, COUNT(*) AS conn_count,
+                   SUM(bytes_transferred) AS total_bytes
+            FROM dbai_security.network_traffic_log
+            WHERE logged_at > NOW() - INTERVAL '6 hours'
+            GROUP BY protocol, direction ORDER BY conn_count DESC LIMIT 20
+        """)
+        context["suspicious_traffic"] = db_query_rt("""
+            SELECT source_ip::TEXT, dest_ip::TEXT, dest_port, protocol, is_suspicious, flags
+            FROM dbai_security.network_traffic_log
+            WHERE is_suspicious = TRUE AND logged_at > NOW() - INTERVAL '24 hours'
+            ORDER BY logged_at DESC LIMIT 20
+        """)
+
+    return context
+
+
+def _security_ai_build_prompt(task_type: str, input_data: dict, context: dict) -> str:
+    """Baut den vollständigen Security-Analyse-Prompt."""
+    task_prompt = _SECURITY_TASK_PROMPTS.get(task_type, "Analysiere die folgenden Sicherheitsdaten.")
+
+    parts = [task_prompt, "", "## Eingabedaten:"]
+    parts.append(f"```json\n{json.dumps(input_data, indent=2, default=str)}\n```")
+
+    if context:
+        parts.append("")
+        parts.append("## Kontext (aktuelle System-Sicherheitslage):")
+        parts.append(f"```json\n{json.dumps(context, indent=2, default=str)}\n```")
+
+    parts.append("")
+    parts.append("## Gewünschtes Ausgabeformat:")
+    parts.append("Antworte als JSON mit folgender Struktur:")
+    parts.append("```json")
+    parts.append(json.dumps({
+        "risk_level": "critical|high|medium|low|info",
+        "confidence": 0.85,
+        "summary": "Kurze Zusammenfassung",
+        "details": "Ausführliche Analyse",
+        "recommended_actions": [
+            {"action": "ban_ip", "target": "1.2.3.4", "reason": "...", "priority": 1}
+        ],
+        "indicators_of_compromise": ["..."],
+        "mitre_techniques": ["T1110 - Brute Force"],
+    }, indent=2))
+    parts.append("```")
+
+    return "\n".join(parts)
+
+
+def _security_ai_parse_response(text: str) -> dict:
+    """Parst die KI-Antwort und extrahiert strukturierte Daten."""
+    import re as _re_parse
+
+    result = {
+        "risk_level": "info", "confidence": 0.5, "summary": "",
+        "details": text, "recommended_actions": [],
+        "indicators_of_compromise": [], "mitre_techniques": [],
+    }
+
+    try:
+        json_match = _re_parse.search(r'```json\s*(.*?)\s*```', text, _re_parse.DOTALL)
+        if json_match:
+            parsed = json.loads(json_match.group(1))
+        else:
+            parsed = json.loads(text)
+
+        if isinstance(parsed, dict):
+            for key in result:
+                if key in parsed:
+                    result[key] = parsed[key]
+            if result["risk_level"] not in ("critical", "high", "medium", "low", "info"):
+                result["risk_level"] = "info"
+            try:
+                result["confidence"] = max(0.0, min(1.0, float(result["confidence"])))
+            except (ValueError, TypeError):
+                result["confidence"] = 0.5
+    except (json.JSONDecodeError, ValueError):
+        text_lower = text.lower()
+        if "critical" in text_lower or "kritisch" in text_lower:
+            result["risk_level"] = "critical"
+            result["confidence"] = 0.7
+        elif "high" in text_lower or "hoch" in text_lower:
+            result["risk_level"] = "high"
+            result["confidence"] = 0.6
+        elif "medium" in text_lower or "mittel" in text_lower:
+            result["risk_level"] = "medium"
+            result["confidence"] = 0.5
+        result["summary"] = text[:200]
+
+    return result
+
+
+def _security_ai_auto_response(task_id: str, task_type: str, input_data: dict, parsed: dict):
+    """Führt automatische Gegenmaßnahmen aus wenn die KI empfiehlt (und Config es erlaubt)."""
+    try:
+        config_rows = db_query_rt("SELECT key, value FROM dbai_security.ai_config WHERE key IN ('auto_response_enabled', 'auto_ban_enabled', 'auto_mitigate_enabled', 'max_auto_ban_hours')")
+        cfg = {}
+        for r in config_rows:
+            v = r["value"]
+            if isinstance(v, str):
+                try: v = json.loads(v)
+                except: pass
+            cfg[r["key"]] = v
+
+        if not cfg.get("auto_response_enabled", True):
+            return
+
+        recommended = parsed.get("recommended_actions", [])
+        if not isinstance(recommended, list):
+            return
+
+        executed = False
+        for action in recommended:
+            if not isinstance(action, dict):
+                continue
+            action_type = action.get("action", "")
+
+            if action_type == "ban_ip" and cfg.get("auto_ban_enabled", True):
+                ip = action.get("target", action.get("ip"))
+                reason = action.get("reason", f"KI-Analyse: {task_type}")
+                hours = cfg.get("max_auto_ban_hours", 24)
+                if isinstance(hours, str):
+                    try: hours = int(hours)
+                    except: hours = 24
+                if ip:
+                    try:
+                        db_execute_rt("""
+                            INSERT INTO dbai_security.ip_bans (ip_address, reason, ban_type, source, expires_at)
+                            VALUES (%s::INET, %s, 'temporary', 'ai_monitor', NOW() + (%s || ' hours')::INTERVAL)
+                            ON CONFLICT (ip_address, cidr_mask) DO UPDATE SET
+                                is_active = TRUE, banned_at = NOW(), reason = EXCLUDED.reason, expires_at = EXCLUDED.expires_at
+                        """, (ip, f"[KI] {reason}", str(hours)))
+                        db_execute_rt("""
+                            INSERT INTO dbai_security.security_responses (trigger_type, response_type, description, success)
+                            VALUES ('ai_analysis', 'auto_ban', %s, TRUE)
+                        """, (f"KI-Auto-Ban: {ip} — {reason} (Task: {task_id})",))
+                        executed = True
+                        logger.info("[SECURITY-AI] Auto-Ban: %s — %s", ip, reason)
+                    except Exception as e:
+                        logger.error("[SECURITY-AI] Auto-Ban fehlgeschlagen: %s", e)
+
+            elif action_type == "mitigate_vuln" and cfg.get("auto_mitigate_enabled", False):
+                vuln_id = action.get("target", action.get("vuln_id"))
+                if vuln_id:
+                    try:
+                        db_execute_rt("""
+                            UPDATE dbai_security.vulnerability_findings
+                            SET status = 'mitigated', auto_mitigated = TRUE, resolved_at = NOW()
+                            WHERE id = %s::UUID AND status = 'open'
+                        """, (vuln_id,))
+                        executed = True
+                    except Exception as e:
+                        logger.error("[SECURITY-AI] Auto-Mitigation fehlgeschlagen: %s", e)
+
+            elif action_type in ("alert", "notify", "escalate"):
+                try:
+                    db_execute_rt("""
+                        INSERT INTO dbai_security.security_responses (trigger_type, response_type, description, success)
+                        VALUES ('ai_analysis', 'alert', %s, TRUE)
+                    """, (f"KI-Alert: {action.get('reason', task_type)} (Task: {task_id})",))
+                    executed = True
+                except Exception:
+                    pass
+
+        if executed:
+            db_execute_rt(
+                "UPDATE dbai_security.ai_tasks SET auto_executed = TRUE WHERE id = %s::UUID",
+                (task_id,)
+            )
+    except Exception as e:
+        logger.error("[SECURITY-AI] Auto-Response Fehler: %s", e)
+
+
+def _security_ai_process_task(task_id: str, task_type: str, input_data: dict):
+    """
+    Verarbeitet einen Security-AI-Task vollständig:
+    Context → Prompt → LLM-Inferenz → Parse → Speichern → Auto-Response.
+    Läuft in einem separaten Thread.
+    """
+    start_time = time.monotonic()
+    try:
+        # Task als processing markieren
+        db_execute_rt(
+            "UPDATE dbai_security.ai_tasks SET state = 'processing', started_at = NOW() WHERE id = %s::UUID",
+            (task_id,)
+        )
+
+        # 1. Security-Ghost System-Prompt laden
+        system_prompt = "Du bist der Security-Monitor des DBAI-Systems."
+        try:
+            role_rows = db_query_rt(
+                "SELECT system_prompt FROM dbai_llm.ghost_roles WHERE name = 'security'"
+            )
+            if role_rows and role_rows[0].get("system_prompt"):
+                system_prompt = role_rows[0]["system_prompt"]
+        except Exception:
+            pass
+
+        # 2. Kontext aus DB sammeln
+        context = _security_ai_build_context(task_type, input_data)
+
+        # 3. Prompt zusammenbauen
+        user_prompt = _security_ai_build_prompt(task_type, input_data, context)
+
+        # 4. LLM-Inferenz via llama-server
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        # Config lesen (Temperature, Max-Tokens)
+        ai_cfg = {}
+        try:
+            cfg_rows = db_query_rt("SELECT key, value FROM dbai_security.ai_config WHERE key IN ('analysis_temperature', 'analysis_max_tokens')")
+            for r in cfg_rows:
+                v = r["value"]
+                if isinstance(v, str):
+                    try: v = json.loads(v)
+                    except: pass
+                ai_cfg[r["key"]] = v
+        except Exception:
+            pass
+
+        temperature = float(ai_cfg.get("analysis_temperature", 0.2))
+        max_tokens = int(ai_cfg.get("analysis_max_tokens", 2048))
+
+        llm_result = _llm_chat_completion(messages, max_tokens=max_tokens, temperature=temperature)
+
+        duration_ms = round((time.monotonic() - start_time) * 1000)
+
+        if llm_result.get("error") and not llm_result.get("response"):
+            db_execute_rt("""
+                UPDATE dbai_security.ai_tasks
+                SET state = 'failed', error_message = %s, completed_at = NOW(), processing_ms = %s
+                WHERE id = %s::UUID
+            """, (llm_result["error"], duration_ms, task_id))
+            logger.error("[SECURITY-AI] Task %s fehlgeschlagen: %s", task_id[:8], llm_result["error"])
+            return
+
+        # 5. Response parsen
+        ai_text = llm_result.get("response", "")
+        parsed = _security_ai_parse_response(ai_text)
+        tokens_used = llm_result.get("tokens_used", 0)
+
+        # 6. Ergebnis in Task speichern
+        db_execute_rt("""
+            UPDATE dbai_security.ai_tasks
+            SET state = 'completed',
+                output_data = %s::JSONB,
+                ai_assessment = %s,
+                risk_level = %s,
+                confidence = %s,
+                recommended_actions = %s::JSONB,
+                completed_at = NOW(),
+                processing_ms = %s
+            WHERE id = %s::UUID
+        """, (
+            json.dumps(parsed, default=str),
+            ai_text,
+            parsed.get("risk_level", "info"),
+            parsed.get("confidence", 0.5),
+            json.dumps(parsed.get("recommended_actions", []), default=str),
+            duration_ms,
+            task_id,
+        ))
+
+        # 7. Analysis-Log (Append-Only Audit-Trail)
+        db_execute_rt("""
+            INSERT INTO dbai_security.ai_analysis_log
+                (task_id, analysis_type, input_summary, output_summary,
+                 risk_level, tokens_used, model_name, duration_ms, metadata)
+            VALUES (%s::UUID, %s, %s, %s, %s, %s, %s, %s, %s::JSONB)
+        """, (
+            task_id, task_type,
+            json.dumps(input_data, default=str)[:500],
+            ai_text[:1000],
+            parsed.get("risk_level", "info"),
+            tokens_used,
+            _llm_model_name,
+            duration_ms,
+            json.dumps({"confidence": parsed.get("confidence", 0.5), "model": _llm_model_name}, default=str),
+        ))
+
+        # 8. Auto-Response bei kritischen Ergebnissen
+        if parsed.get("risk_level") in ("critical", "high"):
+            _security_ai_auto_response(task_id, task_type, input_data, parsed)
+
+        logger.info(
+            "[SECURITY-AI] ✅ Task %s abgeschlossen — %s, risk=%s, %dms, %d tokens (%s)",
+            task_id[:8], task_type, parsed.get("risk_level"), duration_ms, tokens_used, _llm_model_name
+        )
+
+    except Exception as e:
+        duration_ms = round((time.monotonic() - start_time) * 1000)
+        try:
+            db_execute_rt("""
+                UPDATE dbai_security.ai_tasks
+                SET state = 'failed', error_message = %s, completed_at = NOW(), processing_ms = %s
+                WHERE id = %s::UUID
+            """, (str(e), duration_ms, task_id))
+        except Exception:
+            pass
+        logger.error("[SECURITY-AI] Task %s Exception: %s", task_id[:8], e)
+
+
+@app.get("/api/security/ai/status")
+async def security_ai_status(session: dict = Depends(get_current_session)):
+    """Status der Security-KI: Ghost-State, Model, Tasks, Config."""
+    try:
+        # vw_ai_status View abfragen
+        status_rows = db_query_rt("SELECT * FROM dbai_security.vw_ai_status")
+        status = status_rows[0] if status_rows else {}
+
+        # Config laden
+        config_rows = db_query_rt("SELECT key, value, category, description FROM dbai_security.ai_config")
+        config = {r["key"]: r["value"] for r in config_rows}
+
+        # Ghost-Info
+        ghost_rows = db_query_rt("""
+            SELECT r.name AS role, r.display_name AS role_display, r.icon, r.color,
+                   m.name AS model_name, m.display_name AS model_display,
+                   m.model_type, m.parameter_count, m.quantization,
+                   m.is_loaded, m.state AS model_state,
+                   ag.state AS ghost_state, ag.activated_at, ag.tokens_used
+            FROM dbai_llm.ghost_roles r
+            LEFT JOIN dbai_llm.active_ghosts ag ON ag.role_id = r.id
+            LEFT JOIN dbai_llm.ghost_models m ON ag.model_id = m.id
+            WHERE r.name = 'security'
+        """)
+        ghost = ghost_rows[0] if ghost_rows else {}
+
+        return {
+            "ai_status": status,
+            "ghost": ghost,
+            "config": config,
+            "config_details": config_rows,
+        }
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/ai/tasks")
+async def security_ai_tasks(
+    state: str = None, limit: int = 50,
+    session: dict = Depends(get_current_session),
+):
+    """KI-Analyse-Tasks auflisten."""
+    try:
+        sql = """
+            SELECT id, task_type, state, trigger_source, triggered_by,
+                   risk_level, confidence, auto_executed,
+                   ai_assessment, recommended_actions,
+                   created_at, started_at, completed_at, processing_ms
+            FROM dbai_security.ai_tasks
+        """
+        params = []
+        if state:
+            sql += " WHERE state = %s"
+            params.append(state)
+        sql += " ORDER BY created_at DESC LIMIT %s"
+        params.append(limit)
+        rows = db_query_rt(sql, tuple(params))
+        return {"tasks": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/ai/log")
+async def security_ai_log(limit: int = 50, session: dict = Depends(get_current_session)):
+    """KI-Analyse-Log (Append-Only Audit)."""
+    try:
+        rows = db_query_rt("""
+            SELECT id, ts, task_id, analysis_type, input_summary,
+                   output_summary, risk_level, tokens_used,
+                   model_name, duration_ms, auto_action
+            FROM dbai_security.ai_analysis_log
+            ORDER BY ts DESC LIMIT %s
+        """, (limit,))
+        return {"log": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/ai/task/{task_id}")
+async def security_ai_task_detail(task_id: str, session: dict = Depends(get_current_session)):
+    """Einzelnen KI-Task abfragen (für Polling während Verarbeitung)."""
+    try:
+        rows = db_query_rt("""
+            SELECT id, task_type, state, trigger_source, triggered_by,
+                   risk_level, confidence, auto_executed,
+                   ai_assessment, recommended_actions, output_data,
+                   error_message, created_at, started_at, completed_at, processing_ms
+            FROM dbai_security.ai_tasks WHERE id = %s::UUID
+        """, (task_id,))
+        if not rows:
+            raise HTTPException(404, "Task nicht gefunden")
+        return {"task": rows[0]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/security/ai/analyze")
+async def security_ai_analyze(body: dict, session: dict = Depends(get_current_session)):
+    """Manuelle KI-Analyse auslösen — wird sofort vom Security-Ghost verarbeitet."""
+    try:
+        task_type = body.get("task_type", "risk_scoring")
+        input_data = body.get("input_data", {})
+        valid_types = [
+            'threat_analysis', 'vuln_assessment', 'incident_response',
+            'baseline_audit', 'anomaly_detection', 'log_analysis',
+            'network_forensics', 'risk_scoring', 'policy_recommendation',
+            'periodic_report'
+        ]
+        if task_type not in valid_types:
+            raise HTTPException(400, f"Ungültiger task_type. Erlaubt: {valid_types}")
+
+        # Prüfe ob LLM-Server läuft
+        if not _llm_server_health():
+            raise HTTPException(503, "LLM-Server nicht erreichbar. Bitte zuerst ein Modell laden.")
+
+        # Task erstellen via DB-Funktion
+        rows = db_query_rt(
+            "SELECT dbai_security.create_ai_task(%s, %s::JSONB, 'manual', 'user') AS task_id",
+            (task_type, json.dumps(input_data, default=str))
+        )
+        task_id = rows[0]["task_id"] if rows else None
+        if not task_id:
+            raise HTTPException(500, "Task-Erstellung fehlgeschlagen")
+
+        task_id_str = str(task_id)
+
+        # KI-Analyse asynchron in Thread starten (blockiert nicht den API-Response)
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(
+            None,
+            _security_ai_process_task, task_id_str, task_type, input_data
+        )
+
+        return {
+            "task_id": task_id_str,
+            "status": "processing",
+            "task_type": task_type,
+            "model": _llm_model_name,
+            "message": f"KI-Analyse ({task_type}) gestartet mit {_llm_model_name}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/security/ai/analyze-ip")
+async def security_ai_analyze_ip(body: dict, session: dict = Depends(get_current_session)):
+    """KI-Analyse für eine spezifische IP-Adresse — wird sofort vom Security-Ghost verarbeitet."""
+    try:
+        ip = body.get("ip")
+        if not ip:
+            raise HTTPException(400, "IP-Adresse erforderlich")
+
+        # Prüfe ob LLM-Server läuft
+        if not _llm_server_health():
+            raise HTTPException(503, "LLM-Server nicht erreichbar. Bitte zuerst ein Modell laden.")
+
+        # Daten über diese IP sammeln
+        intrusions = db_query_rt("""
+            SELECT event_type, classification, priority, COUNT(*) AS cnt,
+                   MAX(detected_at) AS last_seen
+            FROM dbai_security.intrusion_events
+            WHERE source_ip = %s::INET
+            GROUP BY event_type, classification, priority
+        """, (ip,))
+        auth_fails = db_query_rt("""
+            SELECT auth_type, COUNT(*) AS attempts, MAX(attempt_at) AS last_attempt
+            FROM dbai_security.failed_auth_log
+            WHERE source_ip = %s::INET
+            GROUP BY auth_type
+        """, (ip,))
+        honeypot_hits = db_query_rt("""
+            SELECT honeypot_type, interaction, COUNT(*) AS cnt
+            FROM dbai_security.honeypot_events
+            WHERE source_ip = %s::INET
+            GROUP BY honeypot_type, interaction
+        """, (ip,))
+        score_rows = db_query_rt(
+            "SELECT dbai_security.calculate_threat_score(%s::INET) AS score", (ip,)
+        )
+
+        input_data = {
+            "ip": ip,
+            "threat_score": score_rows[0]["score"] if score_rows else 0,
+            "intrusion_events": intrusions,
+            "failed_auth": auth_fails,
+            "honeypot_triggers": honeypot_hits,
+        }
+
+        rows = db_query_rt(
+            "SELECT dbai_security.create_ai_task('threat_analysis', %s::JSONB, 'manual', 'user') AS task_id",
+            (json.dumps(input_data, default=str),)
+        )
+        task_id = rows[0]["task_id"] if rows else None
+        if not task_id:
+            raise HTTPException(500, "Task-Erstellung fehlgeschlagen")
+
+        task_id_str = str(task_id)
+
+        # KI-Analyse asynchron in Thread starten
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(
+            None,
+            _security_ai_process_task, task_id_str, "threat_analysis", input_data
+        )
+
+        return {
+            "task_id": task_id_str,
+            "status": "processing",
+            "ip": ip,
+            "model": _llm_model_name,
+            "message": f"IP-Analyse für {ip} gestartet mit {_llm_model_name}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/ai/config")
+async def security_ai_config_get(session: dict = Depends(get_current_session)):
+    """Security-AI-Konfiguration lesen."""
+    try:
+        rows = db_query_rt("SELECT key, value, description, category, updated_at FROM dbai_security.ai_config ORDER BY category, key")
+        return {"config": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.put("/api/security/ai/config")
+async def security_ai_config_update(body: dict, session: dict = Depends(get_current_session)):
+    """Security-AI-Konfiguration aktualisieren."""
+    try:
+        key = body.get("key")
+        value = body.get("value")
+        if not key:
+            raise HTTPException(400, "key erforderlich")
+
+        json_val = json.dumps(value) if not isinstance(value, str) else value
+        db_execute_rt("""
+            INSERT INTO dbai_security.ai_config (key, value, updated_at, updated_by)
+            VALUES (%s, %s::JSONB, NOW(), 'user')
+            ON CONFLICT (key) DO UPDATE SET
+                value = EXCLUDED.value, updated_at = NOW(), updated_by = 'user'
+        """, (key, json_val))
+        return {"status": "ok", "key": key}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+# --- Feature 22d: Zusätzliche Security-Endpoints (Metriken, TLS, CVE, DNS, Rate-Limits, Network, Permissions) ---
+
+@app.get("/api/security/metrics")
+async def security_metrics(session: dict = Depends(get_current_session)):
+    """Security-Metriken (Aggregiert)."""
+    try:
+        rows = db_query_rt("""
+            SELECT metric_name, metric_value, metric_unit,
+                   recorded_at, metadata
+            FROM dbai_security.security_metrics
+            ORDER BY recorded_at DESC LIMIT 100
+        """)
+        return {"metrics": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/tls")
+async def security_tls_certificates(session: dict = Depends(get_current_session)):
+    """TLS-Zertifikat-Überwachung."""
+    try:
+        rows = db_query_rt("""
+            SELECT id, domain, issuer, serial_number,
+                   issued_at, expires_at, is_valid, check_result,
+                   last_checked_at
+            FROM dbai_security.tls_certificates
+            ORDER BY expires_at ASC
+        """)
+        return {"certificates": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/cve")
+async def security_cve_tracking(session: dict = Depends(get_current_session)):
+    """CVE-Tracking."""
+    try:
+        rows = db_query_rt("""
+            SELECT id, cve_id, title, description, cvss_score,
+                   affected_pkg, affected_ver, fixed_ver,
+                   is_relevant, is_patched, patched_at,
+                   discovered_at, source_url
+            FROM dbai_security.cve_tracking
+            ORDER BY cvss_score DESC NULLS LAST, discovered_at DESC
+        """)
+        return {"cves": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/dns-sinkhole")
+async def security_dns_sinkhole(session: dict = Depends(get_current_session)):
+    """DNS-Sinkhole-Regeln."""
+    try:
+        rows = db_query_rt("""
+            SELECT id, domain_pattern, reason, source,
+                   is_active, hit_count, created_at
+            FROM dbai_security.dns_sinkhole
+            ORDER BY hit_count DESC, created_at DESC
+        """)
+        return {"sinkhole": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/security/dns-sinkhole")
+async def security_dns_sinkhole_add(body: dict, session: dict = Depends(get_current_session)):
+    """DNS-Sinkhole-Regel hinzufügen."""
+    try:
+        domain = body.get("domain_pattern")
+        reason = body.get("reason", "Manuell hinzugefügt")
+        if not domain:
+            raise HTTPException(400, "domain_pattern erforderlich")
+        db_execute_rt("""
+            INSERT INTO dbai_security.dns_sinkhole (domain_pattern, reason, source)
+            VALUES (%s, %s, 'manual')
+            ON CONFLICT DO NOTHING
+        """, (domain, reason))
+        return {"status": "ok"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.delete("/api/security/dns-sinkhole/{rule_id}")
+async def security_dns_sinkhole_delete(rule_id: str, session: dict = Depends(get_current_session)):
+    """DNS-Sinkhole-Regel deaktivieren."""
+    try:
+        db_execute_rt(
+            "UPDATE dbai_security.dns_sinkhole SET is_active = FALSE WHERE id = %s::UUID",
+            (rule_id,)
+        )
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/rate-limits")
+async def security_rate_limits(session: dict = Depends(get_current_session)):
+    """Rate-Limiting-Konfiguration."""
+    try:
+        rows = db_query_rt("""
+            SELECT id, target_type, target_value, max_requests,
+                   window_seconds, current_count, window_start,
+                   is_blocked, blocked_until
+            FROM dbai_security.rate_limits
+            ORDER BY is_blocked DESC, current_count DESC
+        """)
+        return {"rate_limits": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.put("/api/security/rate-limits/{limit_id}")
+async def security_rate_limit_update(limit_id: str, body: dict, session: dict = Depends(get_current_session)):
+    """Rate-Limit aktualisieren."""
+    try:
+        max_req = body.get("max_requests")
+        window = body.get("window_seconds")
+        if max_req is not None:
+            db_execute_rt(
+                "UPDATE dbai_security.rate_limits SET max_requests = %s WHERE id = %s::UUID",
+                (max_req, limit_id)
+            )
+        if window is not None:
+            db_execute_rt(
+                "UPDATE dbai_security.rate_limits SET window_seconds = %s WHERE id = %s::UUID",
+                (window, limit_id)
+            )
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/network-traffic")
+async def security_network_traffic(hours: int = 1, limit: int = 100, session: dict = Depends(get_current_session)):
+    """Netzwerk-Traffic-Log."""
+    try:
+        rows = db_query_rt("""
+            SELECT id, source_ip, dest_ip, source_port, dest_port,
+                   protocol, bytes_sent, bytes_received,
+                   connection_duration_ms, geo_country,
+                   is_suspicious, recorded_at
+            FROM dbai_security.network_traffic_log
+            WHERE recorded_at > now() - (%s || ' hours')::INTERVAL
+            ORDER BY recorded_at DESC LIMIT %s
+        """, (str(hours), limit))
+        return {"traffic": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/permissions")
+async def security_permissions(limit: int = 100, session: dict = Depends(get_current_session)):
+    """Permission-Audit-Log."""
+    try:
+        rows = db_query_rt("""
+            SELECT id, schema_name, table_name, role_name,
+                   privilege_type, is_granted, checked_at, notes
+            FROM dbai_security.permission_audit
+            ORDER BY checked_at DESC LIMIT %s
+        """, (limit,))
+        return {"permissions": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/ghost-roles")
+async def security_ghost_roles(session: dict = Depends(get_current_session)):
+    """Alle Ghost-Rollen für Security-Kontext."""
+    try:
+        rows = db_query_rt("""
+            SELECT r.id, r.name, r.display_name, r.icon, r.color,
+                   r.system_prompt, r.priority, r.is_critical,
+                   m.name AS active_model, m.display_name AS model_display,
+                   ag.state AS ghost_state
+            FROM dbai_llm.ghost_roles r
+            LEFT JOIN dbai_llm.active_ghosts ag ON ag.role_id = r.id
+            LEFT JOIN dbai_llm.ghost_models m ON ag.model_id = m.id
+            ORDER BY r.priority ASC
+        """)
+        return {"roles": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/security/ghost-models")
+async def security_ghost_models(session: dict = Depends(get_current_session)):
+    """Verfügbare Ghost-Modelle."""
+    try:
+        rows = db_query_rt("""
+            SELECT id, name, display_name, model_type, provider,
+                   parameter_count, quantization, context_size,
+                   required_vram_mb, state, is_loaded,
+                   total_tokens, total_requests, avg_latency_ms,
+                   capabilities
+            FROM dbai_llm.ghost_models
+            ORDER BY name
+        """)
+        return {"models": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/security/ghost-swap")
+async def security_ghost_swap(body: dict, session: dict = Depends(get_current_session)):
+    """Ghost-Modell für Security-Rolle wechseln — startet tatsächlich das LLM mit dem neuen Modell."""
+    try:
+        model_name = body.get("model_name")
+        reason = body.get("reason", "UI — Security-Modellwechsel")
+        if not model_name:
+            raise HTTPException(400, "model_name erforderlich")
+
+        # 1. DB-Swap: active_ghosts aktualisieren + ghost_history loggen
+        rows = db_query_rt(
+            "SELECT dbai_llm.swap_ghost('security', %s, %s, 'user') AS result",
+            (model_name, reason)
+        )
+        result = rows[0]["result"] if rows else {}
+
+        # 2. Modell-Pfad aus DB laden
+        model_row = db_query_rt(
+            "SELECT name, model_path, display_name FROM dbai_llm.ghost_models WHERE name = %s",
+            (model_name,)
+        )
+        if not model_row or not model_row[0].get("model_path"):
+            return {"status": "partial", "swap_result": result,
+                    "warning": f"Modell {model_name} hat keinen model_path in der DB"}
+
+        m = model_row[0]
+        model_path = m["model_path"]
+
+        # Relative Pfade auflösen
+        if not model_path.startswith("/"):
+            for base in ["/mnt/nvme/models", "/home/worker/DBAI"]:
+                candidate = os.path.join(base, model_path)
+                if os.path.exists(candidate):
+                    model_path = candidate
+                    break
+
+        if not os.path.exists(model_path):
+            return {"status": "partial", "swap_result": result,
+                    "warning": f"Modell-Datei nicht gefunden: {model_path}"}
+
+        # 3. LLM-Server auf neues Modell umschalten (async in Thread-Pool)
+        logger.info(f"[SECURITY-AI] Ghost-Swap: {_llm_model_name} → {model_name} ({reason})")
+        loop = asyncio.get_event_loop()
+        success = await loop.run_in_executor(
+            None,
+            lambda: _llm_server_start(
+                device=_llm_server_device,
+                n_gpu_layers=_llm_server_gpu_layers,
+                ctx_size=_llm_server_ctx_size,
+                threads=_llm_server_threads,
+                model_path=model_path,
+                model_name=model_name,
+            )
+        )
+
+        if success:
+            # ghost_models State aktualisieren
+            try:
+                db_execute_rt("""
+                    UPDATE dbai_llm.ghost_models SET state = 'unloaded', is_loaded = FALSE, updated_at = NOW()
+                    WHERE state = 'loaded' AND name != %s
+                """, (model_name,))
+                db_execute_rt("""
+                    UPDATE dbai_llm.ghost_models SET state = 'loaded', is_loaded = TRUE, updated_at = NOW()
+                    WHERE name = %s
+                """, (model_name,))
+            except Exception as e:
+                logger.warning("[SECURITY-AI] Model-State-Update Fehler: %s", e)
+
+            logger.info(f"[SECURITY-AI] ✅ Ghost-Swap erfolgreich: {model_name}")
+            return {
+                "status": "ok",
+                "swap_result": result,
+                "model_loaded": True,
+                "model": model_name,
+                "display_name": m.get("display_name", model_name),
+                "message": f"Security-Ghost jetzt aktiv mit {m.get('display_name', model_name)}"
+            }
+        else:
+            logger.error(f"[SECURITY-AI] ❌ Ghost-Swap fehlgeschlagen: {model_name}")
+            return {
+                "status": "error",
+                "swap_result": result,
+                "model_loaded": False,
+                "error": f"llama-server konnte {model_name} nicht laden"
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
 # --- Feature 23: Terminal ---
+
+# Erweiterte Blocklist — Regex-Muster für gefährliche Shell-Konstrukte
+import re as _re
+_TERMINAL_BLOCKED_PATTERNS = _re.compile(
+    r'rm\s+(-\w*\s+)*-\w*[rR]\w*\s+/'   # rm -rf /
+    r'|mkfs\b'                             # mkfs
+    r'|dd\s+if='                           # dd if=
+    r'|:\(\)\s*\{'                         # fork bomb
+    r'|>\s*/dev/sd'                        # overwrite disk
+    r'|chmod\s+(-\w+\s+)*0?777\s+/'       # chmod 777 /
+    r'|curl\b.*\|\s*(ba)?sh'              # curl | sh
+    r'|wget\b.*\|\s*(ba)?sh'             # wget | sh
+    r'|sudo\s+rm\b'                        # sudo rm
+    r'|>\s*/etc/'                           # overwrite system config
+    r'|;\s*reboot\b|;\s*shutdown\b'        # reboot/shutdown chained
+    r'|&&\s*reboot\b|&&\s*shutdown\b',
+    _re.IGNORECASE
+)
+
 @app.post("/api/terminal/exec")
 async def terminal_exec(body: dict, session: dict = Depends(get_current_session)):
-    """Shell-Befehl ausführen (sandboxed)."""
+    """Shell-Befehl ausführen (sandboxed). Nur Admins."""
+    require_admin(session)
     import subprocess
     import shlex
     command = body.get("command", "").strip()
@@ -7649,11 +10410,9 @@ async def terminal_exec(body: dict, session: dict = Depends(get_current_session)
     if not command:
         return {"stdout": "", "stderr": "Kein Befehl angegeben", "exit_code": 1}
 
-    # Blacklist für gefährliche Befehle
-    blocked = ["rm -rf /", "mkfs", "dd if=", ":(){", "fork bomb"]
-    for b in blocked:
-        if b in command:
-            return {"stdout": "", "stderr": f"Befehl blockiert: {b}", "exit_code": 126}
+    # Blocklist prüfen (Regex-basiert, nicht trivial umgehbar)
+    if _TERMINAL_BLOCKED_PATTERNS.search(command):
+        return {"stdout": "", "stderr": "Befehl blockiert (Sicherheitsrichtlinie)", "exit_code": 126}
 
     try:
         # Terminal-Session in DB loggen
@@ -7665,8 +10424,9 @@ async def terminal_exec(body: dict, session: dict = Depends(get_current_session)
         pass
 
     try:
+        # shell=False + shlex.split() verhindert Shell-Expansion-Angriffe
         result = subprocess.run(
-            command, shell=True, capture_output=True, text=True,
+            shlex.split(command), shell=False, capture_output=True, text=True,
             timeout=30, cwd=cwd,
             env={**os.environ, "TERM": "xterm-256color"}
         )
@@ -8033,7 +10793,7 @@ async def power_shutdown(session: dict = Depends(get_current_session)):
     import subprocess, os, sys, signal
     try:
         db_execute_rt(
-            "INSERT INTO dbai_core.events(event_type, source, payload) VALUES('shutdown_initiated','power_api',%s::JSONB)",
+            "INSERT INTO dbai_event.events(event_type, source, payload) VALUES('shutdown_initiated','power_api',%s::JSONB)",
             (json.dumps({"user": session.get("username")}),))
 
         if os.path.exists("/.dockerenv"):
@@ -8064,7 +10824,7 @@ async def power_reboot(session: dict = Depends(get_current_session)):
     import subprocess, os, sys
     try:
         db_execute_rt(
-            "INSERT INTO dbai_core.events(event_type, source, payload) VALUES('reboot_initiated','power_api',%s::JSONB)",
+            "INSERT INTO dbai_event.events(event_type, source, payload) VALUES('reboot_initiated','power_api',%s::JSONB)",
             (json.dumps({"user": session.get("username")}),))
 
         if os.path.exists("/.dockerenv"):
@@ -8207,18 +10967,39 @@ async def mail_outbox(state: str = None, limit: int = 50,
 @app.post("/api/mail/compose")
 async def mail_compose(request: Request, session: dict = Depends(get_current_session)):
     """Neue E-Mail erstellen (als Entwurf)."""
-    data = await request.json()
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(400, "Ungültiger JSON-Body")
+    if not data or not isinstance(data, dict):
+        raise HTTPException(400, "JSON-Objekt erforderlich")
     account_id = data.get('account_id')
-    rows = db_query_rt("""
-        INSERT INTO dbai_event.outbox (account_id, to_addresses, cc_addresses, bcc_addresses,
-            subject, body_text, body_html, reply_to_id, state, authored_by)
-        VALUES (%s::UUID, %s, %s, %s, %s, %s, %s, %s::UUID, 'draft', %s)
-        RETURNING *
-    """, (account_id,
-          data.get('to', []), data.get('cc', []), data.get('bcc', []),
-          data.get('subject', ''), data.get('body_text', ''), data.get('body_html', ''),
-          data.get('reply_to_id'), data.get('authored_by', 'human')))
-    return rows[0] if rows else {"error": "Erstellen fehlgeschlagen"}
+    if not account_id:
+        # Fallback: erstes verfügbares Konto verwenden
+        accts = db_query_rt("SELECT id FROM dbai_event.email_accounts LIMIT 1")
+        if accts:
+            account_id = str(accts[0]["id"])
+        else:
+            raise HTTPException(400, "account_id erforderlich — kein E-Mail-Konto vorhanden")
+    to_addrs = data.get('to', [])
+    if isinstance(to_addrs, str):
+        to_addrs = [to_addrs]
+    if not to_addrs:
+        raise HTTPException(400, "Empfänger (to) ist erforderlich")
+    try:
+        rows = db_query_rt("""
+            INSERT INTO dbai_event.outbox (account_id, to_addresses, cc_addresses, bcc_addresses,
+                subject, body_text, body_html, reply_to_id, state, authored_by)
+            VALUES (%s::UUID, %s, %s, %s, %s, %s, %s, %s::UUID, 'draft', %s)
+            RETURNING *
+        """, (account_id,
+              to_addrs, data.get('cc', []), data.get('bcc', []),
+              data.get('subject', ''), data.get('body_text', data.get('body', '')),
+              data.get('body_html', ''),
+              data.get('reply_to_id'), data.get('authored_by', 'human')))
+        return rows[0] if rows else {"error": "Erstellen fehlgeschlagen"}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 @app.patch("/api/mail/outbox/{draft_id}")
@@ -8281,7 +11062,7 @@ async def mail_send(draft_id: str, session: dict = Depends(get_current_session))
         password = None
         if mail.get("credentials_ref"):
             cred = db_query_rt(
-                "SELECT api_key FROM dbai_llm.api_keys WHERE id = %s::UUID", (mail["credentials_ref"],))
+                "SELECT api_key FROM dbai_workshop.api_keys WHERE id = %s::UUID", (mail["credentials_ref"],))
             if cred:
                 password = cred[0]["api_key"]
 
@@ -8474,7 +11255,7 @@ async def mail_sync(account_id: str, session: dict = Depends(get_current_session
         # Passwort holen
         password = None
         if acct.get("credentials_ref"):
-            cred = db_query_rt("SELECT api_key FROM dbai_llm.api_keys WHERE id = %s::UUID", (acct["credentials_ref"],))
+            cred = db_query_rt("SELECT api_key FROM dbai_workshop.api_keys WHERE id = %s::UUID", (acct["credentials_ref"],))
             if cred:
                 password = cred[0]["api_key"]
 
@@ -8564,10 +11345,8 @@ async def workshop_custom_tables(project_id: str, session: dict = Depends(get_cu
         """, (project_id,))
         return rows or []
     except Exception:
+        logger.exception("workshop_custom_tables query failed for project %s", project_id)
         return []
-
-
-@app.post("/api/workshop/projects/{project_id}/custom-tables")
 async def workshop_create_custom_table(project_id: str, request: Request,
                                         session: dict = Depends(get_current_session)):
     """Neue Custom-Tabelle erstellen."""
@@ -8970,7 +11749,7 @@ async def ghost_browser_quick_task(
 
     from bridge.browser_agent import execute_browser_task
 
-    async def _run_bg():
+    async def _run_bg_quick():
         try:
             await execute_browser_task(
                 task_id=task_id, prompt=prompt, task_type=task_type,
@@ -8983,7 +11762,7 @@ async def ghost_browser_quick_task(
         finally:
             _browser_bg_tasks.pop(task_id, None)
 
-    bg_task = asyncio.create_task(_run_bg())
+    bg_task = asyncio.create_task(_run_bg_quick())
     _browser_bg_tasks[task_id] = bg_task
 
     return {"task_id": task_id, "status": "running", "message": "Quick-Task gestartet"}
@@ -9229,6 +12008,727 @@ async def remote_access_verify_pin(body: dict):
     entry["used"] = True
     # Session erstellen
     return {"status": "ok", "message": "Verbindung hergestellt", "redirect": "/"}
+
+
+# ---------------------------------------------------------------------------
+# API Routes — Mobile Bridge (5-Dimensionales System) v0.13.0
+# ---------------------------------------------------------------------------
+
+@app.get("/api/mobile-bridge/dimensions")
+async def get_dimensions(session: dict = Depends(get_current_session)):
+    """Alle 5 Dimensionen mit aktiven Verbindungen."""
+    rows = db_query_rt("SELECT * FROM dbai_net.vw_five_dimensions")
+    return {"dimensions": rows}
+
+
+@app.get("/api/mobile-bridge/network")
+async def get_network_status(session: dict = Depends(get_current_session)):
+    """Netzwerk-Status: Interfaces, Hotspot, USB-Gadget."""
+    interfaces = db_query_rt("SELECT * FROM dbai_net.vw_network_status")
+    hotspot = db_query_rt("SELECT * FROM dbai_net.hotspot_config LIMIT 1")
+    usb_gadget = db_query_rt("SELECT * FROM dbai_net.usb_gadget_config LIMIT 1")
+    mdns = db_query_rt("SELECT * FROM dbai_net.mdns_config LIMIT 1")
+    return {
+        "interfaces": interfaces,
+        "hotspot": hotspot[0] if hotspot else None,
+        "usb_gadget": usb_gadget[0] if usb_gadget else None,
+        "mdns": mdns[0] if mdns else None,
+    }
+
+
+@app.get("/api/mobile-bridge/devices")
+async def get_mobile_devices(session: dict = Depends(get_current_session)):
+    """Registrierte mobile Endgeräte."""
+    rows = db_query_rt(
+        "SELECT * FROM dbai_net.mobile_devices ORDER BY last_seen DESC"
+    )
+    return {"devices": rows}
+
+
+@app.post("/api/mobile-bridge/devices/register")
+async def register_mobile_device(request: Request, session: dict = Depends(get_current_session)):
+    """Neues Mobilgerät registrieren (via User-Agent Erkennung)."""
+    body = await request.json()
+    ua = request.headers.get("User-Agent", "")
+
+    # Device-Type aus User-Agent ableiten
+    device_type = "other"
+    os_name = "Unknown"
+    if "iPhone" in ua:
+        device_type, os_name = "iphone", "iOS"
+    elif "iPad" in ua:
+        device_type, os_name = "ipad", "iPadOS"
+    elif "Android" in ua:
+        if "Mobile" in ua:
+            device_type, os_name = "android_phone", "Android"
+        else:
+            device_type, os_name = "android_tablet", "Android"
+
+    try:
+        result = db_query_rt("""
+            INSERT INTO dbai_net.mobile_devices
+                (device_name, device_type, os_name, browser, screen_width, screen_height,
+                 has_camera, has_gps, has_microphone, last_ip, connection_type, user_id, is_trusted)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::INET, %s, %s::UUID, FALSE)
+            RETURNING id
+        """, (
+            body.get("device_name", f"{os_name} Device"),
+            device_type, os_name,
+            body.get("browser", ua[:100]),
+            body.get("screen_width"), body.get("screen_height"),
+            body.get("has_camera", True), body.get("has_gps", True), body.get("has_microphone", True),
+            request.client.host if request.client else None,
+            body.get("connection_type", "local_wifi"),
+            session.get("user", {}).get("id"),
+        ))
+        return {"ok": True, "device_id": result[0]["id"] if result else None}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/mobile-bridge/connections")
+async def get_active_connections(session: dict = Depends(get_current_session)):
+    """Aktive Verbindungen über alle 5 Dimensionen."""
+    rows = db_query_rt("SELECT * FROM dbai_net.vw_active_connections")
+    return {"connections": rows}
+
+
+@app.get("/api/mobile-bridge/pwa-config")
+async def get_pwa_config():
+    """PWA-Konfiguration (kein Auth nötig — wird vom Browser beim Install geladen)."""
+    rows = db_query_rt("SELECT config_key, config_value FROM dbai_net.pwa_config")
+    return {r["config_key"]: r["config_value"] for r in rows}
+
+
+@app.get("/api/mobile-bridge/hotspot")
+async def get_hotspot_status(session: dict = Depends(get_current_session)):
+    """Hotspot-Status und DHCP-Leases."""
+    hotspot = db_query_rt("SELECT * FROM dbai_net.hotspot_config LIMIT 1")
+    leases = db_query_rt("SELECT * FROM dbai_net.dhcp_leases WHERE is_active ORDER BY lease_start DESC")
+    return {
+        "hotspot": hotspot[0] if hotspot else None,
+        "leases": leases,
+    }
+
+
+@app.patch("/api/mobile-bridge/hotspot")
+async def update_hotspot(body: dict, session: dict = Depends(get_current_session)):
+    """Hotspot-Konfiguration ändern (nur Admin)."""
+    require_admin(session)
+    allowed = {"ssid", "passphrase", "channel", "hidden_ssid", "max_clients", "auto_start"}
+    updates, values = [], []
+    for k, v in body.items():
+        if k in allowed:
+            updates.append(f"{k} = %s")
+            values.append(v)
+    if not updates:
+        raise HTTPException(400, "Keine gültigen Felder")
+    values.append(True)  # WHERE is immer der einzige Eintrag
+    db_execute_rt(
+        f"UPDATE dbai_net.hotspot_config SET {', '.join(updates)}, updated_at = NOW() WHERE id = (SELECT id FROM dbai_net.hotspot_config LIMIT 1)",
+        values
+    )
+    return {"ok": True}
+
+
+@app.post("/api/mobile-bridge/sensors")
+async def receive_sensor_data(request: Request, session: dict = Depends(get_current_session)):
+    """Sensor-Daten vom Handy empfangen (GPS, Foto, Audio, etc.)."""
+    body = await request.json()
+    sensor_type = body.get("sensor_type")
+    device_id = body.get("device_id")
+
+    if not sensor_type or not device_id:
+        raise HTTPException(400, "sensor_type und device_id erforderlich")
+
+    try:
+        result = db_query_rt("""
+            INSERT INTO dbai_net.sensor_data
+                (device_id, sensor_type, latitude, longitude, altitude_m, accuracy_m,
+                 payload_mime, payload_size_kb, payload_json, label, tags)
+            VALUES (%s::UUID, %s, %s, %s, %s, %s, %s, %s, %s::JSONB, %s, %s)
+            RETURNING id
+        """, (
+            device_id, sensor_type,
+            body.get("latitude"), body.get("longitude"),
+            body.get("altitude_m"), body.get("accuracy_m"),
+            body.get("mime_type"), body.get("size_kb"),
+            json.dumps(body.get("data", {})),
+            body.get("label"), body.get("tags", []),
+        ))
+        return {"ok": True, "sensor_id": result[0]["id"] if result else None}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/mobile-bridge/sensors/pipeline")
+async def get_sensor_pipeline(session: dict = Depends(get_current_session)):
+    """Sensor-Pipeline Status: Welche Daten warten auf Analyse."""
+    rows = db_query_rt("SELECT * FROM dbai_net.vw_sensor_pipeline")
+    return {"pipeline": rows}
+
+
+@app.get("/api/mobile-bridge/hardware-profiles")
+async def get_hardware_profiles(session: dict = Depends(get_current_session)):
+    """Hardware-Profile für Ghost-Pi / Compute-Stick."""
+    rows = db_query_rt("SELECT * FROM dbai_net.hardware_profiles ORDER BY profile_name")
+    return {"profiles": rows}
+
+
+@app.get("/manifest.json")
+async def serve_manifest():
+    """PWA manifest.json aus der DB generieren."""
+    rows = db_query_rt("SELECT config_value FROM dbai_net.pwa_config WHERE config_key = 'manifest'")
+    if rows:
+        return JSONResponse(content=rows[0]["config_value"], media_type="application/manifest+json")
+    return JSONResponse(content={}, status_code=404)
+
+
+# ============================================================================
+# API Routes — Advanced Features v0.14.0
+# Feature 1: Autonomous Coding
+# Feature 2: Multi-GPU Parallel
+# Feature 3: Vision Integration
+# Feature 4: Distributed Ghosts
+# Feature 5: Model Marketplace
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# FEATURE 1: Autonomous Coding — Ghost generiert SQL-Migrationen
+# ---------------------------------------------------------------------------
+
+@app.get("/api/autonomous/migrations")
+async def list_autonomous_migrations(session: dict = Depends(get_current_session)):
+    """Alle autonomen Migrationen auflisten."""
+    rows = db_query_rt("SELECT * FROM dbai_core.v_autonomous_migrations")
+    return {"migrations": rows}
+
+
+@app.get("/api/autonomous/migrations/{migration_id}")
+async def get_autonomous_migration(migration_id: str, session: dict = Depends(get_current_session)):
+    """Details einer autonomen Migration."""
+    rows = db_query_rt(
+        "SELECT * FROM dbai_core.autonomous_migrations WHERE id = %s::UUID", (migration_id,)
+    )
+    if not rows:
+        raise HTTPException(404, "Migration nicht gefunden")
+    audit = db_query_rt(
+        "SELECT * FROM dbai_core.migration_audit_log WHERE migration_id = %s::UUID ORDER BY created_at",
+        (migration_id,)
+    )
+    return {"migration": rows[0], "audit_log": audit}
+
+
+@app.post("/api/autonomous/migrations")
+async def create_autonomous_migration(request: Request, session: dict = Depends(get_current_session)):
+    """Neue autonome Migration erstellen (Ghost oder Admin)."""
+    require_admin(session)
+    body = await request.json()
+    sql = body.get("migration_sql")
+    if not sql:
+        raise HTTPException(400, "migration_sql erforderlich")
+    import hashlib as _hashlib
+    checksum = _hashlib.sha256(sql.encode()).hexdigest()
+    rows = db_query_rt("""
+        INSERT INTO dbai_core.autonomous_migrations
+            (title, description, migration_sql, rollback_sql, generated_by, model_used, prompt_used,
+             affected_tables, affected_schemas, version_tag, checksum)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id, state, created_at
+    """, (
+        body.get("title", "Untitled Migration"),
+        body.get("description"),
+        sql,
+        body.get("rollback_sql"),
+        body.get("generated_by", "ghost"),
+        body.get("model_used"),
+        body.get("prompt_used"),
+        body.get("affected_tables", []),
+        body.get("affected_schemas", []),
+        body.get("version_tag"),
+        checksum,
+    ))
+    if rows:
+        db_execute_rt("""
+            INSERT INTO dbai_core.migration_audit_log (migration_id, action, actor, details)
+            VALUES (%s::UUID, 'created', %s, '{}')
+        """, (rows[0]["id"], body.get("generated_by", "ghost")))
+    return {"ok": True, "migration": rows[0] if rows else None}
+
+
+@app.patch("/api/autonomous/migrations/{migration_id}")
+async def update_migration_state(migration_id: str, request: Request, session: dict = Depends(get_current_session)):
+    """Migration-State ändern: review, approve, apply, revert, reject."""
+    require_admin(session)
+    body = await request.json()
+    action = body.get("action")
+    valid_actions = {
+        "review": "review",
+        "approve": "approved",
+        "reject": "rejected",
+        "apply": "applied",
+        "revert": "reverted",
+    }
+    if action not in valid_actions:
+        raise HTTPException(400, f"Ungültige Aktion: {action}. Erlaubt: {list(valid_actions.keys())}")
+
+    new_state = valid_actions[action]
+    ts_field = ""
+    if action == "review":
+        ts_field = ", reviewed_at = NOW(), reviewed_by = %s"
+    elif action == "apply":
+        ts_field = ", applied_at = NOW()"
+    elif action == "revert":
+        ts_field = ", reverted_at = NOW()"
+
+    params = [new_state]
+    if action == "review":
+        params.append(session.get("user", {}).get("username", "admin"))
+    params.append(body.get("review_notes"))
+    params.append(migration_id)
+
+    db_execute_rt(
+        f"UPDATE dbai_core.autonomous_migrations SET state = %s{ts_field}, review_notes = %s, updated_at = NOW() WHERE id = %s::UUID",
+        params
+    )
+
+    # Wenn "apply" — SQL tatsächlich ausführen
+    if action == "apply":
+        mig = db_query_rt("SELECT migration_sql FROM dbai_core.autonomous_migrations WHERE id = %s::UUID", (migration_id,))
+        if mig:
+            import time as _time
+            start = _time.time()
+            try:
+                db_execute_rt(mig[0]["migration_sql"])
+                exec_ms = int((_time.time() - start) * 1000)
+                db_execute_rt("UPDATE dbai_core.autonomous_migrations SET execution_ms = %s WHERE id = %s::UUID", (exec_ms, migration_id))
+            except Exception as e:
+                db_execute_rt("UPDATE dbai_core.autonomous_migrations SET state = 'rejected', error_message = %s WHERE id = %s::UUID", (str(e), migration_id))
+                raise HTTPException(500, f"Migration fehlgeschlagen: {e}")
+
+    # Wenn "revert" — Rollback-SQL ausführen
+    if action == "revert":
+        mig = db_query_rt("SELECT rollback_sql FROM dbai_core.autonomous_migrations WHERE id = %s::UUID", (migration_id,))
+        if mig and mig[0].get("rollback_sql"):
+            try:
+                db_execute_rt(mig[0]["rollback_sql"])
+            except Exception as e:
+                raise HTTPException(500, f"Rollback fehlgeschlagen: {e}")
+
+    # Audit-Log
+    db_execute_rt("""
+        INSERT INTO dbai_core.migration_audit_log (migration_id, action, actor, details)
+        VALUES (%s::UUID, %s, %s, %s::JSONB)
+    """, (migration_id, action, session.get("user", {}).get("username", "admin"), json.dumps({"notes": body.get("review_notes")})))
+
+    return {"ok": True, "new_state": new_state}
+
+
+# ---------------------------------------------------------------------------
+# FEATURE 2: Multi-GPU Parallel
+# ---------------------------------------------------------------------------
+
+@app.get("/api/gpu/split-configs")
+async def list_gpu_split_configs(session: dict = Depends(get_current_session)):
+    """Alle Multi-GPU-Split-Konfigurationen."""
+    rows = db_query_rt("SELECT * FROM dbai_llm.v_multi_gpu_status")
+    return {"configs": rows}
+
+
+@app.post("/api/gpu/split-configs")
+async def create_gpu_split_config(request: Request, session: dict = Depends(get_current_session)):
+    """Neue GPU-Split-Konfiguration erstellen."""
+    require_admin(session)
+    body = await request.json()
+    model_id = body.get("model_id")
+    if not model_id:
+        raise HTTPException(400, "model_id erforderlich")
+    rows = db_query_rt("""
+        INSERT INTO dbai_llm.gpu_split_configs
+            (model_id, name, strategy, gpu_count, total_vram_mb, layer_mapping, notes)
+        VALUES (%s::UUID, %s, %s, %s, %s, %s::JSONB, %s)
+        RETURNING id, name, strategy, gpu_count
+    """, (
+        model_id,
+        body.get("name", "default-split"),
+        body.get("strategy", "layer_split"),
+        body.get("gpu_count", 2),
+        body.get("total_vram_mb"),
+        json.dumps(body.get("layer_mapping", [])),
+        body.get("notes"),
+    ))
+    return {"ok": True, "config": rows[0] if rows else None}
+
+
+@app.patch("/api/gpu/split-configs/{config_id}/activate")
+async def activate_gpu_split(config_id: str, session: dict = Depends(get_current_session)):
+    """GPU-Split-Konfiguration aktivieren."""
+    require_admin(session)
+    # Erst alle anderen deaktivieren für dasselbe Modell
+    db_execute_rt("""
+        UPDATE dbai_llm.gpu_split_configs SET is_active = false
+        WHERE model_id = (SELECT model_id FROM dbai_llm.gpu_split_configs WHERE id = %s::UUID)
+    """, (config_id,))
+    db_execute_rt("UPDATE dbai_llm.gpu_split_configs SET is_active = true, updated_at = NOW() WHERE id = %s::UUID", (config_id,))
+    return {"ok": True}
+
+
+@app.get("/api/gpu/parallel-sessions")
+async def list_parallel_sessions(session: dict = Depends(get_current_session)):
+    """Aktive Parallel-Inferenz-Sessions."""
+    rows = db_query_rt(
+        "SELECT * FROM dbai_llm.parallel_inference_sessions WHERE state NOT IN ('stopped','error') ORDER BY started_at DESC"
+    )
+    return {"sessions": rows}
+
+
+@app.get("/api/gpu/sync-events/{session_id}")
+async def get_gpu_sync_events(session_id: str, session: dict = Depends(get_current_session)):
+    """GPU-Sync-Events einer Parallel-Session."""
+    rows = db_query_rt(
+        "SELECT * FROM dbai_llm.gpu_sync_events WHERE session_id = %s::UUID ORDER BY created_at DESC LIMIT 100",
+        (session_id,)
+    )
+    return {"sync_events": rows}
+
+
+# ---------------------------------------------------------------------------
+# FEATURE 3: Vision Integration
+# ---------------------------------------------------------------------------
+
+@app.get("/api/vision/models")
+async def list_vision_models(session: dict = Depends(get_current_session)):
+    """Registrierte Vision-Modelle."""
+    rows = db_query_rt("SELECT * FROM dbai_llm.vision_models ORDER BY name")
+    return {"models": rows}
+
+
+@app.post("/api/vision/models")
+async def register_vision_model(request: Request, session: dict = Depends(get_current_session)):
+    """Neues Vision-Modell registrieren."""
+    require_admin(session)
+    body = await request.json()
+    rows = db_query_rt("""
+        INSERT INTO dbai_llm.vision_models
+            (model_id, name, model_type, supported_formats, max_resolution,
+             max_video_length_sec, supports_streaming, supports_batch, config)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::JSONB)
+        RETURNING id, name, model_type
+    """, (
+        body.get("model_id"),
+        body["name"],
+        body.get("model_type", "multimodal"),
+        body.get("supported_formats", ["jpeg", "png", "webp"]),
+        body.get("max_resolution", "4096x4096"),
+        body.get("max_video_length_sec", 300),
+        body.get("supports_streaming", False),
+        body.get("supports_batch", True),
+        json.dumps(body.get("config", {})),
+    ))
+    return {"ok": True, "model": rows[0] if rows else None}
+
+
+@app.get("/api/vision/tasks")
+async def list_vision_tasks(session: dict = Depends(get_current_session)):
+    """Vision-Task-Queue."""
+    rows = db_query_rt("SELECT * FROM dbai_llm.v_vision_overview LIMIT 100")
+    return {"tasks": rows}
+
+
+@app.post("/api/vision/tasks")
+async def create_vision_task(request: Request, session: dict = Depends(get_current_session)):
+    """Neuen Vision-Task erstellen."""
+    body = await request.json()
+    task_type = body.get("task_type")
+    input_type = body.get("input_type")
+    if not task_type or not input_type:
+        raise HTTPException(400, "task_type und input_type erforderlich")
+    rows = db_query_rt("""
+        INSERT INTO dbai_llm.vision_tasks
+            (vision_model_id, media_item_id, task_type, input_type, input_path, input_url,
+             prompt, priority, requested_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id, task_type, state
+    """, (
+        body.get("vision_model_id"),
+        body.get("media_item_id"),
+        task_type,
+        input_type,
+        body.get("input_path"),
+        body.get("input_url"),
+        body.get("prompt"),
+        body.get("priority", 5),
+        session.get("user", {}).get("username", "user"),
+    ))
+    return {"ok": True, "task": rows[0] if rows else None}
+
+
+@app.get("/api/vision/tasks/{task_id}")
+async def get_vision_task(task_id: str, session: dict = Depends(get_current_session)):
+    """Vision-Task mit Detections."""
+    tasks = db_query_rt("SELECT * FROM dbai_llm.vision_tasks WHERE id = %s::UUID", (task_id,))
+    if not tasks:
+        raise HTTPException(404, "Task nicht gefunden")
+    detections = db_query_rt(
+        "SELECT * FROM dbai_llm.vision_detections WHERE task_id = %s::UUID ORDER BY confidence DESC",
+        (task_id,)
+    )
+    return {"task": tasks[0], "detections": detections}
+
+
+# ---------------------------------------------------------------------------
+# FEATURE 4: Distributed Ghosts
+# ---------------------------------------------------------------------------
+
+@app.get("/api/cluster/nodes")
+async def list_cluster_nodes(session: dict = Depends(get_current_session)):
+    """Cluster-Node-Übersicht."""
+    rows = db_query_rt("SELECT * FROM dbai_llm.v_cluster_overview")
+    return {"nodes": rows}
+
+
+@app.post("/api/cluster/nodes")
+async def register_cluster_node(request: Request, session: dict = Depends(get_current_session)):
+    """Neuen Node im Cluster registrieren."""
+    require_admin(session)
+    body = await request.json()
+    ip = body.get("ip_address")
+    if not ip:
+        raise HTTPException(400, "ip_address erforderlich")
+    rows = db_query_rt("""
+        INSERT INTO dbai_llm.ghost_nodes
+            (node_name, hostname, ip_address, port, api_endpoint, role,
+             gpu_count, total_vram_mb, total_ram_mb, cpu_cores, os_info, dbai_version,
+             capabilities, max_models, priority)
+        VALUES (%s, %s, %s::INET, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id, node_name, role, state
+    """, (
+        body.get("node_name", f"node-{ip}"),
+        body.get("hostname", ip),
+        ip,
+        body.get("port", 3100),
+        body.get("api_endpoint", f"http://{ip}:{body.get('port', 3100)}"),
+        body.get("role", "worker"),
+        body.get("gpu_count", 0),
+        body.get("total_vram_mb", 0),
+        body.get("total_ram_mb", 0),
+        body.get("cpu_cores", 0),
+        body.get("os_info"),
+        body.get("dbai_version"),
+        body.get("capabilities", []),
+        body.get("max_models", 4),
+        body.get("priority", 5),
+    ))
+    return {"ok": True, "node": rows[0] if rows else None}
+
+
+@app.patch("/api/cluster/nodes/{node_id}")
+async def update_cluster_node(node_id: str, request: Request, session: dict = Depends(get_current_session)):
+    """Node-Status aktualisieren."""
+    require_admin(session)
+    body = await request.json()
+    allowed = {"state", "role", "max_models", "priority", "capabilities"}
+    updates, values = [], []
+    for k, v in body.items():
+        if k in allowed:
+            updates.append(f"{k} = %s")
+            values.append(v)
+    if not updates:
+        raise HTTPException(400, "Keine gültigen Felder")
+    values.append(node_id)
+    db_execute_rt(
+        f"UPDATE dbai_llm.ghost_nodes SET {', '.join(updates)}, updated_at = NOW() WHERE id = %s::UUID",
+        values
+    )
+    return {"ok": True}
+
+
+@app.post("/api/cluster/nodes/{node_id}/heartbeat")
+async def node_heartbeat(node_id: str, request: Request):
+    """Heartbeat von einem Worker-Node empfangen (kein Auth — Node-intern)."""
+    body = await request.json()
+    db_execute_rt("""
+        INSERT INTO dbai_llm.node_heartbeats
+            (node_id, cpu_usage, ram_usage_mb, ram_total_mb, gpu_usage, disk_usage_gb,
+             network_rx_mbps, network_tx_mbps, active_requests, loaded_models, latency_ms, is_healthy)
+        VALUES (%s::UUID, %s, %s, %s, %s::JSONB, %s, %s, %s, %s, %s, %s, %s)
+    """, (
+        node_id,
+        body.get("cpu_usage"),
+        body.get("ram_usage_mb"),
+        body.get("ram_total_mb"),
+        json.dumps(body.get("gpu_usage", [])),
+        body.get("disk_usage_gb"),
+        body.get("network_rx_mbps"),
+        body.get("network_tx_mbps"),
+        body.get("active_requests", 0),
+        body.get("loaded_models", []),
+        body.get("latency_ms"),
+        body.get("is_healthy", True),
+    ))
+    # Update last_seen auf dem Node
+    db_execute_rt("UPDATE dbai_llm.ghost_nodes SET last_seen_at = NOW(), loaded_models = %s WHERE id = %s::UUID",
+                  (body.get("loaded_models", 0) if isinstance(body.get("loaded_models"), int) else len(body.get("loaded_models", [])), node_id))
+    return {"ok": True}
+
+
+@app.get("/api/cluster/tasks")
+async def list_distributed_tasks(session: dict = Depends(get_current_session)):
+    """Distributed Tasks auflisten."""
+    rows = db_query_rt(
+        "SELECT * FROM dbai_llm.distributed_tasks ORDER BY created_at DESC LIMIT 100"
+    )
+    return {"tasks": rows}
+
+
+@app.get("/api/cluster/stats")
+async def get_cluster_stats(session: dict = Depends(get_current_session)):
+    """Cluster-Statistiken."""
+    stats = db_query_rt("SELECT * FROM dbai_llm.v_task_routing_stats")
+    nodes = db_query_rt("SELECT state, COUNT(*) as count FROM dbai_llm.ghost_nodes GROUP BY state")
+    replicas = db_query_rt("SELECT state, COUNT(*) as count FROM dbai_llm.model_replicas GROUP BY state")
+    return {"task_stats": stats, "node_states": nodes, "replica_states": replicas}
+
+
+@app.get("/api/cluster/replicas")
+async def list_model_replicas(session: dict = Depends(get_current_session)):
+    """Modell-Repliken über alle Nodes."""
+    rows = db_query_rt("""
+        SELECT mr.*, gn.node_name, gm.name AS model_name
+        FROM dbai_llm.model_replicas mr
+        JOIN dbai_llm.ghost_nodes gn ON gn.id = mr.node_id
+        JOIN dbai_llm.ghost_models gm ON gm.id = mr.model_id
+        ORDER BY gn.node_name, gm.name
+    """)
+    return {"replicas": rows}
+
+
+# ---------------------------------------------------------------------------
+# FEATURE 5: Model Marketplace
+# ---------------------------------------------------------------------------
+
+@app.get("/api/marketplace")
+async def list_marketplace_models(session: dict = Depends(get_current_session)):
+    """Marketplace-Modelle browsen."""
+    rows = db_query_rt("SELECT * FROM dbai_llm.v_marketplace")
+    return {"models": rows}
+
+
+@app.get("/api/marketplace/search")
+async def search_marketplace(q: str = "", session: dict = Depends(get_current_session)):
+    """Marketplace durchsuchen (Fulltext)."""
+    if not q:
+        return await list_marketplace_models(session)
+    rows = db_query_rt("""
+        SELECT * FROM dbai_llm.marketplace_catalog
+        WHERE to_tsvector('english', coalesce(model_name,'') || ' ' || coalesce(description,'') || ' ' || coalesce(author,''))
+              @@ plainto_tsquery('english', %s)
+           OR model_name ILIKE %s
+           OR author ILIKE %s
+           OR model_type ILIKE %s
+        ORDER BY hf_downloads DESC
+    """, (q, f"%{q}%", f"%{q}%", f"%{q}%"))
+    return {"models": rows}
+
+
+@app.get("/api/marketplace/{catalog_id}")
+async def get_marketplace_model(catalog_id: str, session: dict = Depends(get_current_session)):
+    """Details eines Marketplace-Modells."""
+    models = db_query_rt("SELECT * FROM dbai_llm.marketplace_catalog WHERE id = %s::UUID", (catalog_id,))
+    if not models:
+        raise HTTPException(404, "Modell nicht gefunden")
+    reviews = db_query_rt(
+        "SELECT * FROM dbai_llm.model_reviews WHERE catalog_id = %s::UUID ORDER BY created_at DESC",
+        (catalog_id,)
+    )
+    downloads = db_query_rt(
+        "SELECT * FROM dbai_llm.model_downloads WHERE catalog_id = %s::UUID ORDER BY created_at DESC LIMIT 5",
+        (catalog_id,)
+    )
+    return {"model": models[0], "reviews": reviews, "downloads": downloads}
+
+
+@app.post("/api/marketplace/{catalog_id}/download")
+async def start_marketplace_download(catalog_id: str, request: Request, session: dict = Depends(get_current_session)):
+    """Download eines Marketplace-Modells starten."""
+    body = await request.json() if await request.body() else {}
+    model = db_query_rt("SELECT * FROM dbai_llm.marketplace_catalog WHERE id = %s::UUID", (catalog_id,))
+    if not model:
+        raise HTTPException(404, "Modell nicht gefunden")
+    m = model[0]
+    rows = db_query_rt("""
+        INSERT INTO dbai_llm.model_downloads
+            (catalog_id, hf_repo_id, hf_filename, target_path, auto_load, auto_config, requested_by)
+        VALUES (%s::UUID, %s, %s, %s, %s, %s::JSONB, %s)
+        RETURNING id, state, hf_repo_id, hf_filename
+    """, (
+        catalog_id,
+        m["hf_repo_id"],
+        m.get("hf_filename", ""),
+        body.get("target_path", f"/models/{m['model_name']}.gguf"),
+        body.get("auto_load", False),
+        json.dumps(body.get("auto_config", {})),
+        session.get("user", {}).get("username", "user"),
+    ))
+    return {"ok": True, "download": rows[0] if rows else None}
+
+
+@app.get("/api/marketplace/downloads/queue")
+async def get_download_queue(session: dict = Depends(get_current_session)):
+    """Aktive Download-Queue."""
+    rows = db_query_rt("SELECT * FROM dbai_llm.v_download_queue")
+    return {"queue": rows}
+
+
+@app.patch("/api/marketplace/downloads/{download_id}")
+async def update_download_state(download_id: str, request: Request, session: dict = Depends(get_current_session)):
+    """Download-Status aktualisieren (Progress, State)."""
+    body = await request.json()
+    allowed = {"state", "progress_percent", "downloaded_bytes", "speed_mbps", "eta_seconds", "error_message"}
+    updates, values = [], []
+    for k, v in body.items():
+        if k in allowed:
+            updates.append(f"{k} = %s")
+            values.append(v)
+    if not updates:
+        raise HTTPException(400, "Keine gültigen Felder")
+    if body.get("state") == "downloading" and "started_at" not in body:
+        updates.append("started_at = NOW()")
+    if body.get("state") == "completed":
+        updates.append("completed_at = NOW()")
+    values.append(download_id)
+    db_execute_rt(
+        f"UPDATE dbai_llm.model_downloads SET {', '.join(updates)} WHERE id = %s::UUID",
+        values
+    )
+    return {"ok": True}
+
+
+@app.post("/api/marketplace/{catalog_id}/review")
+async def create_model_review(catalog_id: str, request: Request, session: dict = Depends(get_current_session)):
+    """Bewertung für ein Marketplace-Modell abgeben."""
+    body = await request.json()
+    rating = body.get("rating")
+    if rating is None or not (0 <= float(rating) <= 5):
+        raise HTTPException(400, "rating (0-5) erforderlich")
+    rows = db_query_rt("""
+        INSERT INTO dbai_llm.model_reviews
+            (catalog_id, model_id, reviewer, rating, title, review_text,
+             benchmark_results, use_case, hardware_info)
+        VALUES (%s::UUID, %s, %s, %s, %s, %s, %s::JSONB, %s, %s)
+        RETURNING id, rating
+    """, (
+        catalog_id,
+        body.get("model_id"),
+        session.get("user", {}).get("username", "user"),
+        rating,
+        body.get("title"),
+        body.get("review_text"),
+        json.dumps(body.get("benchmark_results", {})),
+        body.get("use_case"),
+        body.get("hardware_info"),
+    ))
+    return {"ok": True, "review": rows[0] if rows else None}
 
 
 # ---------------------------------------------------------------------------

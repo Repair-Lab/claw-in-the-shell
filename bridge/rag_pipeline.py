@@ -326,6 +326,13 @@ class RAGPipeline:
     def _fallback_query(self, question: str, max_chunks: int) -> dict:
         """Fallback wenn kein Embedding verfügbar: Textsuche."""
         words = question.lower().split()[:5]
+        if not words:
+            return {
+                "context": "",
+                "chunks": [],
+                "stats": {"chunks_found": 0, "total_tokens": 0,
+                          "latency_ms": 0, "mode": "fallback_text_search"},
+            }
         conditions = " OR ".join(["content ILIKE %s"] * len(words))
         params = [f"%{w}%" for w in words] + [max_chunks]
 
