@@ -27,6 +27,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Kernel-PostgreSQL_16-336791?style=for-the-badge&logo=postgresql&logoColor=white"/>
   <img src="https://img.shields.io/badge/Ghost-LLM_Powered-00ff88?style=for-the-badge&logo=openai&logoColor=black"/>
+  <img src="https://img.shields.io/badge/Security-AI_Immunsystem-ff4444?style=for-the-badge&logo=shield&logoColor=white"/>
   <img src="https://img.shields.io/badge/GPU-NVIDIA_CUDA-76B900?style=for-the-badge&logo=nvidia&logoColor=white"/>
   <img src="https://img.shields.io/badge/Interface-React_CyberDeck-61DAFB?style=for-the-badge&logo=react&logoColor=black"/>
   <img src="https://img.shields.io/badge/CI%2FCD-Atomic_OTA-ff6600?style=for-the-badge&logo=githubactions&logoColor=white"/>
@@ -44,46 +45,56 @@
 
 **GhostShell is not another AI bot.** It is a **post-applicative system architecture** that transforms a PostgreSQL database into a living, relational organism. While projects like OpenClaw run *on* a system, GhostShell **is** the system — the hardware abstraction layer itself.
 
-Every thought. Every file move. Every hardware impulse. All of it — ACID-compliant database transactions. Indestructible. Secure. Consistent.
+Every thought. Every file move. Every hardware impulse. Every security event. All of it — ACID-compliant database transactions. Indestructible. Secure. Consistent.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                 🖥️  CYBER-DECK (React UI)                │
-│     Desktop · 36 Apps · Ghost Chat · Software Store     │
-│     Terminal · LLM Manager · RAG Pipeline · Updater     │
-│              WebSocket-powered · Real-time              │
-└────────────────────────┬────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────┐
-│              ⚡ NEURAL BRIDGE (FastAPI)                   │
-│      Dual-Pool Architecture: System + Runtime           │
-│   282 REST Endpoints · WebSocket · Command Whitelist    │
-└────────────────────────┬────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────┐
-│       🎮 GPU LAYER (NVIDIA CUDA · llama.cpp)             │
-│   Real-time VRAM Monitoring · Hot-Swap Model Loading    │
-│   18 Ghost Models · Multi-Backend (llama.cpp / vLLM)    │
-└────────────────────────┬────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────┐
-│            🧠 THE SHELL (PostgreSQL 16 + pgvector)       │
-│                                                         │
-│   ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
-│   │ dbai_core│ │ dbai_llm │ │dbai_system│ │ dbai_ui  │  │
-│   │ Identity │ │  Ghosts  │ │ Hardware  │ │ Desktop  │  │
-│   │  Config  │ │ 18 Models│ │  Metrics  │ │ Windows  │  │
-│   │   Auth   │ │ RAG Pipe │ │  CI/CD    │ │ 36 Apps  │  │
-│   └──────────┘ └──────────┘ └──────────┘ └──────────┘  │
-│   ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
-│   │dbai_event│ │dbai_panic│ │dbai_vector│ │dbai_know.│  │
-│   │  Events  │ │ Recovery │ │ Memories  │ │Knowledge │  │
-│   │  E-Mail  │ │ Failsafe │ │ Synaptic  │ │ Library  │  │
-│   └──────────┘ └──────────┘ └──────────┘ └──────────┘  │
-│                                                         │
-│     152 Tables · 69 Schema Files · Row-Level Security   │
-│    Schema Fingerprints · Immutability · OTA Updates     │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                  🖥️  CYBER-DECK (React UI)                   │
+│      Desktop · 38 Apps · Ghost Chat · Software Store        │
+│      Terminal · LLM Manager · RAG Pipeline · Updater        │
+│    Firewall (22 Tabs) · Security Monitor · PWA Offline      │
+│               WebSocket-powered · Real-time                 │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────┐
+│               ⚡ NEURAL BRIDGE (FastAPI)                      │
+│       Dual-Pool Architecture: System + Runtime              │
+│    378 REST Endpoints · WebSocket · Command Whitelist       │
+│    Security AI Pipeline · Ghost-Swap · Auto-Response        │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────┐
+│        🎮 GPU LAYER (NVIDIA CUDA · llama.cpp)                │
+│    Real-time VRAM Monitoring · Hot-Swap Model Loading       │
+│    20 Ghost Models · Multi-Backend (llama.cpp / vLLM)       │
+│    Security Ghost · Live LLM Inference · Auto-Ban           │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────┐
+│         🧠 THE SHELL (PostgreSQL 16 + pgvector)              │
+│                                                             │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐       │
+│  │ dbai_core│ │ dbai_llm │ │dbai_system│ │ dbai_ui  │       │
+│  │ Identity │ │  Ghosts  │ │ Hardware  │ │ Desktop  │       │
+│  │  Config  │ │ 20 Models│ │  Metrics  │ │ Windows  │       │
+│  │   Auth   │ │ RAG Pipe │ │  CI/CD    │ │ 38 Apps  │       │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘       │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐       │
+│  │dbai_event│ │dbai_panic│ │dbai_vector│ │dbai_know.│       │
+│  │  Events  │ │ Recovery │ │ Memories  │ │Knowledge │       │
+│  │  E-Mail  │ │ Failsafe │ │ Synaptic  │ │ 211 Docs │       │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘       │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐       │
+│  │dbai_sec. │ │ dbai_net │ │dbai_journ│ │dbai_work.│       │
+│  │ Security │ │  Mobile  │ │  Journal │ │ Workshop │       │
+│  │Immunsyst.│ │  Bridge  │ │Change Log│ │  Custom  │       │
+│  │ 19 Tables│ │ 11 Tables│ │  Audit   │ │  Tables  │       │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘       │
+│                                                             │
+│      210 Tables · 79 Schema Files · Row-Level Security      │
+│     Schema Fingerprints · Immutability · OTA Updates        │
+│    12 Schemas · 19 Bridge Modules · 211 Knowledge Docs      │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -95,13 +106,14 @@ Every thought. Every file move. Every hardware impulse. All of it — ACID-compl
 | **Architecture** | Application on a system | **Is** the system |
 | **Data Storage** | Volatile JSON files | ACID transactions — every thought is permanent |
 | **Hardware** | External APIs | Hardware-as-a-Table — `UPDATE cpu SET governor='performance'` |
-| **AI Models** | Single model, restart required | Hot-Swap 18 Ghosts — change LLMs without losing context |
+| **AI Models** | Single model, restart required | Hot-Swap 20 Ghosts — change LLMs without losing context |
 | **GPU** | No native support | NVIDIA CUDA — real-time VRAM monitoring, live model loading |
 | **Memory** | Flat context window | Synaptic Memory Pipeline + pgvector RAG |
-| **Security** | Application-level | 3-layer immutability: Core → Runtime → Ghost |
+| **Security** | Application-level | AI Immunsystem — 19-table threat detection + auto-response |
 | **Updates** | Manual reinstall | Atomic OTA with auto-rollback |
 | **Self-Repair** | Manual | Autonomous repair pipeline with human approval |
-| **Desktop** | None | 36 native apps, windowed UI, taskbar, terminal |
+| **Desktop** | None | 38 native apps, windowed UI, taskbar, terminal |
+| **Mobile** | None | Portable Boot, USB-C Link, Ghost-Net Hotspot, PWA |
 
 > OpenClaw is a great inspiration. GhostShell is the architecture it needs to be stable.
 
@@ -111,20 +123,87 @@ Every thought. Every file move. Every hardware impulse. All of it — ACID-compl
 
 | Layer | Technology | Purpose |
 |---|---|---|
-| **Kernel** | PostgreSQL 16 + pgvector | The relational core — 10 schemas, 152 tables, 69 migration files |
-| **Intelligence** | Local LLMs (llama.cpp CUDA) | 18 Ghost models — hot-swap, GPU-accelerated, RAG-augmented |
+| **Kernel** | PostgreSQL 16 + pgvector | The relational core — 12 schemas, 210 tables, 79 migration files |
+| **Intelligence** | Local LLMs (llama.cpp CUDA) | 20 Ghost models — hot-swap, GPU-accelerated, RAG-augmented |
+| **Security** | AI Immunsystem + Suricata + fail2ban | 19-table threat pipeline, live LLM analysis, auto-ban/mitigate |
 | **GPU Engine** | NVIDIA CUDA + llama.cpp | Real-time VRAM monitoring, model loading with live progress bar |
-| **Neural Bridge** | FastAPI (Python, 9000+ LOC) | 282 API endpoints, dual-pool security, WebSocket real-time |
+| **Neural Bridge** | FastAPI (Python, 12,800+ LOC) | 378 API endpoints, dual-pool security, WebSocket real-time |
 | **Sensors** | Python Hardware Bridge + C-Bindings | CPU, GPU, VRAM, temperature, network — all as tables |
-| **Interface** | React Cyber-Deck | 36 desktop apps with windowed UI, taskbar, boot screen |
-| **Integrity** | Schema Fingerprints + RLS | 176 monitored objects, immutable core protection |
+| **Interface** | React Cyber-Deck | 38 desktop apps with windowed UI, taskbar, boot screen, PWA |
+| **Mobile Bridge** | 5D Portable System | USB-C Link, Ghost-Net Hotspot, Sensor Pipeline, mDNS Discovery |
+| **Integrity** | Schema Fingerprints + RLS | 175 monitored objects, immutable core protection |
+| **Knowledge** | system_memory + Knowledge Base | 211 documented system insights across 14 categories |
 | **Updates** | CI/CD + OTA Agent | Atomic updates with GitHub Actions, migration runner, auto-rollback |
-| **Dev Tools** | Docker Compose + QEMU Simulator | Containerized microservices, hardware emulation for testing |
+| **Dev Tools** | Docker Compose + QEMU Simulator | Containerized microservices, hardware emulation, Kali pen-test |
 | **Multi-Arch** | x86_64 + ARM64 (Docker buildx) | Same Ghost, same DB — PC, Raspberry Pi, Apple Silicon |
 
 ---
 
-## 🔒 Three Security Layers
+## 🛡️ Security Immunsystem
+
+GhostShell features a **biological immune system for your infrastructure** — a self-regulating security architecture that detects, analyzes, and neutralizes threats autonomously using local LLMs.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                 🛡️  SECURITY IMMUNSYSTEM                     │
+│                                                             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │  DETECTION   │  │  ANALYSIS   │  │  RESPONSE   │         │
+│  │             │  │             │  │             │         │
+│  │ Suricata    │  │ Ghost LLM   │  │ Auto-Ban    │         │
+│  │ fail2ban    │  │ 10 Task     │  │ Auto-Block  │         │
+│  │ Honeypot    │  │ Types       │  │ Auto-Patch  │         │
+│  │ Port Scan   │  │ Risk Score  │  │ Alert       │         │
+│  │ Auth Monitor│  │ Confidence  │  │ Quarantine  │         │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘         │
+│         │                │                │                 │
+│         ▼                ▼                ▼                 │
+│  ┌─────────────────────────────────────────────────┐        │
+│  │          dbai_security (19 Tables)               │        │
+│  │  ip_bans · intrusion_events · honeypot_events   │        │
+│  │  vulnerability_findings · threat_intelligence   │        │
+│  │  cve_tracking · tls_certificates · dns_sinkhole │        │
+│  │  ai_tasks · ai_analysis_log · security_metrics  │        │
+│  └─────────────────────────────────────────────────┘        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### AI-Powered Analysis Pipeline
+
+When you trigger a security analysis, the Ghost processes it end-to-end:
+
+```
+UI Button → POST /api/security/ai/analyze
+         → DB Task Created + Background Thread
+         → Build Context (query relevant DB tables)
+         → Build Prompt (structured with JSON output format)
+         → LLM Inference (llama-server:8081)
+         → Parse Response (risk_level, confidence, actions)
+         → Auto-Response (ban IPs, block ports, patch vulns)
+         → Frontend polls GET /api/security/ai/task/{id}
+         → Result Panel: Risk Badge + Confidence + Recommendations
+```
+
+**10 Analysis Types:**
+
+| Type | What it does |
+|------|-------------|
+| `threat_analysis` | Analyze network threats and attack patterns |
+| `vuln_assessment` | Scan for vulnerabilities in system configuration |
+| `network_scan` | Deep network topology and open port analysis |
+| `anomaly_detection` | Detect unusual patterns in traffic and auth logs |
+| `compliance_check` | Verify security baselines and policy compliance |
+| `incident_response` | Analyze and respond to active security incidents |
+| `malware_analysis` | Detect suspicious processes and file changes |
+| `log_analysis` | AI-powered analysis of system and auth logs |
+| `dns_analysis` | Detect DNS tunneling, DGA domains, sinkhole hits |
+| `traffic_analysis` | Deep packet inspection and flow analysis |
+
+**Ghost-Swap for Security:** Select which LLM model controls your security — the Ghost-Swap endpoint actually restarts `llama-server` with the chosen model in real-time.
+
+---
+
+## 🔒 Four Security Layers
 
 ```
    ┌─────────────────────────────────────┐
@@ -137,6 +216,10 @@ Every thought. Every file move. Every hardware impulse. All of it — ACID-compl
    │     GHOST LAYER (dbai_llm)           │  ← AI can ONLY propose actions
    │  INSERT into proposed_actions only  │
    │  Cannot ALTER, DROP, or CREATE      │
+   ├─────────────────────────────────────┤
+   │   IMMUNSYSTEM (dbai_security)        │  ← AI-powered threat detection
+   │  Auto-ban · Intrusion detection     │
+   │  Honeypot · CVE tracking · TLS mon  │
    └─────────────────────────────────────┘
 ```
 
@@ -171,7 +254,18 @@ docker compose up -d       # PostgreSQL + API + Dashboard
 # → Open http://localhost:5173
 ```
 
-### Option 3: Manual Setup
+### Option 3: Sandbox Environment
+
+```bash
+git clone https://github.com/Repair-Lab/claw-in-the-shell.git
+cd claw-in-the-shell
+cd dev && docker compose -f docker-compose.sandbox.yml up -d
+# → API: http://localhost:3100
+# → UI:  http://localhost:5174
+# → DB:  localhost:5433 (user: root, db: dbai_sandbox)
+```
+
+### Option 4: Manual Setup
 
 ```bash
 git clone https://github.com/Repair-Lab/claw-in-the-shell.git
@@ -180,7 +274,7 @@ cd claw-in-the-shell
 # 1. Python venv
 ./dev/setup_venv.sh && source .venv/bin/activate
 
-# 2. Init database
+# 2. Init database (79 schema files)
 for f in schema/*.sql; do psql -U dbai_system -d dbai -f "$f"; done
 
 # 3. Start backend
@@ -197,47 +291,92 @@ cd frontend && npm install && npm run dev
 ### Core System
 - [x] **Hardware-as-a-Table** — Control fans, CPU clock, drives, GPU via `SQL UPDATE`
 - [x] **Hot-Swap Ghosts** — Change your LLM at runtime without losing context
-- [x] **3-Layer Immutability** — 176 schema fingerprints, policy violation logging
+- [x] **4-Layer Security** — Immutable Core + Runtime RLS + Ghost Sandbox + AI Immunsystem
 - [x] **Repair Pipeline** — Ghost proposes → Human approves → Secure execution
-- [x] **Row-Level Security** — 71+ tables with RLS policies across 5 database roles
+- [x] **Row-Level Security** — 210 tables with RLS policies across 5 database roles
 - [x] **WebSocket Command Whitelist** — Every WS command validated against database
 
-### GPU & LLM Engine (NEW)
+### 🛡️ Security AI Immunsystem
+- [x] **19-Table Security Schema** — IP bans, intrusion events, CVE tracking, threat intelligence
+- [x] **AI-Powered Analysis** — 10 task types with live LLM inference (threat, vuln, network, anomaly...)
+- [x] **Auto-Response** — Automatic IP bans and vulnerability mitigation for critical/high threats
+- [x] **Ghost Security Monitor** — Select which LLM model controls your security in real-time
+- [x] **Honeypot System** — Decoy services that log attacker behavior to database
+- [x] **TLS Certificate Monitor** — Track and alert on certificate expiry and chain issues
+- [x] **DNS Sinkhole** — Block malicious domains with database-driven DNS filtering
+- [x] **Suricata IDS/IPS** — Network intrusion detection with PostgreSQL logging
+- [x] **fail2ban Integration** — Automated IP blocking with custom DBAI filters
+- [x] **Security Cron** — Scheduled threat intelligence updates, baseline checks, cert monitoring
+
+### GPU & LLM Engine
 - [x] **NVIDIA CUDA Acceleration** — llama.cpp compiled with CUDA (Blackwell/Ada/Ampere)
 - [x] **Real-Time VRAM Monitor** — Live GPU memory bar via `nvidia-smi` (1s polling)
 - [x] **Model Hot-Loading** — Start/stop LLMs on GPU with one click, live VRAM progress bar
-- [x] **18 Ghost Models** — Qwen3.5-27B, DeepSeek, Mistral, LLaMA, CodeLlama and more
+- [x] **20 Ghost Models** — Qwen3.5-27B, DeepSeek, Mistral, LLaMA, CodeLlama and more
 - [x] **Multi-Backend** — llama.cpp (GGUF), vLLM, OpenAI-compatible API
 - [x] **GPU Recommendations** — Automatic `n_gpu_layers`, `ctx_size`, `threads` based on model + hardware
 - [x] **CPU/GPU Toggle** — Switch between GPU-accelerated and CPU-only inference
+- [x] **Security Ghost** — Dedicated LLM for security analysis with Ghost-Swap
 
-### Desktop Experience (36 Apps)
-- [x] **Ghost Chat** — Conversational AI with model selector and full system context
-- [x] **Software Store** — Install and manage desktop apps
-- [x] **Terminal** — Full Linux terminal with ANSI colors, tab support, 5000-line scrollback
-- [x] **SQL Console** — Direct database queries from the desktop
-- [x] **System Monitor** — Real-time CPU, RAM, GPU, temperature
-- [x] **File Browser** — Navigate the filesystem
-- [x] **Network Scanner** — Discover all Web-UIs in your network
-- [x] **Firewall Manager** — iptables rules, zones, active connections
-- [x] **LLM Manager** — Full GPU model management with VRAM live bar, start/stop, benchmarks
-- [x] **WebUI Hub** — Open WebUI, n8n, VS Code Server, Grafana and 10+ WebUIs
+### Desktop Experience (38 Apps)
 
-### Deep Integration (Stufe 3)
+| App | Description |
+|-----|-------------|
+| **Ghost Chat** | Conversational AI with model selector and full system context |
+| **LLM Manager** | Full GPU model management with VRAM live bar, start/stop, benchmarks |
+| **Firewall Manager** | 22-tab security command center with AI analysis, Ghost LLM integration |
+| **Software Store** | Install and manage desktop apps with auto-icon creation |
+| **Terminal** | Full Linux terminal with ANSI colors, tab support, 5000-line scrollback |
+| **SQL Console** | Direct database queries from the desktop |
+| **SQL Explorer** | Visual database schema browser with column inspection |
+| **System Monitor** | Real-time CPU, RAM, GPU, temperature |
+| **File Browser** | Navigate the filesystem |
+| **Network Scanner** | Discover all Web-UIs in your network |
+| **Ghost Mail** | E-Mail Client with Ghost LLM integration (compose, reply, improve via AI) |
+| **Knowledge Base** | Browse 211 system knowledge documents |
+| **Health Dashboard** | System health overview with service status |
+| **Process Manager** | View and manage running processes |
+| **Error Analyzer** | AI-powered error analysis from system logs |
+| **Event Viewer** | Real-time event stream browser |
+| **Ghost Browser** | Integrated web browser |
+| **Ghost Manager** | Manage Ghost roles and autonomy settings |
+| **Ghost Updater** | OTA update channel with "Ghost-Evolution verfügbar" banner |
+| **RAG Manager** | Manage RAG sources and retrieval pipeline |
+| **Synaptic Viewer** | Visual synaptic memory browser with pgvector |
+| **WebUI Hub** | Open WebUI, n8n, VS Code Server, Grafana and 10+ WebUIs |
+| **Remote Access** | SSH/VNC/RDP remote access management |
+| **AI Workshop** | Custom AI workflow builder |
+| **Anomaly Detector** | Z-Score based anomaly detection with resolve actions |
+| **App Sandbox** | Firejail/cgroup-based application isolation |
+| **Browser Migration** | Import bookmarks, history, passwords from Chrome/Firefox/Edge |
+| **Config Importer** | Detect and import WiFi, locale, keyboard configs |
+| **Immutable FS** | OverlayFS write-protected root with snapshots |
+| **USB Installer** | Flash ISO/IMG to USB drives (dd/Ventoy) |
+| **WLAN Hotspot** | Create and manage wireless hotspots |
+| **Workspace Mapper** | Index your filesystem without copying files |
+| **OpenClaw Integrator** | Import skills from OpenClaw ecosystem |
+| **Node Manager** | Manage desktop nodes and scene graph |
+| **Settings** | System-wide and per-app settings |
+| **Setup Wizard** | First-boot configuration wizard |
+
+### 📡 Mobile Bridge
+- [x] **5 Boot Dimensions** — Portable, Live-USB, SSD, USB-C Link, Ghost-Net Hotspot
+- [x] **USB-C Gadget Mode** — Connect to any PC, Ghost appears as network device
+- [x] **Ghost-Net Hotspot** — WPA2-secured WiFi hotspot with DHCP and mDNS
+- [x] **PWA Offline Support** — Service Worker + manifest.json for mobile access
+- [x] **Sensor Pipeline** — GPS, camera, audio → PostgreSQL → pgvector
+- [x] **Mobile Device Registry** — iOS, Android, tablet device management
+- [x] **mDNS Discovery** — Find your Ghost at `ghost.local` on any network
+- [x] **DHCP Lease Tracking** — Database-driven connection session monitoring
+
+### Deep Integration
 - [x] **Browser Migration** — Import bookmarks, history, passwords from Chrome/Firefox/Edge
 - [x] **System Config Import** — Automatically detect and import WiFi, locale, keyboard configs
 - [x] **Workspace Mapping** — Index your filesystem without copying files
 - [x] **Synaptic Memory Pipeline** — Real-time event vectorization with pgvector
 - [x] **RAG Pipeline** — Retrieval-Augmented-Generation across 7 database sources
-
-### Advanced Features (Stufe 4)
-- [x] **USB Installer** — Flash ISO/IMG to USB drives (dd/Ventoy)
-- [x] **WLAN Hotspot** — Create and manage wireless hotspots
-- [x] **Immutable Filesystem** — OverlayFS write-protected root with snapshots
+- [x] **Knowledge Base** — 211 documented system insights in 14 categories
 - [x] **i18n Runtime Translation** — 12 languages with database-driven translations
-- [x] **Anomaly Detection** — Z-Score based anomaly detection for system metrics
-- [x] **App Sandboxing** — Firejail/cgroup-based application isolation
-- [x] **Network Firewall** — iptables management with zones and connection tracking
 
 ### CI/CD & OTA Updates
 - [x] **GitHub Actions Pipeline** — Automated build, test, release on push
@@ -245,10 +384,11 @@ cd frontend && npm install && npm run dev
 - [x] **Migration Runner** — Transactional SQL migrations with SHA256 checksums
 - [x] **Auto-Rollback** — Failed updates automatically revert to previous version
 - [x] **Ghost Updater Desktop App** — Visual update channel with "Ghost-Evolution verfügbar" banner
-- [x] **Ghost Mail** — E-Mail Client mit Ghost LLM Integration (compose, reply, improve via AI)
 
-### Development Environment
+### Development & Testing
 - [x] **Docker Compose** — PostgreSQL, Ghost-API, Dashboard-UI orchestrated
+- [x] **Sandbox Environment** — Isolated testing with separate ports (3100/5174/5433)
+- [x] **Kali Pen-Test Container** — Pre-configured security testing (Dockerfile.kali)
 - [x] **QEMU/KVM Hardware Simulator** — Emulate x86 hardware for testing
 - [x] **4 Hardware Profiles** — minimal, desktop, server, stress
 - [x] **Anomaly Injection** — overtemp, disk_fail, mem_leak, cpu_spike, network_flood
@@ -262,7 +402,7 @@ cd frontend && npm install && npm run dev
 
 ---
 
-## � Multi-Architecture Support
+## 🌐 Multi-Architecture Support
 
 GhostShell OS is hardware-agnostic by design. The database is the kernel — and PostgreSQL runs everywhere.
 
@@ -278,6 +418,7 @@ GhostShell OS is hardware-agnostic by design. The database is the kernel — and
 │ • NVIDIA CUDA        │ • Pine64/Rock Pi    │ • Frontend (Browser)  │
 │ • AVX/AVX2 LLM accel │ • ARM NEON LLM      │ • Docker Multi-Arch   │
 │ • Bare-Metal ISO     │ • SD-Card .img      │ • pg_dump/pg_restore  │
+│ • RTX PRO 6000       │ • USB-C Ghost Link  │ • PWA Offline Mode    │
 └──────────────────────┴─────────────────────┴───────────────────────┘
 ```
 
@@ -300,87 +441,45 @@ psql -U dbai_system dbai < ghost_brain.sql
 ### Multi-Arch Docker Build
 
 ```bash
-# Build for both architectures simultaneously
 docker buildx create --name ghostbuilder --use
 docker buildx build --platform linux/amd64,linux/arm64 \
     -f dev/Dockerfile.api -t ghcr.io/repair-lab/ghostshell-api:latest --push .
 ```
 
-### Hardware Detection (Runtime)
-
-The Ghost automatically detects its hardware environment:
-
-```python
-import platform
-arch = platform.machine()  # 'x86_64' or 'aarch64'
-
-if arch in ('aarch64', 'arm64'):
-    # ARM: Use NEON-optimized inference, skip NVIDIA
-    llm_backend = 'cpu'  # ARM NEON auto-enabled by llama-cpp
-elif arch == 'x86_64':
-    # x86: Check for NVIDIA GPU → CUDA, else AVX2
-    llm_backend = 'cuda' if has_nvidia() else 'cpu'
-
-# PostgreSQL doesn't care — it's the same on both.
-```
-
-### Slim Image (Thin Provisioning)
-
-For production and SD-card deployment, use the slim image builder:
-
-```bash
-# 4GB minimal image (expands to full SD-card size on first boot)
-sudo bash scripts/build-arm-image-slim.sh
-
-# Headless (no Chromium/X11, server-only)
-sudo bash scripts/build-arm-image-slim.sh --headless
-
-# Alpine Linux base (~50MB vs ~600MB Debian)
-sudo bash scripts/build-arm-image-slim.sh --base alpine
-
-# Custom size
-sudo bash scripts/build-arm-image-slim.sh --size 2G
-```
-
-**First-Boot Chain:**
-1. `ghostshell-expand` — Root partition auto-expands to full disk
-2. `ghostshell-setup` — Interactive wizard (language, WiFi, passwords)
-3. Python venv + pip install (from `requirements-slim.txt`)
-4. PostgreSQL init + 38 schemas loaded
-5. Frontend build (if not pre-built)
-6. `ghostshell-models` — Optional LLM model download
-
-**LLM Models (downloaded on demand, not in image):**
-| Model | Size | Use Case |
-|-------|------|----------|
-| TinyLlama 1.1B | 669 MB | Minimal, fast inference on RPi |
-| Phi-2 | 1.6 GB | Good quality, small footprint |
-| Mistral 7B | 4.1 GB | Best quality for ARM |
-| CodeLlama 7B | 4.1 GB | Code generation |
-
-```bash
-# On the running GhostShell system:
-ghostshell-models list                  # Show available models
-ghostshell-models download tinyllama    # Download smallest model
-ghostshell-models interactive           # TUI selection
-```
-
 ---
 
-## �📊 System at a Glance
+## 📊 System at a Glance
 
 ```sql
 SELECT 'GhostShell OS' AS system,
        count(*) FILTER (WHERE schemaname LIKE 'dbai_%') AS tables,
        (SELECT count(*) FROM dbai_ui.apps) AS apps,
        (SELECT count(*) FROM dbai_llm.ghost_models) AS ghosts,
-       (SELECT count(*) FROM dbai_core.schema_fingerprints) AS fingerprints
+       (SELECT count(*) FROM dbai_core.schema_fingerprints) AS fingerprints,
+       (SELECT count(*) FROM dbai_knowledge.system_memory) AS knowledge
 FROM pg_tables;
 
---  system       | tables | apps | ghosts | fingerprints
--- --------------+--------+------+--------+--------------
---  GhostShell OS|    152 |   36 |     18 |          176
+--  system       | tables | apps | ghosts | fingerprints | knowledge
+-- --------------+--------+------+--------+--------------+----------
+--  GhostShell OS|    210 |   38 |     20 |          175 |       211
 ```
+
+### Database Schemas
+
+| Schema | Tables | Purpose |
+|--------|--------|---------|
+| `dbai_system` | 45 | Hardware metrics, health checks, disk, CPU, OTA, vacuum |
+| `dbai_llm` | 42 | Ghost models, roles, marketplace, watchdog, learning |
+| `dbai_core` | 34 | Identity, config, auth, schema fingerprints, policies |
+| `dbai_security` | 19 | IP bans, intrusion detection, honeypot, CVE, TLS, AI tasks |
+| `dbai_ui` | 16 | Apps, windows, desktop nodes, sessions, tab instances |
+| `dbai_knowledge` | 13 | System memory, changelog, module registry, glossary |
+| `dbai_net` | 11 | Mobile bridge, device registry, sensor pipeline, DHCP |
+| `dbai_workshop` | 11 | Custom tables, media items, project workspace |
+| `dbai_event` | 8 | Events, inbox, e-mail, notifications |
+| `dbai_vector` | 4 | Synaptic memories, vector embeddings (pgvector) |
+| `dbai_panic` | 4 | Recovery, failsafe, mirror sync |
+| `dbai_journal` | 3 | Change log, audit trail |
 
 ---
 
@@ -395,10 +494,11 @@ Developer pushes code
 │  (ghost-ci.yml)    │     │  • Python check   │
 │                    │     │  • SQL validation  │
 │  Triggered on:     │     │  • Frontend build  │
-│  • push to main    │     │  • pytest          │
-│  • pull request    │     └────────┬───────────┘
-│  • tag v*          │              │
-└────────────────────┘              ▼
+│  • push to main    │     │  • pytest (7 test  │
+│  • pull request    │     │    modules)        │
+│  • tag v*          │     └────────┬───────────┘
+└────────────────────┘              │
+                                    ▼
                            ┌──────────────────┐
                            │  Release Package  │
                            │  tar.gz + SHA256  │
@@ -459,50 +559,73 @@ See [SPONSOR.md](.github/SPONSOR.md) for full tier details and rewards.
 
 ```
 claw-in-the-shell/
-├── web/                         # FastAPI backend (Neural Bridge)
-│   └── server.py                # 9000+ lines, 282 routes, GPU/LLM engine
-├── frontend/                    # React Cyber-Deck UI
-│   └── src/components/apps/     # 36 desktop applications
-├── schema/                      # PostgreSQL schemas (69 numbered files)
-│   ├── 00-13                    # Core: extensions, tables, RLS, seeds
-│   ├── 14-27                    # Self-healing, ghost, desktop, hardware
-│   ├── 28-45                    # AI Workshop, LLM, Stufe 3+4, Settings
-│   └── 46-67                    # Knowledge, Ghost Browser, Agent, LLM Mgr
-├── bridge/                      # Hardware bridge (Python + C bindings)
-│   ├── gs_updater.py            # OTA Update Agent
-│   ├── migration_runner.py      # Transactional SQL migrations
-│   ├── rag_pipeline.py          # RAG across 7 DB sources
-│   ├── synaptic_pipeline.py     # Real-time event vectorization
-│   ├── hardware_scanner.py      # Multi-arch hardware detection
-│   └── c_bindings/              # libhw_interrupts.so (x86+ARM)
-├── scripts/                     # Build & deployment tools
-│   ├── build-iso.sh             # x86 ISO builder (Arch + Debian)
-│   ├── build-arm-image.sh       # ARM64 SD-card image builder (32GB)
-│   ├── build-arm-image-slim.sh  # ARM64 Slim image (4GB, thin provisioning)
-│   ├── installer.py             # Python TUI installer (BTRFS/EXT4/ZFS)
-│   ├── test-iso-qemu.sh         # QEMU VM test environment
-│   ├── flash-arm-usb.sh         # Flash ARM image to USB/SD
-│   ├── bootstrap.sh             # Database initialization
-│   └── backup.sh                # Backup & restore
-├── config/                      # System configuration
-│   ├── archiso/                 # Arch Linux ISO profile (mkarchiso)
-│   ├── systemd/                 # Service definitions
-│   ├── grub/                    # Bootloader config
-│   └── dbai.toml                # GhostShell main config
-├── dev/                         # Development environment
-│   ├── Dockerfile.api           # Ghost-API (Multi-Arch: x86+ARM)
-│   ├── Dockerfile.ui            # Dashboard-UI (Multi-Arch)
-│   ├── Dockerfile.qemu          # QEMU Simulator (Multi-Arch)
-│   └── qemu/hw_simulator.py     # Hardware emulator
-├── recovery/                    # Self-healing & panic recovery
-├── llm/                         # LLM bridge (llama.cpp)
+├── web/                              # FastAPI backend (Neural Bridge)
+│   └── server.py                     # 12,800+ lines, 378 routes, GPU/LLM/Security engine
+├── frontend/                         # React Cyber-Deck UI
+│   └── src/components/apps/          # 36 desktop application components
+│       ├── FirewallManager.jsx       # 1,235 lines — 22-tab security command center
+│       ├── GhostChat.jsx             # Conversational AI interface
+│       ├── LLMManager.jsx            # GPU model management
+│       └── ...                       # 33 more apps
+├── schema/                           # PostgreSQL schemas (79 numbered files)
+│   ├── 00-13                         # Core: extensions, tables, RLS, seeds
+│   ├── 14-27                         # Self-healing, ghost, desktop, hardware
+│   ├── 28-45                         # AI Workshop, LLM, Stufe 3+4, Settings
+│   ├── 46-67                         # Knowledge, Ghost Browser, Agent, LLM Mgr
+│   ├── 68-72                         # Mobile Bridge, Advanced Features, Hardening
+│   └── 73-76                         # Security Immunsystem, AI Integration, Knowledge
+├── bridge/                           # Hardware & Security Bridge (19 Python modules)
+│   ├── security_immunsystem.py       # 2,083 lines — 13 security subsystems
+│   ├── security_monitor_ai.py        # 960 lines — AI-powered threat analysis
+│   ├── gs_updater.py                 # OTA Update Agent
+│   ├── migration_runner.py           # Transactional SQL migrations
+│   ├── rag_pipeline.py               # RAG across 7 DB sources
+│   ├── synaptic_pipeline.py          # Real-time event vectorization
+│   ├── gpu_manager.py                # NVIDIA GPU management
+│   ├── hardware_scanner.py           # Multi-arch hardware detection
+│   ├── hardware_monitor.py           # System metrics collector
+│   └── c_bindings/                   # libhw_interrupts.so (x86+ARM)
+├── config/                           # System configuration
+│   ├── dbai.toml                     # GhostShell main config
+│   ├── fail2ban/                     # 4 custom DBAI filters + jail config
+│   ├── suricata/                     # IDS/IPS rules with PostgreSQL logging
+│   ├── archiso/                      # Arch Linux ISO profile (mkarchiso)
+│   ├── systemd/                      # 6 service definitions
+│   ├── grub/                         # Bootloader config
+│   ├── postgresql.conf               # Tuned PostgreSQL config
+│   └── pg_hba.conf                   # Host-based authentication
+├── scripts/                          # Build & deployment tools (16 scripts)
+│   ├── build-iso.sh                  # x86 ISO builder (Arch + Debian)
+│   ├── build-arm-image.sh            # ARM64 SD-card image builder (32GB)
+│   ├── build-arm-image-slim.sh       # ARM64 Slim image (4GB, thin provisioning)
+│   ├── security_cron.sh              # Scheduled security tasks
+│   ├── installer.py                  # Python TUI installer (BTRFS/EXT4/ZFS)
+│   └── ...                           # backup, bootstrap, health_check, etc.
+├── dev/                              # Development environment
+│   ├── docker-compose.sandbox.yml    # Sandbox: API(3100) + UI(5174) + DB(5433)
+│   ├── Dockerfile.api                # Ghost-API (Multi-Arch: x86+ARM)
+│   ├── Dockerfile.kali               # Kali pen-testing container
+│   ├── Dockerfile.ui                 # Dashboard-UI (Multi-Arch)
+│   ├── Dockerfile.qemu               # QEMU Simulator (Multi-Arch)
+│   └── qemu/hw_simulator.py          # Hardware emulator
+├── recovery/                         # Self-healing & panic recovery
+│   ├── panic_recovery.py             # Emergency recovery procedures
+│   ├── pitr_manager.py               # Point-in-time recovery
+│   └── mirror_sync.py                # Mirror synchronization
+├── tests/                            # Test suite (7 modules)
+│   ├── test_api.py                   # API endpoint tests
+│   ├── test_schema.py                # Schema integrity tests
+│   ├── test_core.py                  # Core functionality tests
+│   └── ...                           # frontend, settings, tab isolation
+├── llm/                              # LLM bridge (llama.cpp integration)
+├── docs/                             # 12-language documentation + schema map
 ├── .github/
-│   ├── workflows/ghost-ci.yml   # CI/CD pipeline (Multi-Arch)
-│   ├── FUNDING.yml              # Sponsoring setup
-│   └── SPONSOR.md               # Tier details
-├── docs/                        # 12-language documentation
-├── docker-compose.yml           # Dev orchestration
-└── README.md                    # You are here
+│   ├── workflows/ghost-ci.yml        # CI/CD pipeline (Multi-Arch)
+│   ├── FUNDING.yml                   # Sponsoring setup
+│   └── SPONSOR.md                    # Tier details
+├── docker-compose.yml                # Production orchestration
+├── requirements.txt                  # Python dependencies
+└── README.md                         # You are here
 ```
 
 ---
