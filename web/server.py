@@ -22,7 +22,7 @@ from common import *
 from common import __all__ as _common_all
 
 # Import routers (registriert alle 377 Routen auf app)
-import routers  # noqa: F401
+from routers import llm, security, apps, core  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Static Files & SPA Fallback (MUSS am Ende stehen — nach allen API-Routen!)
