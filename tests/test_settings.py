@@ -13,6 +13,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
+def _web_src() -> str:
+    """Liest alle web/*.py-Module zusammen (Phase 2: server.py + routers.py + common.py)."""
+    web_dir = Path(__file__).resolve().parent.parent / "web"
+    return "\n".join(f.read_text(encoding="utf-8") for f in sorted(web_dir.glob("*.py")))
+
+
 class TestSettingsSchemaFiles(unittest.TestCase):
     """Prüft ob Schema-Dateien für Settings vorhanden sind."""
 
@@ -116,7 +122,7 @@ class TestSettingsAPIEndpoints(unittest.TestCase):
     """Prüft ob Settings-API-Endpunkte in server.py existieren."""
 
     def test_settings_endpoints_exist(self):
-        content = (Path(__file__).resolve().parent.parent / "web" / "server.py").read_text()
+        content = _web_src()
         endpoints = [
             '/api/apps/{app_id}/settings',
             '/api/apps/{app_id}/settings/schema',

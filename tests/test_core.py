@@ -16,6 +16,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "recovery"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "llm"))
 
 
+def _web_src() -> str:
+    """Liest alle web/*.py-Module zusammen (Phase 2: server.py + routers.py + common.py)."""
+    web_dir = Path(__file__).resolve().parent.parent / "web"
+    return "\n".join(f.read_text(encoding="utf-8") for f in sorted(web_dir.glob("*.py")))
+
+
 class TestSchemaFiles(unittest.TestCase):
     """Prüft ob alle Schema-Dateien vorhanden und gültig sind."""
 
@@ -1026,7 +1032,7 @@ class TestWebServer(unittest.TestCase):
 
     def test_server_has_endpoints(self):
         """Server muss alle REST-Endpunkte haben."""
-        content = (self.WEB_DIR / "server.py").read_text()
+        content = _web_src()
         endpoints = ["/api/auth/login", "/api/boot/sequence", "/api/desktop",
                      "/api/apps", "/api/windows", "/api/ghosts", "/api/system"]
         for ep in endpoints:
@@ -1034,13 +1040,13 @@ class TestWebServer(unittest.TestCase):
 
     def test_server_has_websocket(self):
         """Server muss WebSocket-Endpoint haben."""
-        content = (self.WEB_DIR / "server.py").read_text()
+        content = _web_src()
         self.assertIn("websocket", content.lower())
         self.assertIn("/ws", content)
 
     def test_server_has_auth(self):
         """Server muss Authentifizierung haben."""
-        content = (self.WEB_DIR / "server.py").read_text()
+        content = _web_src()
         self.assertIn("token", content.lower())
         self.assertIn("Authorization", content)
 

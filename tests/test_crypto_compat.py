@@ -27,6 +27,12 @@ os.environ["DBAI_ENV"] = "sandbox"
 os.environ.pop("DBAI_FERNET_KEY", None)
 
 
+def _web_src() -> str:
+    """Liest alle web/*.py-Module zusammen (Phase 2: server.py + routers.py + common.py)."""
+    web_dir = Path(__file__).resolve().parent.parent / "web"
+    return "\n".join(f.read_text(encoding="utf-8") for f in sorted(web_dir.glob("*.py")))
+
+
 class TestSecretCrypto(unittest.TestCase):
     """Roundtrip + Legacy-Kompatibilität der Key-Verschlüsselung."""
 
@@ -69,7 +75,7 @@ class TestProviderTestEndpointUsesDecrypt(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.server_src = (_ROOT / "web" / "server.py").read_text(encoding="utf-8")
+        cls.server_src = _web_src()
 
     def test_no_raw_b64decode_of_api_key_enc(self):
         # Ein roher b64decode direkt auf api_key_enc wäre der Bug

@@ -15,6 +15,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "web"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bridge"))
 
 
+def _web_src() -> str:
+    """Liest alle web/*.py-Module zusammen (Phase 2: server.py + routers.py + common.py)."""
+    web_dir = Path(__file__).resolve().parent.parent / "web"
+    return "\n".join(f.read_text(encoding="utf-8") for f in sorted(web_dir.glob("*.py")))
+
+
 class TestAPIEndpointCoverage(unittest.TestCase):
     """Prüft ob alle API-Endpunkte in server.py definiert sind."""
 
@@ -26,14 +32,14 @@ class TestAPIEndpointCoverage(unittest.TestCase):
     def test_minimum_endpoint_count(self):
         """Server muss mindestens 200 Endpunkte haben."""
         import re
-        content = self.SERVER_FILE.read_text()
+        content = _web_src()
         endpoints = re.findall(r'@app\.(get|post|put|patch|delete)\(', content)
         self.assertGreaterEqual(len(endpoints), 200,
                                 f"Nur {len(endpoints)} Endpunkte gefunden, erwartet >= 200")
 
     def test_critical_endpoints_exist(self):
         """Alle kritischen Endpunkte müssen definiert sein."""
-        content = self.SERVER_FILE.read_text()
+        content = _web_src()
         critical = [
             '/api/auth/login', '/api/auth/logout', '/api/auth/me',
             '/api/system/health', '/api/system/diagnostics',
@@ -47,7 +53,7 @@ class TestAPIEndpointCoverage(unittest.TestCase):
 
     def test_repair_endpoints_exist(self):
         """Self-Healing/Repair-Endpunkte müssen vorhanden sein."""
-        content = self.SERVER_FILE.read_text()
+        content = _web_src()
         repair = [
             '/api/repair/queue', '/api/repair/pending',
             '/api/repair/approve/', '/api/repair/reject/',
@@ -59,7 +65,7 @@ class TestAPIEndpointCoverage(unittest.TestCase):
 
     def test_feature_endpoints_exist(self):
         """Feature-Endpunkte müssen vorhanden sein."""
-        content = self.SERVER_FILE.read_text()
+        content = _web_src()
         features = [
             '/api/firewall/', '/api/anomaly/', '/api/synaptic/',
             '/api/rag/', '/api/immutable/', '/api/usb/',
@@ -72,7 +78,7 @@ class TestAPIEndpointCoverage(unittest.TestCase):
     def test_no_duplicate_route_names(self):
         """Keine doppelten Funktionsnamen für Routes (Ausnahme: generische Namen)."""
         import re
-        content = self.SERVER_FILE.read_text()
+        content = _web_src()
         funcs = re.findall(r'async def (\w+)\(', content)
         seen = {}
         duplicates = []
@@ -140,7 +146,7 @@ class TestAPIClientServerConsistency(unittest.TestCase):
     def test_all_server_paths_in_apijs(self):
         """api.js muss die wichtigsten Server-Pfade abdecken."""
         import re
-        server = (Path(__file__).resolve().parent.parent / "web" / "server.py").read_text()
+        server = _web_src()
         apijs = (Path(__file__).resolve().parent.parent / "frontend" / "src" / "api.js").read_text()
 
         # api.js nutzt API_BASE='/api' + relative Pfade wie '/auth/login'
@@ -176,13 +182,13 @@ class TestRateLimiting(unittest.TestCase):
 
     def test_rate_limit_import(self):
         """Rate-Limit Store muss importierbar sein."""
-        content = (Path(__file__).resolve().parent.parent / "web" / "server.py").read_text()
+        content = _web_src()
         self.assertIn('_rate_limit_store', content, "Rate-Limit Store nicht gefunden")
         self.assertIn('_RATE_LIMIT', content, "Rate-Limit Konstante nicht gefunden")
 
     def test_rate_limit_values(self):
         """Rate-Limit muss 120 req/min sein."""
-        content = (Path(__file__).resolve().parent.parent / "web" / "server.py").read_text()
+        content = _web_src()
         self.assertIn('_RATE_LIMIT = 120', content, "Rate-Limit != 120")
         self.assertIn('_RATE_WINDOW = 60', content, "Rate-Window != 60")
 
