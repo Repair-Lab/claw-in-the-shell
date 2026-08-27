@@ -220,7 +220,7 @@ def decrypt_secret(ciphertext: str) -> str:
 class DBPool:
     """Connection-Pool für PostgreSQL — Thread-safe mit Checkout/Checkin."""
 
-    def __init__(self, config: dict, max_connections: int = 10):
+    def __init__(self, config: dict, max_connections: int = 25):
         self.config = config
         self.max_connections = max_connections
         self._idle: list = []         # Verfügbare Connections

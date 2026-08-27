@@ -34,6 +34,22 @@ env:
   PG_VERSION: '16'
 
 jobs:
+
+  # ─── Schritt 1b: Lint (Ruff) ───
+  lint:
+    name: "🔍 Lint (Ruff)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ruff installieren
+        run: pip install ruff
+
+      - name: Ruff Check
+        run: |
+          ruff check web/ bridge/ tests/ llm/ recovery/ scripts/
+          echo "✅ Ruff sauber"
+
   # ─── Schritt 1: Python-Code prüfen ───
   python-check:
     name: 🐍 Python Syntax & Lint
