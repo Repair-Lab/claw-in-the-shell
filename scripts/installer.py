@@ -29,8 +29,6 @@ import shutil
 import subprocess
 import time
 import re
-import signal
-from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -815,7 +813,7 @@ def install_bootloader(cfg: InstallConfig, mnt: str, dlg: Dialog) -> bool:
         if cfg.filesystem == "btrfs":
             mkinit_conf = f"{mnt}/etc/mkinitcpio.conf"
             if os.path.exists(mkinit_conf):
-                with open(mkinit_conf, "r") as f:
+                with open(mkinit_conf) as f:
                     content = f.read()
                 content = content.replace(
                     "HOOKS=(base udev",

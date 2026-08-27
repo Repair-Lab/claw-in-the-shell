@@ -14,14 +14,12 @@ Channels:
 """
 
 import os
-import sys
 import json
 import time
 import signal
 import logging
 import threading
 from pathlib import Path
-from datetime import datetime, timezone
 
 import psycopg2
 import psycopg2.extensions

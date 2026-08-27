@@ -7,10 +7,9 @@ Prüft alle Komponenten des DBAI-Systems.
 
 import os
 import sys
-import json
 import subprocess
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime
 
 # Ergebnis-Sammlung
 results = {}

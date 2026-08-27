@@ -13,9 +13,8 @@ import threading
 import subprocess
 import hashlib
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
-import psycopg2
 from psycopg2.extras import RealDictCursor
 
 logger = logging.getLogger("dbai.mirror")
@@ -234,7 +233,7 @@ class MirrorSync:
             "status": "failover_ready",
             "target": str(target),
             "steps": steps,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
     # ------------------------------------------------------------------

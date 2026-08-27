@@ -19,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # Import common (definiert app, alle Helper, alle State)
 from common import *
-from common import __all__ as _common_all
 
 # Import routers (registriert alle 377 Routen auf app)
 from routers import llm, security, apps, core  # noqa: F401

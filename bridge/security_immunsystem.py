@@ -23,24 +23,21 @@ ghost-api Container als Bridge-Modul importiert.
 """
 
 import os
-import sys
 import json
 import time
 import socket
 import signal
 import logging
-import hashlib
 import subprocess
 import threading
-import ipaddress
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
-from typing import Optional, List, Dict, Any, Tuple
-from dataclasses import dataclass, field, asdict
+from datetime import datetime, UTC
+from typing import Optional, List, Tuple
+from dataclasses import dataclass, field
 from enum import Enum
 
 import psycopg2
-from psycopg2.extras import RealDictCursor, Json, execute_values
+from psycopg2.extras import RealDictCursor, Json
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -262,7 +259,7 @@ class SecurityImmunsystem:
                     severity=severity.value,
                     category=category,
                     title=f"SQL-Injection gefunden: {pattern}",
-                    description=f"SQLMap hat eine SQL-Injection-Schwachstelle erkannt.",
+                    description="SQLMap hat eine SQL-Injection-Schwachstelle erkannt.",
                     affected_target=target,
                     affected_param=param,
                     evidence=output[:2000],
@@ -601,7 +598,7 @@ class SecurityImmunsystem:
 
         for log_file in sorted(log_path.glob("postgresql-*.log"))[-1:]:  # Nur neueste
             try:
-                with open(log_file, "r") as f:
+                with open(log_file) as f:
                     # Lese nur die letzten 1000 Zeilen
                     lines = f.readlines()[-1000:]
 
@@ -1032,7 +1029,7 @@ class SecurityImmunsystem:
             return
 
         try:
-            with open(eve_path, "r") as f:
+            with open(eve_path) as f:
                 # Letzte 100 Zeilen
                 lines = f.readlines()[-100:]
 
@@ -1151,7 +1148,7 @@ class SecurityImmunsystem:
                     except Exception as e:
                         logger.error("Honeypot DB-Fehler: %s", e)
 
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 except Exception as e:
                     if not self._shutdown.is_set():
@@ -1185,7 +1182,7 @@ class SecurityImmunsystem:
 
                 # Ablauf prüfen
                 if not_after:
-                    days_left = (not_after - datetime.now(timezone.utc)).days
+                    days_left = (not_after - datetime.now(UTC)).days
                     if days_left <= 0:
                         self._execute("""
                             UPDATE dbai_security.tls_certificates
@@ -1561,7 +1558,7 @@ class SecurityImmunsystem:
 
             # Blockiert?
             if rl["is_blocked"]:
-                if rl.get("blocked_until") and rl["blocked_until"] < datetime.now(timezone.utc):
+                if rl.get("blocked_until") and rl["blocked_until"] < datetime.now(UTC):
                     # Block abgelaufen
                     self._execute("""
                         UPDATE dbai_security.rate_limits
@@ -1574,7 +1571,7 @@ class SecurityImmunsystem:
             # Zeitfenster prüfen
             window_start = rl["window_start"]
             if window_start:
-                elapsed = (datetime.now(timezone.utc) - window_start.replace(tzinfo=timezone.utc)).total_seconds()
+                elapsed = (datetime.now(UTC) - window_start.replace(tzinfo=UTC)).total_seconds()
                 if elapsed > rl["window_seconds"]:
                     # Neues Fenster
                     self._execute("""

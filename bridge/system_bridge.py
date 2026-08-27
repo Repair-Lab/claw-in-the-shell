@@ -18,13 +18,10 @@ Verantwortlichkeiten:
 
 import os
 import sys
-import time
 import signal
 import logging
 import threading
-import subprocess
 from pathlib import Path
-from datetime import datetime, timezone
 
 import psycopg2
 from psycopg2.extras import RealDictCursor

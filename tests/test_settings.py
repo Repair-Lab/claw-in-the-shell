@@ -4,10 +4,8 @@ DBAI Tests — App-Settings-System
 Testet das JSON-Schema-basierte Settings-System (v0.9.0+).
 """
 
-import os
 import sys
 import unittest
-import json
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -79,7 +77,6 @@ class TestAllAppsHaveSettings(unittest.TestCase):
 
     def test_all_apps_import_settings(self):
         """Alle nicht-exemptionellen Apps müssen useAppSettings importieren."""
-        import re
         missing = []
         for f in self.APPS_DIR.glob("*.jsx"):
             name = f.stem

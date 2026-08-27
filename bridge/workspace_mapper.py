@@ -6,12 +6,11 @@ Vorhandene Dateien indexieren (ohne Kopie) → workspace_index Tabelle.
 Integriert sich in den Setup-Wizard für initiales Scanning.
 """
 
-import os
 import hashlib
 import mimetypes
 import logging
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Optional
 
 logger = logging.getLogger("dbai.workspace_mapper")
@@ -109,7 +108,7 @@ def _count_lines(filepath: Path) -> Optional[int]:
     try:
         if filepath.stat().st_size > 10 * 1024 * 1024:  # > 10 MB
             return None
-        with open(filepath, "r", errors="replace") as f:
+        with open(filepath, errors="replace") as f:
             return sum(1 for _ in f)
     except (OSError, UnicodeDecodeError):
         return None
@@ -205,7 +204,7 @@ class WorkspaceMapper:
                         entry, depth,
                         is_dir=False,
                         file_size=stat.st_size,
-                        modified_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+                        modified_at=datetime.fromtimestamp(stat.st_mtime, tz=UTC),
                         ext=ext, mime=mime, category=category,
                         language=language, line_count=lines,
                         content_hash=content_hash

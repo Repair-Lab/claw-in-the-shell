@@ -12,10 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from common import *
 from common import app, get_current_session, require_admin
 
-from fastapi import HTTPException, Request, Body, Depends, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, HTMLResponse
-from pydantic import BaseModel
-from typing import Optional
+from fastapi import HTTPException, Request, Depends
 
 @app.get("/api/repair/queue")
 async def repair_queue(session: dict = Depends(get_current_session)):

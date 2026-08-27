@@ -13,9 +13,7 @@ from common import *
 from common import app, get_current_session, require_admin
 
 from fastapi import HTTPException, Request, Body, Depends, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, HTMLResponse
-from pydantic import BaseModel
-from typing import Optional
+from fastapi.responses import JSONResponse
 
 @app.post("/api/tabs/register")
 async def register_tab(request: Request, session: dict = Depends(get_current_session)):
@@ -575,7 +573,8 @@ async def store_refresh(session: dict = Depends(get_current_session)):
 @app.get("/api/store/github/search")
 async def store_github_search(q: str = "", session: dict = Depends(get_current_session)):
     """GitHub-Repos suchen via GitHub API (öffentlich, kein Token nötig)."""
-    import urllib.request, urllib.parse
+    import urllib.request
+    import urllib.parse
     if not q or len(q) < 2:
         return {"items": [], "total": 0}
     try:
@@ -805,7 +804,7 @@ async def openclaw_live_config(session: dict = Depends(get_current_session)):
 
     # openclaw.json
     try:
-        with open(oc_dir / "openclaw.json", "r") as f:
+        with open(oc_dir / "openclaw.json") as f:
             cfg = json.load(f)
         result["config"] = {
             "meta": cfg.get("meta", {}),
@@ -834,7 +833,7 @@ async def openclaw_live_config(session: dict = Depends(get_current_session)):
 
     # agents-meta.json
     try:
-        with open(oc_dir / "agents-meta.json", "r") as f:
+        with open(oc_dir / "agents-meta.json") as f:
             result["agents_meta"] = json.load(f)
     except Exception as e:
         logger.debug("silent-exception: %s", e)
@@ -843,7 +842,7 @@ async def openclaw_live_config(session: dict = Depends(get_current_session)):
     try:
         cron_dir = oc_dir / "cron"
         for fp in sorted(cron_dir.glob("*.json")):
-            with open(fp, "r") as f:
+            with open(fp) as f:
                 data = json.load(f)
             for job in data.get("jobs", []):
                 result["cron_jobs"].append({
@@ -863,7 +862,7 @@ async def openclaw_live_config(session: dict = Depends(get_current_session)):
 
     # mission-control-config.json
     try:
-        with open(oc_dir / "mission-control-config.json", "r") as f:
+        with open(oc_dir / "mission-control-config.json") as f:
             mc = json.load(f)
         result["addons"] = mc.get("addons", [])
         result["integrations"] = {
@@ -892,7 +891,7 @@ async def openclaw_live_config(session: dict = Depends(get_current_session)):
     try:
         devices_dir = oc_dir / "devices"
         if devices_dir.exists():
-            with open(list(devices_dir.glob("*.json"))[0], "r") as f:
+            with open(list(devices_dir.glob("*.json"))[0]) as f:
                 devices = json.load(f)
             result["devices_count"] = len(devices)
     except Exception as e:
@@ -1049,14 +1048,14 @@ async def openclaw_import_to_ghost(session: dict = Depends(get_current_session))
     models_data = []
     agents_data = []
     try:
-        with open(oc_dir / "mission-control-config.json", "r") as f:
+        with open(oc_dir / "mission-control-config.json") as f:
             mc = json.load(f)
         models_data = mc.get("models", {}).get("available", [])
     except Exception as e:
         logger.debug("silent-exception: %s", e)
 
     try:
-        with open(oc_dir / "openclaw.json", "r") as f:
+        with open(oc_dir / "openclaw.json") as f:
             cfg = json.load(f)
         agents_data = cfg.get("agents", {}).get("list", [])
     except Exception as e:
@@ -1378,7 +1377,8 @@ async def sql_explorer_delete(schema: str, table: str, request: Request, session
 @app.get("/api/export/{schema}/{table}")
 async def export_table(schema: str, table: str, format: str = "json", session: dict = Depends(get_current_session)):
     """Tabelle als JSON oder CSV exportieren."""
-    import io, csv
+    import io
+    import csv
     fq_table = f'"{schema}"."{table}"'
     try:
         # Prüfe ob Tabelle existiert
@@ -1431,7 +1431,8 @@ async def export_table(schema: str, table: str, format: str = "json", session: d
 @app.get("/api/export/logs")
 async def export_logs(format: str = "json", limit: int = 500, session: dict = Depends(get_current_session)):
     """System-Logs exportieren."""
-    import io, csv
+    import io
+    import csv
     try:
         rows = db_query_rt(
             "SELECT * FROM dbai_event.event_log ORDER BY created_at DESC LIMIT %s",
@@ -1564,7 +1565,8 @@ async def audit_changes(limit: int = 100, session: dict = Depends(get_current_se
 @app.post("/api/backup/trigger")
 async def backup_trigger(session: dict = Depends(get_current_session)):
     """Manuelles Backup auslösen."""
-    import shutil, subprocess
+    import shutil
+    import subprocess
     pg_dump = shutil.which("pg_dump")
     if not pg_dump:
         # Häufige Pfade prüfen
@@ -2978,7 +2980,7 @@ async def immutable_create_snapshot(body: immutable_create_snapshot_req, session
         if hasattr(fs, 'create_snapshot'):
             result = fs.create_snapshot(label)
         else:
-            import uuid, time
+            import uuid
             snap_id = str(uuid.uuid4())
             db_execute_rt(
                 """INSERT INTO dbai_system.fs_snapshots (id, snapshot_name, label, snapshot_type, status, created_at)
@@ -3311,7 +3313,8 @@ async def simulator_set_profile(body: SimulatorProfileRequest,
 @app.post("/api/power/shutdown")
 async def power_shutdown(session: dict = Depends(get_current_session)):
     """System herunterfahren — Docker: Container stoppen, Bare-Metal: systemctl poweroff."""
-    import subprocess, os, sys, signal
+    import subprocess
+    import os
     try:
         db_execute_rt(
             "INSERT INTO dbai_event.events(event_type, source, payload) VALUES('shutdown_initiated','power_api',%s::JSONB)",
@@ -3341,7 +3344,8 @@ async def power_shutdown(session: dict = Depends(get_current_session)):
 @app.post("/api/power/reboot")
 async def power_reboot(session: dict = Depends(get_current_session)):
     """System neustarten — Docker: Container restarten, Bare-Metal: systemctl reboot."""
-    import subprocess, os, sys
+    import subprocess
+    import os
     try:
         db_execute_rt(
             "INSERT INTO dbai_event.events(event_type, source, payload) VALUES('reboot_initiated','power_api',%s::JSONB)",
@@ -3741,7 +3745,8 @@ Antworte NUR im folgenden JSON-Format:
 @app.post("/api/mail/sync/{account_id}")
 async def mail_sync(account_id: str, session: dict = Depends(get_current_session)):
     """E-Mails per IMAP synchronisieren."""
-    import imaplib, email as email_lib
+    import imaplib
+    import email as email_lib
     from email.header import decode_header
 
     acct = db_query_rt("SELECT * FROM dbai_event.email_accounts WHERE id = %s::UUID", (account_id,))
@@ -4130,7 +4135,7 @@ async def ghost_browser_get_result_file(
     if not os.path.exists(result_path):
         raise HTTPException(404, "Ergebnis-Datei nicht gefunden auf dem Filesystem")
 
-    with open(result_path, "r", encoding="utf-8") as f:
+    with open(result_path, encoding="utf-8") as f:
         content = f.read()
 
     return {

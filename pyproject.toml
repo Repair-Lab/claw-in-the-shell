@@ -1,0 +1,24 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [
+    ".git", ".venv", "node_modules", "frontend/dist",
+    "__pycache__", ".updates", ".backups",
+]
+
+[tool.ruff.lint]
+# Sinnvoller Kern: Syntax/Fehler (E,F,W) + Bug-Muster (B) +
+# Import-Ordnung (I) + moderne Syntax (UP).
+# E501 (Zeilenlaenge) und D* (Docstrings) bewusst AUSSCHLIESSEN -
+# Legacy-Code, wuerde hunderte falsche Positve erzeugen.
+select = ["E", "W", "F", "B", "I", "UP"]
+ignore = [
+    "E501",   # Zeilenlaenge (Black-Territorium)
+    "B008",   # Funktionaufruf in Default-Argument (FastAPI-Standard)
+    "B905",   # zip-strict (py310-Feature, hier nicht erzwungen)
+    "UP043",  # typen-Quoting (Laerm)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402", "B011"]
+"web/common.py" = ["E402"]

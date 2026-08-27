@@ -4,9 +4,6 @@ DBAI Tests — Frontend-Komponenten-Integrität
 Testet ob alle Frontend-Komponenten korrekt aufgebaut sind.
 """
 
-import os
-import sys
-import re
 import unittest
 from pathlib import Path
 

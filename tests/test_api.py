@@ -4,11 +4,8 @@ DBAI Tests — API-Endpunkt-Abdeckung
 Testet alle kritischen API-Routen auf Erreichbarkeit und korrekte Responses.
 """
 
-import os
 import sys
 import unittest
-import json
-from unittest.mock import MagicMock, patch, AsyncMock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "web"))

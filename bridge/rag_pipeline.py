@@ -13,7 +13,8 @@ import json
 import time
 import logging
 import hashlib
-from typing import Optional, Callable, List
+from typing import Optional
+from collections.abc import Callable
 
 logger = logging.getLogger("dbai.rag")
 

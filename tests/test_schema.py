@@ -4,8 +4,6 @@ DBAI Tests — Datenbank-Schema-Integrität
 Testet ob alle Schema-Dateien vorhanden und korrekt aufgebaut sind.
 """
 
-import os
-import sys
 import re
 import unittest
 from pathlib import Path

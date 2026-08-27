@@ -13,10 +13,9 @@ import json
 import hashlib
 import logging
 import subprocess
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, UTC
 from pathlib import Path
 
-import psycopg2
 from psycopg2.extras import RealDictCursor
 
 logger = logging.getLogger("dbai.pitr")
@@ -66,7 +65,7 @@ class PITRManager:
 
                 # Snapshot zusammenbauen
                 snapshot = {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                     "system_status": status,
                     "active_processes": processes,
                     "wal_lsn": str(wal_lsn),

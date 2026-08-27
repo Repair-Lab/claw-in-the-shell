@@ -15,9 +15,9 @@ import json
 import time
 import logging
 import threading
-import hashlib
-from datetime import datetime, timezone
-from typing import Optional, Callable
+from datetime import datetime, UTC
+from typing import Optional
+from collections.abc import Callable
 from collections import deque
 
 logger = logging.getLogger("dbai.synaptic")
@@ -94,7 +94,7 @@ class SynapticPipeline:
             "content": content,
             "importance": max(0.0, min(1.0, importance)),
             "metadata": metadata or {},
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
         self._event_buffer.append(event)

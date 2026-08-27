@@ -12,10 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from common import *
 from common import app, get_current_session, require_admin
 
-from fastapi import HTTPException, Request, Body, Depends, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, HTMLResponse
-from pydantic import BaseModel
-from typing import Optional
+from fastapi import HTTPException, Request, Depends
+from fastapi.responses import JSONResponse
 
 @app.post("/api/auth/login")
 async def login(req: LoginRequest, request: Request):
@@ -138,7 +136,8 @@ async def system_metrics(session: dict = Depends(get_current_session)):
 @app.get("/api/system/status")
 async def system_status(session: dict = Depends(get_current_session)):
     """Aktueller System-Status — psutil live + DB-Persistenz."""
-    import psutil, socket
+    import psutil
+    import socket
 
     # Live-Daten via psutil — blocking call in Thread auslagern
     cpu_percent = await asyncio.to_thread(psutil.cpu_percent, interval=0.3, percpu=True)
@@ -689,7 +688,8 @@ async def settings_update_system(request: Request,
 @app.get("/api/settings/hardware")
 async def settings_get_hardware(session: dict = Depends(get_current_session)):
     """Hardware-Info des Systems lesen."""
-    import platform, os
+    import platform
+    import os
     info = {
         "hostname": platform.node(),
         "os": f"{platform.system()} {platform.release()}",

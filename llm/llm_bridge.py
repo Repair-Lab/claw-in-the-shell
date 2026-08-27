@@ -15,7 +15,6 @@ Keine externe API-Abhängigkeit — alles lokal.
 """
 
 import os
-import sys
 import json
 import time
 import logging
@@ -24,7 +23,7 @@ from pathlib import Path
 from typing import Optional, List
 
 import psycopg2
-from psycopg2.extras import RealDictCursor, Json
+from psycopg2.extras import RealDictCursor
 
 logger = logging.getLogger("dbai.llm")
 
@@ -91,7 +90,7 @@ class LLMBridge:
                 "verbose": False,
             }
 
-            logger.info("Lade LLM-Modell: %s (ctx=%d, threads=%d)", 
+            logger.info("Lade LLM-Modell: %s (ctx=%d, threads=%d)",
                         model_path, config["n_ctx"], config["n_threads"])
 
             self.model = Llama(

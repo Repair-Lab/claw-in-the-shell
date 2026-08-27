@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Test Tab-Isolation: Beweist dass jeder Tab ein eigener Rechner ist."""
-import urllib.request, json, sys
+import urllib.request
+import json
+import sys
 
 BASE = "http://localhost:3000"
 
@@ -20,7 +22,7 @@ if __name__ == '__main__':
     if not tok:
         print("FEHLER: Login fehlgeschlagen")
         sys.exit(1)
-    print(f"Login OK")
+    print("Login OK")
 
     h = {"Authorization": f"Bearer {tok}"}
 
@@ -45,7 +47,7 @@ if __name__ == '__main__':
     w2 = len(d2.get("windows", []))
     h2 = d2.get("tab", {}).get("hostname", "?")
 
-    print(f"\n=== ISOLATION TEST ===")
+    print("\n=== ISOLATION TEST ===")
     print(f"Tab A ({h1}): {w1} Fenster")
     print(f"Tab B ({h2}): {w2} Fenster")
 
@@ -57,8 +59,8 @@ if __name__ == '__main__':
     print(f"Aktive Tabs: {len(tabs)}")
 
     # Cleanup
-    api("DELETE", f"/api/tabs/iso-test-A", None, h)
-    api("DELETE", f"/api/tabs/iso-test-B", None, h)
+    api("DELETE", "/api/tabs/iso-test-A", None, h)
+    api("DELETE", "/api/tabs/iso-test-B", None, h)
     print("Cleanup done")
 
     sys.exit(0 if ok else 1)

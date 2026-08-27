@@ -13,7 +13,7 @@ import os
 import sys
 import logging
 import json
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -112,7 +112,7 @@ class PanicRecovery:
                         json.dumps({
                             "active": True,
                             "reason": panic_type,
-                            "since": datetime.now(timezone.utc).isoformat(),
+                            "since": datetime.now(UTC).isoformat(),
                         }),
                         json.dumps({
                             "active": True,
@@ -358,7 +358,7 @@ class PanicRecovery:
     def full_diagnostic(self) -> dict:
         """Führt eine vollständige System-Diagnose durch."""
         results = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "checks": {},
             "overall": "healthy",
         }

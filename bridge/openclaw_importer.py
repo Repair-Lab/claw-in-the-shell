@@ -14,17 +14,15 @@ Usage:
     python3 -m bridge.openclaw_importer --telegram-setup BOT_TOKEN
 """
 
-import os
 import sys
 import json
-import glob
 import uuid
 import hashlib
 import logging
 import argparse
 from pathlib import Path
-from datetime import datetime, timezone
-from typing import Optional, Dict, List, Any, Tuple
+from datetime import datetime, UTC
+from typing import Optional, Dict, List, Any
 
 try:
     import psycopg2
@@ -60,7 +58,7 @@ class OpenClawScanner:
 
         result = {
             "base_path": str(self.base_path),
-            "scan_time": datetime.now(timezone.utc).isoformat(),
+            "scan_time": datetime.now(UTC).isoformat(),
             "is_openclaw": False,
             "detected_type": "unknown",
             "components": {},
@@ -598,7 +596,7 @@ class OpenClawImporter:
         """Fuehrt einen kompletten Import durch: Memories + Skills + Config."""
         results = {
             "source": source_path,
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": datetime.now(UTC).isoformat(),
         }
 
         # 1. Scan
@@ -621,7 +619,7 @@ class OpenClawImporter:
         if "config" in scan["components"] or "characters" in scan["components"]:
             results["config"] = self.import_config(source_path)
 
-        results["completed_at"] = datetime.now(timezone.utc).isoformat()
+        results["completed_at"] = datetime.now(UTC).isoformat()
         return results
 
     # ─── HILFSFUNKTIONEN ───
@@ -828,10 +826,10 @@ Beispiele:
             bridge.connect()
             bridge.setup_bot_config()
             print("✓ Telegram-Bot konfiguriert!")
-            print(f"  Token in dbai_core.config gespeichert")
-            print(f"  App-Stream 'telegram_bridge' aktiviert")
-            print(f"\n  Starte den Bot mit:")
-            print(f"    python3 -m bridge.telegram_bot")
+            print("  Token in dbai_core.config gespeichert")
+            print("  App-Stream 'telegram_bridge' aktiviert")
+            print("\n  Starte den Bot mit:")
+            print("    python3 -m bridge.telegram_bot")
         except Exception as e:
             logger.error(f"Telegram Setup Fehler: {e}")
             sys.exit(1)
@@ -845,7 +843,7 @@ Beispiele:
 def _print_scan_result(result: dict):
     """Gibt das Scan-Ergebnis formatiert aus."""
     print(f"\n{'='*60}")
-    print(f" OpenClaw Scanner — Analyse")
+    print(" OpenClaw Scanner — Analyse")
     print(f"{'='*60}")
     print(f"  Pfad:    {result['base_path']}")
     print(f"  Typ:     {result['detected_type']}")
@@ -878,7 +876,7 @@ def _print_scan_result(result: dict):
 def _print_import_result(result: dict):
     """Gibt das Import-Ergebnis formatiert aus."""
     print(f"\n{'='*60}")
-    print(f" OpenClaw Import — Ergebnis")
+    print(" OpenClaw Import — Ergebnis")
     print(f"{'='*60}")
     for key, value in result.items():
         if isinstance(value, dict):

@@ -8,12 +8,10 @@ für die Event-Tabelle um.
 Die Brücke zwischen rohen Hardware-Interrupts und der Datenbank.
 """
 
-import os
 import logging
 import threading
 import struct
 from pathlib import Path
-from typing import Optional
 
 import psycopg2
 from psycopg2.extras import Json

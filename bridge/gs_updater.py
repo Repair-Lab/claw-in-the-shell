@@ -36,7 +36,6 @@ import logging
 import platform
 import threading
 from pathlib import Path
-from datetime import datetime, timezone
 from typing import Optional
 
 import psycopg2

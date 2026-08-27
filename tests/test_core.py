@@ -3,11 +3,8 @@
 DBAI Tests — Core-Funktionalität
 """
 
-import os
 import sys
 import unittest
-import json
-from unittest.mock import MagicMock, patch
 from pathlib import Path
 
 # DBAI Root zum Python-Pfad hinzufügen

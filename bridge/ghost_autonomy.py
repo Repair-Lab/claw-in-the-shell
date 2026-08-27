@@ -23,7 +23,6 @@ Usage:
     python3 -m bridge.ghost_autonomy --index-files /pfad
 """
 
-import os
 import sys
 import json
 import time
@@ -33,7 +32,7 @@ import logging
 import argparse
 import select
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Optional, Dict, List, Any
 
 try:
@@ -140,7 +139,7 @@ class GhostAutonomyDaemon:
                     "used_percent": psutil.disk_usage("/").percent,
                 },
                 "boot_time": datetime.fromtimestamp(
-                    psutil.boot_time(), tz=timezone.utc
+                    psutil.boot_time(), tz=UTC
                 ).isoformat(),
                 "platform": sys.platform,
             }

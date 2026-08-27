@@ -41,7 +41,7 @@ import threading
 
 from pathlib import Path
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from typing import Optional
 
@@ -112,7 +112,7 @@ WEB_PORT = int(os.getenv("DBAI_WEB_PORT", "3000"))
 class _JSONFormatter(logging.Formatter):
     def format(self, record):
         log_entry = {
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "level": record.levelname,
             "module": record.name,
             "msg": record.getMessage(),
@@ -616,7 +616,7 @@ class NotifyBridge:
             "type": "notify",
             "channel": notify.channel,
             "payload": payload,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
         logger.info("NOTIFY [%s]: %s", notify.channel, json.dumps(payload)[:200])
@@ -656,7 +656,7 @@ class MetricsStreamer:
                         await self.manager.broadcast({
                             "type": "metrics",
                             "data": metrics,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                         })
                 except Exception as e:
                     logger.error("Metrics Fehler: %s", e)
@@ -1070,7 +1070,7 @@ def _detect_llm_host():
     import subprocess as sp
     # Prüfe zuerst ob wir überhaupt in einem Container sind
     try:
-        with open("/proc/1/cgroup", "r") as f:
+        with open("/proc/1/cgroup") as f:
             cgroup = f.read()
         in_container = "docker" in cgroup or "kubepods" in cgroup
     except Exception:
@@ -2214,7 +2214,7 @@ Frag einfach drauf los!"""
     return f"""Danke für deine Frage zu **{project_name}**!
 
 Dein Projekt enthält aktuell **{total} Dateien**. 
-{f'Die letzten Dateien sind: ' + ', '.join(m.get('file_name', '') for m in (media_rows or [])[:5]) if media_rows else 'Es wurden noch keine Dateien importiert.'}
+{'Die letzten Dateien sind: ' + ', '.join(m.get('file_name', '') for m in (media_rows or [])[:5]) if media_rows else 'Es wurden noch keine Dateien importiert.'}
 
 💡 Tipp: Importiere Dateien über den Import-Tab, damit ich dir besser helfen kann!"""
 

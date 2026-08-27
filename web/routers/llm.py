@@ -12,10 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from common import *
 from common import app, get_current_session, require_admin
 
-from fastapi import HTTPException, Request, Body, Depends, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, HTMLResponse
-from pydantic import BaseModel
-from typing import Optional
+from fastapi import HTTPException, Request, Depends
+from fastapi.responses import JSONResponse
 
 @app.get("/api/llm/status")
 async def llm_status(session: dict = Depends(get_current_session)):
@@ -409,7 +407,7 @@ async def gpu_vram_budget(session: dict = Depends(get_current_session)):
 @app.post("/api/llm/models/{model_id}/benchmark")
 async def llm_run_benchmark(model_id: str, request: Request, session: dict = Depends(get_current_session)):
     """Benchmark für ein spezifisches Modell starten — echte GPU-Messung."""
-    import asyncio, subprocess, time as _time
+    import subprocess
 
     body = {}
     try:
@@ -1933,7 +1931,6 @@ async def llm_provider_update(provider_key: str, request: Request,
 async def llm_provider_test(provider_key: str,
                              session: dict = Depends(get_current_session)):
     """Provider-Verbindung testen (API-Key validieren)."""
-    import base64
     rows = db_query_rt(
         "SELECT api_base_url, api_key_enc FROM dbai_llm.llm_providers WHERE provider_key = %s",
         (provider_key,)

@@ -12,13 +12,11 @@ Funktionen:
 - Unterstützt Dry-Run und Rollback
 """
 
-import os
 import hashlib
 import time
 import logging
 import re
 from pathlib import Path
-from datetime import datetime, timezone
 
 import psycopg2
 from psycopg2.extras import RealDictCursor

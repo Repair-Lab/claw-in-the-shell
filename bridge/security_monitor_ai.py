@@ -30,8 +30,7 @@ import json
 import time
 import logging
 import threading
-from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any
 
 import psycopg2
 import psycopg2.extensions

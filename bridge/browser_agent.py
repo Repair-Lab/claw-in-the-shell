@@ -8,12 +8,9 @@ erstellt Screenshots und generiert Ergebnis-Dateien.
 import asyncio
 import json
 import logging
-import os
 import time
-import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger("dbai.browser_agent")
 
@@ -393,7 +390,7 @@ class BrowserAgent:
         path = str(RESULTS_DIR / fname)
 
         lines = [
-            f"# Ghost Browser — Recherche-Ergebnis\n",
+            "# Ghost Browser — Recherche-Ergebnis\n",
             f"**Thema:** {topic}\n",
             f"**Datum:** {datetime.now().strftime('%d.%m.%Y %H:%M')}\n",
             f"**Quellen:** {len(sources)}\n",
@@ -523,7 +520,7 @@ async def execute_browser_task(task_id: str, prompt: str, task_type: str,
                 "progress": 100,
             })
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         result = {"error": f"Timeout nach {max_duration_s}s", "steps": agent.steps}
         if db_update_fn:
             db_update_fn("complete", {

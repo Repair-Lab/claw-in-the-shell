@@ -8,8 +8,6 @@ und schreibt sie als INSERT-Befehle in die System-Tabellen.
 Nutzt ctypes für C-Bindings bei Low-Level-Hardware-Zugriff.
 """
 
-import os
-import time
 import ctypes
 import logging
 import threading

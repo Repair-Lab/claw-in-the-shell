@@ -13,12 +13,11 @@ Unterstützte Browser:
 import os
 import json
 import sqlite3
-import hashlib
 import logging
 import shutil
 import tempfile
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Optional
 
 logger = logging.getLogger("dbai.browser_migration")
@@ -53,7 +52,7 @@ FIREFOX_PATHS = [
 ]
 
 # Chrome epoch: 1601-01-01 UTC
-CHROME_EPOCH = datetime(1601, 1, 1, tzinfo=timezone.utc)
+CHROME_EPOCH = datetime(1601, 1, 1, tzinfo=UTC)
 
 
 def chrome_time_to_datetime(microseconds: int) -> Optional[datetime]:
@@ -71,7 +70,7 @@ def firefox_time_to_datetime(microseconds: int) -> Optional[datetime]:
     if not microseconds or microseconds <= 0:
         return None
     try:
-        return datetime.fromtimestamp(microseconds / 1_000_000, tz=timezone.utc)
+        return datetime.fromtimestamp(microseconds / 1_000_000, tz=UTC)
     except (OverflowError, OSError, ValueError):
         return None
 

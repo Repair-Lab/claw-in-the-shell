@@ -17,7 +17,6 @@ Usage:
     python3 -m bridge.app_manager --daemon
 """
 
-import os
 import sys
 import json
 import time
@@ -26,9 +25,7 @@ import logging
 import argparse
 import subprocess
 import select
-from pathlib import Path
-from datetime import datetime, timezone
-from typing import Optional, Dict, List, Any, Tuple
+from typing import Dict, List
 
 try:
     import psycopg2

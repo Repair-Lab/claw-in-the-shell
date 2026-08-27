@@ -6,7 +6,6 @@ DBAI System Config Import — Feature 12
 User-Rechte, Shell-Konfiguration → system_config Tabelle.
 """
 
-import os
 import re
 import json
 import logging
@@ -321,7 +320,7 @@ class ConfigImporter:
         """System-User und Rechte scannen."""
         users = []
         try:
-            with open("/etc/passwd", "r") as f:
+            with open("/etc/passwd") as f:
                 for line in f:
                     parts = line.strip().split(":")
                     if len(parts) >= 7:
