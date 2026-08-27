@@ -87,12 +87,15 @@ FRONTEND_DIR = DBAI_ROOT / "frontend" / "dist"
 
 ASSETS_DIR = DBAI_ROOT / "frontend" / "public" / "assets"
 
+# Single-Source DB-Zugang: dbai_runtime (FULL RECHTE auf allen 17 Schemas,
+# verifiziert 27.08.26). dbai_system war ein totes Relikt (Auth-Fehler).
+# DB_CONFIG_RUNTIME bleibt als Alias zurueckkompatibel.
 DB_CONFIG = {
     "host": os.getenv("DBAI_DB_HOST", "127.0.0.1"),
     "port": int(os.getenv("DBAI_DB_PORT", "5432")),
     "dbname": os.getenv("DBAI_DB_NAME", "dbai"),
-    "user": os.getenv("DBAI_DB_USER", "dbai_system"),
-    "password": os.getenv("DBAI_DB_PASSWORD", "dbai2026"),
+    "user": os.getenv("DBAI_DB_USER", "dbai_runtime"),
+    "password": os.getenv("DBAI_DB_PASSWORD", "dbai_runtime_2026"),
     "connect_timeout": 5,
 }
 
