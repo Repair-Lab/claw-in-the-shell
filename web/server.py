@@ -184,9 +184,19 @@ def encrypt_secret(plaintext: str) -> str:
 
 
 def decrypt_secret(ciphertext: str) -> str:
-    """Entschlüsselt einen Fernet-Token. Fallback: Base64."""
+    """Entschlüsselt einen Fernet-Token. Fallback: Base64 (Legacy-Keys)."""
     if _fernet:
-        return _fernet.decrypt(ciphertext.encode()).decode()
+        try:
+            return _fernet.decrypt(ciphertext.encode()).decode()
+        except Exception:
+            # Legacy-Key aus der Base64-Ära (vor Fernet) — sicher dekodieren
+            import base64
+            try:
+                return base64.b64decode(ciphertext.encode()).decode()
+            except Exception:
+                # Noch älteres/ungültiges Format → als Klartext zurückgeben,
+                # damit Endpunkte nicht mit binären Bytes crashen (Bug A)
+                return ciphertext
     import base64
     return base64.b64decode(ciphertext.encode()).decode()
 
@@ -790,7 +800,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="DBAI — Database AI Operating System",
-    version="0.12.0",
+    version="0.14.3",
     description="The Ghost in the Database",
     lifespan=lifespan,
 )
@@ -5994,7 +6004,11 @@ async def llm_provider_test(provider_key: str,
         return {"ok": False, "error": "Kein API-Key konfiguriert"}
 
     api_base = rows[0]["api_base_url"]
-    api_key = base64.b64decode(rows[0]["api_key_enc"]).decode()
+    # FIX (Bug A): decrypt_secret statt rohem base64.b64decode —
+    # neu gesetzte Keys sind Fernet-verschlüsselt, rohes b64decode wirft hier
+    # binär-ungültige Bytes. decrypt_secret hat intern den Base64-Fallback für
+    # Legacy-Keys (vor Fernet-Einführung), daher ist beides lesbar.
+    api_key = decrypt_secret(rows[0]["api_key_enc"])
     ok = False
     error_msg = None
 
@@ -6507,7 +6521,7 @@ def _linux_updates() -> dict:
     """Update-Status."""
     from datetime import datetime
     info = {"updates_available": False, "update_count": 0,
-            "ghost_version": "v0.12.0",
+            "ghost_version": "v0.14.3",
             "last_check": datetime.now().strftime("%d.%m.%Y %H:%M"),
             "auto_update": False}
     # Kernel version

@@ -1,53 +1,53 @@
-ERLEDIGT (v0.12.11) — 6 Kritische Security-Fixes
-#	Fix	Status
-1	Shell-Injection /api/services/install → command-Feld entfernt, server-seitige Lookup-Tabelle, shell=False, require_admin	✅
-2	Shell-Injection /api/terminal/exec → require_admin, shell=False+shlex.split, Regex-Blocklist (12 Patterns)	✅
-3	SQL-Injection SQL Explorer → Spaltenvalidierung gegen information_schema.columns	✅
-4	SQL Explorer Admin-Pool → Runtime-Pool (db_query→db_query_rt, db_execute→db_execute_rt) + require_admin	✅
-5	SHA-256 ohne Salt → pgcrypto crypt()/gen_salt('bf') (bcrypt)	✅
-6	User-CRUD ohne Admin-Check → require_admin() auf alle 4 Endpoints	✅
+# DBAI — Aufgaben & Status (von Rick verifiziert, 27.08.2026)
 
-ERLEDIGT (v0.13.0) — Mobile Bridge: 5-Dimensionales System
-#	Feature	Status
-1	Schema dbai_net mit 11 Tabellen + 4 Views	✅
-2	5 Boot-Dimensionen (Portable, Live, SSD, USB-C Link, Ghost-Net Hotspot)	✅
-3	USB-Gadget Config (dwc2, g_ether, RNDIS/ECM)	✅
-4	Hotspot Config (hostapd, dnsmasq, WPA2)	✅
-5	mDNS/Avahi (ghost.local Discovery)	✅
-6	Mobile Device Registry (iOS, Android, Tablets)	✅
-7	Sensor Pipeline (GPS, Kamera, Audio → PostgreSQL → pgvector)	✅
-8	PWA (manifest.json, Service Worker, Install Prompt, Offline-Seite)	✅
-9	Hardware Profiles (RPi Zero 2W, Radxa Zero)	✅
-10	12 neue API-Endpoints (/api/mobile-bridge/*)	✅
-11	DHCP Lease Tracking + Connection Sessions	✅
-12	Demo-Script für Alexander Zuchowski in system_memory	✅
+> ⚠️ Diese todo.md wurde am 27.08.2026 durch einen Code-Audit ersetzt.
+> Die alte Version listete 6 "KRITISCH" Items als offen, die im Code ALLE
+> bereits gefixt waren. Status unten = Code-geprüft, nicht README-Annahme.
 
-KRITISCH — Sofort fixen
-#	Problem	Ort	Impact
-1	Shell-Injection via /api/services/install — Client sendet command direkt an shell=True	server.py:3426	Remote Code Execution
-2	Shell-Injection via /api/terminal/exec — Blacklist trivial umgehbar, kein Admin-Check	server.py:8550	Remote Code Execution
-3	SQL-Injection im SQL Explorer — Spaltennamen aus User-Input direkt in Query	server.py:5035	Datenbank-Übernahme
-4	SQL Explorer nutzt Admin-Pool statt Runtime-Pool → RLS greift nicht	server.py:4999	Privilege Escalation
-5	SHA-256 ohne Salt für Passwörter — in Sekunden knackbar	server.py:5240	Account-Übernahme
-6	User-CRUD ohne Admin-Check — jeder User kann Admins anlegen/löschen	server.py:5207	Privilege Escalation
-HOCH — Sollte bald folgen
-#	Problem	Ort	Impact
-7	Connection-Pool Race Condition — get_connection() teilt Connections zwischen Threads	server.py:97	Abgestürzte Queries, Datenverlust
-8	API-Keys nur Base64-encoded — keine echte Verschlüsselung	server.py:5402	Klartext-Keys bei DB-Leak
-9	time.sleep() blockiert Event-Loop an mehreren Stellen	server.py:1102	Alle Requests hängen
-10	Keine Error Boundary pro Fenster — eine App crasht → ganzer Desktop schwarz	Desktop.jsx	UX-Totalausfall
-11	Fehlende RLS auf desktop_nodes, desktop_scene, agent_instances	Schema	Security-Bypass
-12	Health-Check prüft nur DB — WS-Bridge, LLM-Server, Disk werden ignoriert	server.py:1538	Stille Teilausfälle
-MITTEL — Optimierungspotential
-#	Problem	Ort	Impact
-13	50+ except: pass verschlucken Fehler unsichtbar	Überall in server.py	Unsichtbare Bugs
-14	Synchrone DB-Aufrufe in async def — blockiert Event-Loop	Alle Endpoints	Performance
-15	Rate-Limiter Memory-Leak — _rate_limit_store wächst unbegrenzt	server.py:609	Memory-Exhaustion
-16	Vacuum-Schedule fehlt für dbai_ui, dbai_llm, dbai_knowledge	09-vacuum-schedule.sql	Tote Tupel, Bloat
-17	Doppelte Schema-Nummerierung (zwei 29er-Dateien)	Schema-Ordner	Nicht-deterministische Migration
-18	Fehlender Index auf sessions.expires_at	Schema	Cleanup wird Full-Table-Scan
-19	Kein Responsive Design — null @media-Queries	global.css	Mobile unbenutzbar
-20	Hardcodierte CUDA-Pfade — bricht auf jedem anderen System	server.py:35	Nicht-portabel
-21	server.py = 10.200 Zeilen God Object — sollte in Router-Module aufgeteilt werden	server.py	Wartbarkeit
-22	Cookie fehlt Secure-Flag	server.py:787	Token im Klartext über HTTP
-23	Fehlende AbortController im API-Client → alte Requests laufen bei Unmount weiter	api.js	State-Corruption
+## ERLEDIGT (verifiziert im Code, 27.08.2026)
+| # | Fix | Ort | Status |
+|---|---|---|---|
+| 1 | Shell-Injection /api/services/install | server.py | ✅ 0× shell=True, 74× subprocess alle Args-basiert |
+| 2 | Shell-Injection /api/terminal/exec | server.py | ✅ require_admin + shell=False |
+| 3 | SQL-Injection SQL Explorer | server.py | ✅ Spaltenvalidierung vs information_schema |
+| 4 | SQL Explorer RLS-Bypass | server.py | ✅ Runtime-Pool (db_query_rt) |
+| 5 | SHA-256 unsalted | server.py | ✅ pgcrypto crypt()/gen_salt (bcrypt) |
+| 6 | User-CRUD ohne Admin-Check | server.py | ✅ require_admin auf alle Endpoints |
+| 7 | Pool-Race Condition | server.py DBPool | ✅ Lock + Checkout/Checkin + Health-Ping |
+| 11 | Fehlende RLS (ui/llm/knowledge/net/workshop) | schema/71 | ✅ RLS vollständig |
+| 12 | Health-Check nur DB | server.py /api/health | ✅ DB + Disk + Memory + LLM |
+| 13 | 50+ except:pass | server.py | ✅ nur 8× |
+| 15 | Rate-Limiter Memory-Leak | server.py | ✅ Hard-Cap 200 + Cleanup |
+| 16 | Vacuum-Config fehlend | schema/71 §7 | ✅ alle Schemas |
+| 18 | sessions.expires_at Index | schema/71 §6 | ✅ |
+| 22 | Cookie Secure-Flag | server.py | ✅ env-gesteuert (DBAI_TLS_PROXY) |
+| 23 | AbortController api.js | frontend/src/api.js | ✅ signal-Passthrough |
+
+## ERLEDIGT (Phase 1, Rick, 27.08.2026, Branch rick/phase1-fixes)
+| # | Fix | Ort | Status |
+|---|---|---|---|
+| A | API-Key-Test brach bei Fernet-Keys (base64.b64decode) | server.py llm_provider_test | ✅ decrypt_secret mit Legacy-Fallback |
+| A2 | decrypt_secret crashte bei Legacy-Base64-Keys | server.py | ✅ 3-stufiger Fallback (Fernet→Base64→Klartext) |
+| B | Version-Chaos (0.12.0/0.14.3) | server.py:793/:6512 | ✅ einheitlich 0.14.3 |
+| E | PostgreSQL-Port 0.0.0.0 | docker-compose.yml | ✅ 127.0.0.1 only |
+| F | Doppelte Schema-29 | schema/ | ✅ 29-new-apps-registration → 80-new-apps-registration |
+| C | todo.md veraltet | todo.md | ✅ durch diesen Stand ersetzt |
+| T | Regression-Test für Key-Dekodierung | tests/test_crypto_compat.py | ✅ neu |
+
+## OFFEN (Phase 2 — siehe PLAN.md)
+| # | Problem | Ort | Impact |
+|---|---|---|---|
+| D | server.py = 12.806 Zeilen God Object, 306× except Exception | web/server.py | Wartbarkeit |
+| G | Kein Responsive Design (0× @media) | frontend/src/styles/global.css | Mobile |
+| H | /opt/models hardcoded | server.py:6700 | Portabilität |
+| 21 | API-Version in 3 Stellen (nun 0.14.3, aber keine Single-Source) | server.py | Wartbarkeit |
+
+## OFFEN (Phase 3)
+- Pydantic-Modelle für Request/Response-Bodies
+- ruff + black in CI
+- OpenAPI-Doku vervollständigen
+- p95-Latenz-Profiling LLM-Endpoints
+
+## TESTSTATUS (27.08.2026)
+- 181 Unit-Tests (test_core 142, test_api 15, test_schema 11, test_settings 13) = ALLE GRÜN
+- tests/test_crypto_compat.py = neu, Phase-1-Regressionsschutz
