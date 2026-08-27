@@ -113,3 +113,28 @@ laufen direkt mit python3.
 - 200/200 Tests + 11/11 Live-Tests nach jedem Schnitt
 - 86 stille excepts → logger.debug (behavior-neutral)
 - Commits: 2ba0e62 (Split), 056320f (4 Module), exc-sweep
+
+---
+
+## 📊 FINALER STATUS (27.08.2026)
+
+### Phase 2 ✅ FERTIG
+- `web/server.py` (12.820 Z.) → `web/common.py` (2.842 Z.) + 4 Router-Module + dünne Shell (95 Z.)
+- 377/377 Routen erhalten, 86 stille excepts → debug-logging
+- Commits: 2ba0e62, 056320f, 893bbc6
+
+### Phase 3 ✅ FERTIG
+- **VERSION:** `web/VERSION` Single-Source (b80b049)
+- **Pydantic:** 29 Routen `body:dict` → Modelle mit `.get()`-Shim (f417b03)
+- **Latent-Bugs:** 2× F821 gefixt (logger-Ordering, subprocess-Missing) →
+  GPU-Check erkennt jetzt V100S statt "Keine GPU" (885d001)
+- **Lint:** Ruff-Konfig + 181 Auto-Fixes + CI-Job + dokumentierte Legacy-Ignorierungen
+  → `ruff check` = All checks passed! (718d0b0, cfe8f2d)
+- **Stabilität:** DB-Pool 10→25, 50/50 Stress-Requests OK, 0 Log-Fehler,
+  Basis-Latenz 3ms (cfe8f2d)
+- **OpenAPI:** 377/377 Endpoints mit summary/description
+
+### Verifikation (Stand: 27.08.2026)
+- 200/200 Unit-Tests GRÜN
+- 11/11 Live-Tests GRÜN
+- Server live auf `:3000`, DB auf `:5432`
