@@ -1,0 +1,19 @@
+[Unit]
+Description=DBAI PostgreSQL 16 (pgvector) — DBAI-Datastore (Watchdog)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=worker
+# Boot: Container starten, wenn er nicht laeuft.
+# Watchdog: alle 20s pruefen — ist der Container tot? -> neu starten.
+# (podman-Rootless hat hier kein "podman update --restart", darum Loop-Watchdog.)
+ExecStart=/bin/bash -c 'while true; do if ! podman ps -a --format "{{.Names}}" | grep -qx dbai-postgres; then podman run -d --name dbai-postgres -p 127.0.0.1:5432:5432 -e POSTGRES_DB=dbai -e POSTGRES_USER=dbai_runtime -e POSTGRES_PASSWORD=dbai_runtime_2026 -v /home/worker/dbai-pgdata:/var/lib/postgresql/data --restart always docker.io/pgvector/pgvector:pg16; fi; if ! podman ps --format "{{.Names}}" | grep -qx dbai-postgres; then podman start dbai-postgres; fi; sleep 20; done'
+Restart=always
+RestartSec=3
+StandardOutput=append:/home/worker/claw-in-the-shell/logs/pg-watchdog.log
+StandardError=append:/home/worker/claw-in-the-shell/logs/pg-watchdog.log
+
+[Install]
+WantedBy=multi-user.target

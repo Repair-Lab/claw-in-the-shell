@@ -1,0 +1,25 @@
+[Unit]
+Description=DBAI Web Server (GhostShell OS API) — uvicorn web.server:app
+After=dbai-postgres.service network-online.target
+Wants=dbai-postgres.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=worker
+WorkingDirectory=/home/worker/claw-in-the-shell
+Environment=PATH=/home/worker/claw-in-the-shell/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=DBAI_DB_HOST=127.0.0.1
+Environment=DBAI_DB_PORT=5432
+Environment=DBAI_DB_NAME=dbai
+Environment=DBAI_DB_USER=dbai_runtime
+Environment=DBAI_DB_PASSWORD=dbai_runtime_2026
+ExecStart=/home/worker/claw-in-the-shell/.venv/bin/python -m uvicorn web.server:app --host 0.0.0.0 --port 3000
+Restart=always
+RestartSec=4
+TimeoutStopSec=15
+StandardOutput=append:/home/worker/claw-in-the-shell/logs/web.service.log
+StandardError=append:/home/worker/claw-in-the-shell/logs/web.service.log
+
+[Install]
+WantedBy=multi-user.target
