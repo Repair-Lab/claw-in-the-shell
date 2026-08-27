@@ -316,7 +316,7 @@ async def health_check_simple():
 
     # 4. LLM-Server (schneller Connect-Check)
     try:
-        llm_url = os.environ.get("LLM_SERVER_URL", "http://127.0.0.1:8080")
+        llm_url = os.environ.get("LLM_SERVER_URL", "http://127.0.0.1:11502")
         import urllib.request
         req = urllib.request.Request(f"{llm_url}/health", method="GET")
         with urllib.request.urlopen(req, timeout=1) as resp:
@@ -376,7 +376,7 @@ async def system_health(session: dict = Depends(get_current_session)):
 @app.post("/api/system/self-heal")
 async def self_heal(session: dict = Depends(get_current_session)):
     """Self-Healing-Loop auslösen."""
-    result = db_call_json("SELECT dbai_system.self_heal()")
+    result = db_call_json_rt("SELECT dbai_system.self_heal()")
     return result or {}
 
 @app.get("/api/system/diagnostics")

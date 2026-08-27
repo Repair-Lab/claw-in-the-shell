@@ -1169,7 +1169,7 @@ async def openclaw_import_to_ghost(session: dict = Depends(get_current_session))
 @app.get("/api/sql-explorer/schemas")
 async def sql_explorer_schemas(session: dict = Depends(get_current_session)):
     """Alle Schemas auflisten (= Ordner-Ebene 1)."""
-    rows = db_query("""
+    rows = db_query_rt("""
         SELECT s.schema_name,
                COUNT(t.table_name) AS table_count
         FROM information_schema.schemata s
@@ -1188,7 +1188,7 @@ async def sql_explorer_tables(schema: str, session: dict = Depends(get_current_s
     if not schema.replace('_', '').isalnum():
         raise HTTPException(status_code=400, detail="Ungültiger Schema-Name")
 
-    rows = db_query("""
+    rows = db_query_rt("""
         SELECT t.table_name, t.table_type,
                COALESCE(s.n_live_tup, 0) AS row_estimate,
                pg_size_pretty(pg_total_relation_size(quote_ident(t.table_schema) || '.' || quote_ident(t.table_name))) AS size
@@ -3083,7 +3083,7 @@ async def updates_status(session: dict = Depends(get_current_session)):
 @app.get("/api/updates/releases")
 async def updates_releases(session: dict = Depends(get_current_session)):
     """Alle veröffentlichten Releases."""
-    rows = db_query("""
+    rows = db_query_rt("""
         SELECT id, version, channel, commit_hash, commit_message,
                release_notes, author, schema_version, requires_restart,
                is_critical, published_at, created_at
@@ -3097,7 +3097,7 @@ async def updates_releases(session: dict = Depends(get_current_session)):
 @app.get("/api/updates/channels")
 async def updates_channels(session: dict = Depends(get_current_session)):
     """Verfügbare Update-Kanäle."""
-    rows = db_query("""
+    rows = db_query_rt("""
         SELECT id, channel_name, description, is_default, repo_url,
                branch, check_interval, is_active
         FROM dbai_system.update_channels
@@ -3172,7 +3172,7 @@ async def migrations_rollback(session: dict = Depends(get_current_session)):
 @app.get("/api/pipeline/history")
 async def pipeline_history(session: dict = Depends(get_current_session)):
     """Build-Pipeline-Historie."""
-    rows = db_query("""
+    rows = db_query_rt("""
         SELECT id, build_number, version, commit_hash, branch,
                trigger_type, status, steps, started_at, finished_at,
                duration_ms, error_message, triggered_by
@@ -3204,7 +3204,7 @@ async def pipeline_run(request: Request,
 @app.get("/api/ota/nodes")
 async def ota_nodes(session: dict = Depends(get_current_session)):
     """Alle verbundenen OTA-Nodes."""
-    rows = db_query("""
+    rows = db_query_rt("""
         SELECT id, node_name, hostname, ip_address::text, current_version,
                target_version, channel, last_checkin, last_update,
                status, auto_update, system_info
@@ -3216,7 +3216,7 @@ async def ota_nodes(session: dict = Depends(get_current_session)):
 @app.get("/api/ota/jobs")
 async def ota_jobs(session: dict = Depends(get_current_session)):
     """Letzte Update-Jobs."""
-    rows = db_query("""
+    rows = db_query_rt("""
         SELECT j.id, n.node_name, j.from_version, j.to_version,
                j.status, j.progress, j.started_at, j.finished_at,
                j.duration_ms, j.error_message

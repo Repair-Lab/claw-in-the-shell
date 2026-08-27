@@ -1845,12 +1845,12 @@ async def agents_update_role(role_id: str, request: Request, session: dict = Dep
         return {"ok": False, "error": "Keine Felder angegeben"}
     sets.append("updated_at = NOW()")
     params.append(role_id)
-    db_execute(
+    db_execute_rt(
         f"UPDATE dbai_llm.ghost_roles SET {', '.join(sets)} WHERE id = %s::UUID",
         tuple(params)
     )
     # Aktualisierte Rolle zurückgeben
-    updated = db_query("SELECT * FROM dbai_llm.ghost_roles WHERE id = %s::UUID", (role_id,))
+    updated = db_query_rt("SELECT * FROM dbai_llm.ghost_roles WHERE id = %s::UUID", (role_id,))
     return {"ok": True, "role": updated[0] if updated else None}
 
 @app.post("/api/agents/assign-role")
