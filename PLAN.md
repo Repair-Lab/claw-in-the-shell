@@ -39,7 +39,7 @@ PostgreSQL-16-Kernel (12 Schemas, 210 Tabellen, 79 Migrations) + FastAPI-Neural-
 
 ## 3. Phasen-Plan
 
-### Phase 1 — Kritisch (Ziel: 1 Arbeitstag)
+### Phase 1 — Kritisch ✅ ERLEDIGT (27.08.2026, Commit 7bbb34c, Branch rick/phase1-fixes)
 1. **AES-256-GCM für API-Keys** → neues Modul `web/crypto_utils.py`:
    `encrypt_api_key(plaintext, master_key)` / `decrypt_api_key(b64, master_key)`
    (Nonce 12B + Tag 16B + CT, base64-verpackt).
@@ -99,7 +99,7 @@ docker compose exec postgres psql -U dbai_system -d dbai -c '\dn'   # Schemas
 braucht Docker-Image), Venv `.venv` ohne pip (venv-Modul lückenhaft) → Tests
 laufen direkt mit python3.
 
-## 5. Reihenfolge für NEUE Funktionen (erst NACH Phase 1)
+## 5. Reihenfolge für NEUE Funktionen (Phase 1 ✅ — neue Features KÖNNEN loslegen)
 1. Phase 1 komplett + Tests grün
 2. Phase 2 (Architektur-Sanierung)
 3. Erst dann: neue Features (die Yaya liefert) — auf sauberem Fundament
