@@ -780,9 +780,12 @@ async def lifespan(app: FastAPI):
     db_pool.close_all()
     db_pool_runtime.close_all()
 
+# Single Source of Truth: web/VERSION (Phase 3)
+_API_VERSION = Path(__file__).with_name("VERSION").read_text(encoding="utf-8").strip()
+
 app = FastAPI(
     title="DBAI — Database AI Operating System",
-    version="0.14.3",
+    version=_API_VERSION,
     description="The Ghost in the Database",
     lifespan=lifespan,
 )
@@ -825,7 +828,7 @@ _RATE_MAX_ENTRIES = 200  # Hard-Cap → aggressive Bereinigung bei Überschreitu
 
 _download_tasks: dict[str, dict] = {}
 
-_API_VERSION = "0.14.3"
+
 
 _IS_DEVELOPMENT = os.getenv("DBAI_ENV", "production").lower() in ("development", "dev", "sandbox", "local")
 
@@ -1929,7 +1932,7 @@ def _linux_updates() -> dict:
     """Update-Status."""
     from datetime import datetime
     info = {"updates_available": False, "update_count": 0,
-            "ghost_version": "v0.14.3",
+            "ghost_version": "v" + _API_VERSION,
             "last_check": datetime.now().strftime("%d.%m.%Y %H:%M"),
             "auto_update": False}
     # Kernel version
