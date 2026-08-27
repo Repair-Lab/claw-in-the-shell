@@ -32,7 +32,7 @@ import json
 import asyncio
 
 import logging
-
+logger = logging.getLogger("dbai.web")  # Phase-3-Fix: vor erster Nutzung (CUDA-Ladeblock)
 import signal
 
 import time
@@ -131,7 +131,7 @@ else:
     LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 
-logger = logging.getLogger("dbai.web")
+
 
 import re as _re_mod
 
@@ -1332,6 +1332,7 @@ def _llm_chat_completion(messages: list, max_tokens: int = 2048, temperature: fl
         return {"error": str(e), "response": None}
 
 def _check_gpu_available() -> dict:
+    import subprocess  # Phase-3-Fix: modul-global nicht importiert (F821)
     """Prüft ob GPU/CUDA verfügbar ist."""
     try:
         result = subprocess.run(
