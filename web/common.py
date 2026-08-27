@@ -2842,4 +2842,178 @@ def _browser_db_update(update_type: str, data: dict):
     except Exception as e:
         logger.error("Browser DB update error: %s", e)
 
-__all__ = ['_fernet', 'ASSETS_DIR', 'BaseModel', 'Body', 'CORSMiddleware', 'ConnectionManager', 'DBAI_ROOT', 'DBPool', 'DB_CONFIG', 'DB_CONFIG_RUNTIME', 'Depends', 'FRONTEND_DIR', 'FastAPI', 'GhostQueryRequest', 'GhostSwapRequest', 'GhostUpdater', 'HTMLResponse', 'HTTPException', 'JSONResponse', 'LLMServerRequest', 'LoginRequest', 'MetricsStreamer', 'MigrationRunner', 'NodeCreate', 'NodeUpdate', 'NotifyBridge', 'Optional', 'Path', 'RealDictCursor', 'Request', 'SceneUpdate', 'ServiceInstallRequest', 'SimulatorAnomalyRequest', 'SimulatorProfileRequest', 'StaticFiles', 'WEB_HOST', 'WEB_PORT', 'WebSocket', 'WebSocketDisconnect', 'WindowUpdate', '_API_VERSION', '_COOKIE_SECURE', '_FERNET_KEY_PATH', '_IS_DEVELOPMENT', '_JSONFormatter', '_LINUX_GETTERS', '_RATE_LIMIT', '_RATE_MAX_ENTRIES', '_RATE_WINDOW', '_SECURITY_TASK_PROMPTS', '_SERVICE_COMMANDS', '_TERMINAL_BLOCKED_PATTERNS', '_browser_bg_tasks', '_browser_db_update', '_calc_gpu_optimal', '_check_gpu_available', '_classify_exception', '_collect_mounts', '_cors_origins', '_cors_os', '_cuda_lib_paths', '_detect_gpu_arch', '_detect_llm_host', '_do_network_scan', '_download_tasks', '_estimate_gpu_bandwidth', '_estimate_layers', '_existing', '_get_hw_sim', '_host_ip', '_hw_simulator', '_linux_accessibility', '_linux_bluetooth', '_linux_datetime', '_linux_display', '_linux_keyboard', '_linux_mouse', '_linux_notifications', '_linux_power', '_linux_printers', '_linux_security', '_linux_sound', '_linux_storage', '_linux_updates', '_linux_users', '_llm_chat_completion', '_llm_host_ip', '_llm_lock', '_llm_model_name', '_llm_model_path', '_llm_op_lock', '_llm_server_bin', '_llm_server_ctx_size', '_llm_server_device', '_llm_server_gpu_layers', '_llm_server_health', '_llm_server_port', '_llm_server_process', '_llm_server_start', '_llm_server_stop', '_llm_server_threads', '_llm_server_url', '_llm_watchdog_loop', '_load_or_create_fernet_key', '_migration_runner', '_rate_limit_last_cleanup', '_rate_limit_store', '_re', '_re_mod', '_recommend_models_for_gpu', '_run_cmd', '_security_ai_auto_response', '_security_ai_build_context', '_security_ai_build_prompt', '_security_ai_parse_response', '_security_ai_process_task', '_sp', '_tb_mod', '_updater', '_use_json_logs', '_validate_body', '_watchdog_fallback_active', '_watchdog_restart_count', '_watchdog_running', '_workshop_fallback_response', 'adb_call_json', 'adb_call_json_rt', 'adb_execute', 'adb_execute_rt', 'adb_query', 'adb_query_rt', 'api_version_middleware', 'app', 'asynccontextmanager', 'asyncio', 'catch_all_exceptions_middleware', 'csrf_middleware', 'ctypes', 'datetime', 'db_call_json', 'db_call_json_rt', 'db_execute', 'db_execute_rt', 'db_pool', 'db_pool_runtime', 'db_query', 'db_query_rt', 'decrypt_secret', 'defaultdict', 'encrypt_secret', 'get_current_session', 'guess_device_type', 'json', 'lifespan', 'logger', 'logging', 'metrics_streamer', 'notify_bridge', 'os', 'psycopg2', 'rate_limit_middleware', 'require_admin', 'signal', 'sys', 'threading', 'time', 'timezone', 'urllib', 'workshop_create_custom_table', 'workshop_search', 'ws_manager']
+
+# ── Phase 3: Pydantic-Basismodell (dict-kompatible .get()-Semantik) ──
+class GhostBaseModel(BaseModel):
+    """BaseModel mit .get(key, default) — so bleibt body.get(...) in Routen
+    unverändert funktionieren (Semantik: None → default, wie dict.get)."""
+    def get(self, key: str, default=None):
+        v = getattr(self, key, default)
+        return default if v is None else v
+
+class create_user_req(GhostBaseModel):
+    """Request-Body für `create_user` (Phase 3: Pydantic statt dict)."""
+    password: str = ''
+    display_name: Optional[str] = None
+    role: str = 'user'
+    username: str = ''
+
+class browser_import_req(GhostBaseModel):
+    """Request-Body für `browser_import` (Phase 3: Pydantic statt dict)."""
+    browser_type: str = ''
+    profile_name: str = ''
+    profile_path: str = ''
+
+class browser_import_selective_req(GhostBaseModel):
+    """Request-Body für `browser_import_selective` (Phase 3: Pydantic statt dict)."""
+    data_types: Optional[str] = None
+    browser_type: str = ''
+    profile_name: str = ''
+    profile_path: str = ''
+
+class workspace_scan_req(GhostBaseModel):
+    """Request-Body für `workspace_scan` (Phase 3: Pydantic statt dict)."""
+    paths: Optional[str] = None
+
+class workspace_open_file_req(GhostBaseModel):
+    """Request-Body für `workspace_open_file` (Phase 3: Pydantic statt dict)."""
+    path: str = ''
+
+class rag_query_req(GhostBaseModel):
+    """Request-Body für `rag_query` (Phase 3: Pydantic statt dict)."""
+    query: Optional[str] = None
+    question: str = ''
+
+class rag_toggle_source_req(GhostBaseModel):
+    """Request-Body für `rag_toggle_source` (Phase 3: Pydantic statt dict)."""
+    enabled: bool = True
+
+class rag_add_source_req(GhostBaseModel):
+    """Request-Body für `rag_add_source` (Phase 3: Pydantic statt dict)."""
+    source_name: str = ''
+    source_type: str = 'file'
+    source_path: str = ''
+
+class usb_flash_req(GhostBaseModel):
+    """Request-Body für `usb_flash` (Phase 3: Pydantic statt dict)."""
+    device_path: str = ''
+    image_path: str = ''
+    method: str = 'dd'
+
+class hotspot_create_req(GhostBaseModel):
+    """Request-Body für `hotspot_create` (Phase 3: Pydantic statt dict)."""
+    ssid: str = 'DBAI-Hotspot'
+    password: str = ''
+
+class hotspot_update_config_req(GhostBaseModel):
+    """Request-Body für `hotspot_update_config` (Phase 3: Pydantic statt dict)."""
+    ssid: Optional[str] = None
+    password: Optional[str] = None
+    channel: Optional[str] = None
+    band: Optional[str] = None
+
+class immutable_enable_req(GhostBaseModel):
+    """Request-Body für `immutable_enable` (Phase 3: Pydantic statt dict)."""
+    mode: str = 'off'
+
+class immutable_create_snapshot_req(GhostBaseModel):
+    """Request-Body für `immutable_create_snapshot` (Phase 3: Pydantic statt dict)."""
+    label: Optional[str] = None
+
+class terminal_exec_req(GhostBaseModel):
+    """Request-Body für `terminal_exec` (Phase 3: Pydantic statt dict)."""
+    cwd: Optional[str] = None
+    command: str = ''
+
+class ghost_browser_create_task_req(GhostBaseModel):
+    """Request-Body für `ghost_browser_create_task` (Phase 3: Pydantic statt dict)."""
+    task_type: str = 'research'
+    target_url: Optional[str] = None
+    sandbox_mode: bool = True
+    output_format: str = 'markdown'
+    max_pages: int = 10
+    max_duration_s: int = 120
+    prompt: str = ''
+
+class ghost_browser_quick_task_req(GhostBaseModel):
+    """Request-Body für `ghost_browser_quick_task` (Phase 3: Pydantic statt dict)."""
+    task_type: str = 'research'
+    target_url: Optional[str] = None
+    output_format: str = 'markdown'
+    max_pages: int = 8
+    max_duration_s: int = 120
+    prompt: str = ''
+
+class remote_access_verify_pin_req(GhostBaseModel):
+    """Request-Body für `remote_access_verify_pin` (Phase 3: Pydantic statt dict)."""
+    pin: str = ''
+
+class config_import_selective_req(GhostBaseModel):
+    """Request-Body für `config_import_selective` (Phase 3: Pydantic statt dict)."""
+    categories: Optional[str] = None
+
+class anomaly_resolve_req(GhostBaseModel):
+    """Request-Body für `anomaly_resolve` (Phase 3: Pydantic statt dict)."""
+    resolution: str = 'Manuell gelöst'
+
+class sandbox_launch_req(GhostBaseModel):
+    """Request-Body für `sandbox_launch` (Phase 3: Pydantic statt dict)."""
+    app_name: str = ''
+    executable_path: str = ''
+    profile_name: str = 'default'
+
+class firewall_add_rule_req(GhostBaseModel):
+    """Request-Body für `firewall_add_rule` (Phase 3: Pydantic statt dict)."""
+    name: Optional[str] = None
+    rule_name: str = ''
+    chain: str = 'INPUT'
+    action: str = 'DROP'
+    protocol: Optional[str] = None
+    source_ip: Optional[str] = None
+    dest_ip: Optional[str] = None
+    source_port: Optional[str] = None
+    dest_port: Optional[str] = None
+    description: Optional[str] = None
+    priority: int = 100
+
+class security_mitigate_vuln_req(GhostBaseModel):
+    """Request-Body für `security_mitigate_vuln` (Phase 3: Pydantic statt dict)."""
+    status: str = 'mitigated'
+
+class security_ban_ip_req(GhostBaseModel):
+    """Request-Body für `security_ban_ip` (Phase 3: Pydantic statt dict)."""
+    ip: Optional[str] = None
+    reason: str = 'Manueller Ban'
+    hours: int = 24
+
+class security_ai_analyze_req(GhostBaseModel):
+    """Request-Body für `security_ai_analyze` (Phase 3: Pydantic statt dict)."""
+    task_type: str = 'risk_scoring'
+    input_data: Optional[str] = None
+
+class security_ai_analyze_ip_req(GhostBaseModel):
+    """Request-Body für `security_ai_analyze_ip` (Phase 3: Pydantic statt dict)."""
+    ip: Optional[str] = None
+
+class security_ai_config_update_req(GhostBaseModel):
+    """Request-Body für `security_ai_config_update` (Phase 3: Pydantic statt dict)."""
+    key: Optional[str] = None
+    value: Optional[str] = None
+
+class security_dns_sinkhole_add_req(GhostBaseModel):
+    """Request-Body für `security_dns_sinkhole_add` (Phase 3: Pydantic statt dict)."""
+    domain_pattern: Optional[str] = None
+    reason: str = 'Manuell hinzugefügt'
+
+class security_rate_limit_update_req(GhostBaseModel):
+    """Request-Body für `security_rate_limit_update` (Phase 3: Pydantic statt dict)."""
+    max_requests: Optional[str] = None
+    window_seconds: Optional[str] = None
+
+class security_ghost_swap_req(GhostBaseModel):
+    """Request-Body für `security_ghost_swap` (Phase 3: Pydantic statt dict)."""
+    model_name: Optional[str] = None
+    reason: str = 'UI — Security-Modellwechsel'
+
+
+__all__ = ['_fernet', 'ASSETS_DIR', 'BaseModel', 'Body', 'CORSMiddleware', 'ConnectionManager', 'DBAI_ROOT', 'DBPool', 'DB_CONFIG', 'DB_CONFIG_RUNTIME', 'Depends', 'FRONTEND_DIR', 'FastAPI', 'GhostQueryRequest', 'GhostSwapRequest', 'GhostUpdater', 'HTMLResponse', 'HTTPException', 'JSONResponse', 'LLMServerRequest', 'LoginRequest', 'MetricsStreamer', 'MigrationRunner', 'NodeCreate', 'NodeUpdate', 'NotifyBridge', 'Optional', 'Path', 'RealDictCursor', 'Request', 'SceneUpdate', 'ServiceInstallRequest', 'SimulatorAnomalyRequest', 'SimulatorProfileRequest', 'StaticFiles', 'WEB_HOST', 'WEB_PORT', 'WebSocket', 'WebSocketDisconnect', 'WindowUpdate', '_API_VERSION', '_COOKIE_SECURE', '_FERNET_KEY_PATH', '_IS_DEVELOPMENT', '_JSONFormatter', '_LINUX_GETTERS', '_RATE_LIMIT', '_RATE_MAX_ENTRIES', '_RATE_WINDOW', '_SECURITY_TASK_PROMPTS', '_SERVICE_COMMANDS', '_TERMINAL_BLOCKED_PATTERNS', '_browser_bg_tasks', '_browser_db_update', '_calc_gpu_optimal', '_check_gpu_available', '_classify_exception', '_collect_mounts', '_cors_origins', '_cors_os', '_cuda_lib_paths', '_detect_gpu_arch', '_detect_llm_host', '_do_network_scan', '_download_tasks', '_estimate_gpu_bandwidth', '_estimate_layers', '_existing', '_get_hw_sim', '_host_ip', '_hw_simulator', '_linux_accessibility', '_linux_bluetooth', '_linux_datetime', '_linux_display', '_linux_keyboard', '_linux_mouse', '_linux_notifications', '_linux_power', '_linux_printers', '_linux_security', '_linux_sound', '_linux_storage', '_linux_updates', '_linux_users', '_llm_chat_completion', '_llm_host_ip', '_llm_lock', '_llm_model_name', '_llm_model_path', '_llm_op_lock', '_llm_server_bin', '_llm_server_ctx_size', '_llm_server_device', '_llm_server_gpu_layers', '_llm_server_health', '_llm_server_port', '_llm_server_process', '_llm_server_start', '_llm_server_stop', '_llm_server_threads', '_llm_server_url', '_llm_watchdog_loop', '_load_or_create_fernet_key', '_migration_runner', '_rate_limit_last_cleanup', '_rate_limit_store', '_re', '_re_mod', '_recommend_models_for_gpu', '_run_cmd', '_security_ai_auto_response', '_security_ai_build_context', '_security_ai_build_prompt', '_security_ai_parse_response', '_security_ai_process_task', '_sp', '_tb_mod', '_updater', '_use_json_logs', '_validate_body', '_watchdog_fallback_active', '_watchdog_restart_count', '_watchdog_running', '_workshop_fallback_response', 'adb_call_json', 'adb_call_json_rt', 'adb_execute', 'adb_execute_rt', 'adb_query', 'adb_query_rt', 'api_version_middleware', 'app', 'asynccontextmanager', 'asyncio', 'catch_all_exceptions_middleware', 'csrf_middleware', 'ctypes', 'datetime', 'db_call_json', 'db_call_json_rt', 'db_execute', 'db_execute_rt', 'db_pool', 'db_pool_runtime', 'db_query', 'db_query_rt', 'decrypt_secret', 'defaultdict', 'encrypt_secret', 'get_current_session', 'guess_device_type', 'json', 'lifespan', 'logger', 'logging', 'metrics_streamer', 'notify_bridge', 'os', 'psycopg2', 'rate_limit_middleware', 'require_admin', 'signal', 'sys', 'threading', 'time', 'timezone', 'urllib', 'workshop_create_custom_table', 'workshop_search', 'ws_manager', 'create_user_req', 'browser_import_req', 'browser_import_selective_req', 'workspace_scan_req', 'workspace_open_file_req', 'rag_query_req', 'rag_toggle_source_req', 'rag_add_source_req', 'usb_flash_req', 'hotspot_create_req', 'hotspot_update_config_req', 'immutable_enable_req', 'immutable_create_snapshot_req', 'terminal_exec_req', 'ghost_browser_create_task_req', 'ghost_browser_quick_task_req', 'remote_access_verify_pin_req', 'config_import_selective_req', 'anomaly_resolve_req', 'sandbox_launch_req', 'firewall_add_rule_req', 'security_mitigate_vuln_req', 'security_ban_ip_req', 'security_ai_analyze_req', 'security_ai_analyze_ip_req', 'security_ai_config_update_req', 'security_dns_sinkhole_add_req', 'security_rate_limit_update_req', 'security_ghost_swap_req', 'GhostBaseModel']

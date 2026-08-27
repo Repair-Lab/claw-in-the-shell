@@ -1470,7 +1470,7 @@ async def list_users(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.post("/api/users")
-async def create_user(body: dict, session: dict = Depends(get_current_session)):
+async def create_user(body: create_user_req, session: dict = Depends(get_current_session)):
     """Neuen Benutzer anlegen."""
     require_admin(session)
     # Mapping: Frontend-Rollen → DB-Rollen
@@ -2629,7 +2629,7 @@ async def browser_scan(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.post("/api/browser/import")
-async def browser_import(body: dict, session: dict = Depends(get_current_session)):
+async def browser_import(body: browser_import_req, session: dict = Depends(get_current_session)):
     """Browser-Profil importieren (Bookmarks, History, Passwords)."""
     try:
         from bridge.browser_migration import BrowserMigrator
@@ -2656,7 +2656,7 @@ async def browser_status(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.post("/api/browser/import/selective")
-async def browser_import_selective(body: dict, session: dict = Depends(get_current_session)):
+async def browser_import_selective(body: browser_import_selective_req, session: dict = Depends(get_current_session)):
     """Selektiver Browser-Import (nur bestimmte Datentypen)."""
     try:
         from bridge.browser_migration import BrowserMigrator
@@ -2677,7 +2677,7 @@ async def browser_import_selective(body: dict, session: dict = Depends(get_curre
         raise HTTPException(500, str(e))
 
 @app.post("/api/workspace/scan")
-async def workspace_scan(body: dict, session: dict = Depends(get_current_session)):
+async def workspace_scan(body: workspace_scan_req, session: dict = Depends(get_current_session)):
     """Dateisystem indexieren (ohne Kopie)."""
     try:
         from bridge.workspace_mapper import WorkspaceMapper
@@ -2710,7 +2710,7 @@ async def workspace_stats(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.post("/api/workspace/open")
-async def workspace_open_file(body: dict, session: dict = Depends(get_current_session)):
+async def workspace_open_file(body: workspace_open_file_req, session: dict = Depends(get_current_session)):
     """Datei im System-Editor öffnen."""
     try:
         import subprocess
@@ -2750,7 +2750,7 @@ async def rag_stats(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.post("/api/rag/query")
-async def rag_query(body: dict, session: dict = Depends(get_current_session)):
+async def rag_query(body: rag_query_req, session: dict = Depends(get_current_session)):
     """RAG-Abfrage mit Kontext-Augmentierung."""
     question = body.get("query", body.get("question", "")).strip()
     if not question:
@@ -2764,7 +2764,7 @@ async def rag_query(body: dict, session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.patch("/api/rag/sources/{name}/toggle")
-async def rag_toggle_source(name: str, body: dict, session: dict = Depends(get_current_session)):
+async def rag_toggle_source(name: str, body: rag_toggle_source_req, session: dict = Depends(get_current_session)):
     """RAG-Quelle aktivieren/deaktivieren."""
     try:
         from bridge.rag_pipeline import RAGPipeline
@@ -2786,7 +2786,7 @@ async def rag_reindex_source(name: str, session: dict = Depends(get_current_sess
         raise HTTPException(500, str(e))
 
 @app.post("/api/rag/sources")
-async def rag_add_source(body: dict, session: dict = Depends(get_current_session)):
+async def rag_add_source(body: rag_add_source_req, session: dict = Depends(get_current_session)):
     """Neue RAG-Quelle hinzufügen."""
     try:
         from bridge.rag_pipeline import RAGPipeline
@@ -2829,7 +2829,7 @@ async def usb_devices(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.post("/api/usb/flash")
-async def usb_flash(body: dict, session: dict = Depends(get_current_session)):
+async def usb_flash(body: usb_flash_req, session: dict = Depends(get_current_session)):
     """ISO/IMG auf USB flashen."""
     try:
         from bridge.stufe4_utils import USBInstaller
@@ -2874,7 +2874,7 @@ async def usb_job_progress(job_id: str, session: dict = Depends(get_current_sess
         raise HTTPException(500, str(e))
 
 @app.post("/api/hotspot/create")
-async def hotspot_create(body: dict, session: dict = Depends(get_current_session)):
+async def hotspot_create(body: hotspot_create_req, session: dict = Depends(get_current_session)):
     """WLAN-Hotspot erstellen."""
     try:
         from bridge.stufe4_utils import WLANHotspot
@@ -2906,7 +2906,7 @@ async def hotspot_status(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.patch("/api/hotspot/config")
-async def hotspot_update_config(body: dict, session: dict = Depends(get_current_session)):
+async def hotspot_update_config(body: hotspot_update_config_req, session: dict = Depends(get_current_session)):
     """Hotspot-Konfiguration ändern (SSID, Passwort, Kanal, Band)."""
     try:
         from bridge.stufe4_utils import WLANHotspot
@@ -2949,7 +2949,7 @@ async def immutable_config(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.post("/api/immutable/enable")
-async def immutable_enable(body: dict, session: dict = Depends(get_current_session)):
+async def immutable_enable(body: immutable_enable_req, session: dict = Depends(get_current_session)):
     """OverlayFS-Modus wechseln."""
     try:
         from bridge.stufe4_utils import ImmutableFS
@@ -2969,7 +2969,7 @@ async def immutable_snapshots(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.post("/api/immutable/snapshots")
-async def immutable_create_snapshot(body: dict, session: dict = Depends(get_current_session)):
+async def immutable_create_snapshot(body: immutable_create_snapshot_req, session: dict = Depends(get_current_session)):
     """Neuen Filesystem-Snapshot erstellen."""
     try:
         from bridge.stufe4_utils import ImmutableFS
@@ -3020,7 +3020,7 @@ async def immutable_restore_snapshot(snapshot_id: str, session: dict = Depends(g
         raise HTTPException(500, str(e))
 
 @app.post("/api/terminal/exec")
-async def terminal_exec(body: dict, session: dict = Depends(get_current_session)):
+async def terminal_exec(body: terminal_exec_req, session: dict = Depends(get_current_session)):
     """Shell-Befehl ausführen (sandboxed). Nur Admins."""
     require_admin(session)
     import subprocess
@@ -3925,7 +3925,7 @@ async def ghost_browser_list_tasks(
 
 @app.post("/api/ghost-browser/tasks")
 async def ghost_browser_create_task(
-    body: dict = Body(...),
+    body: ghost_browser_create_task_req = Body(...),
     session: dict = Depends(get_current_session)
 ):
     """Erstelle einen neuen Browser-Task."""
@@ -4068,7 +4068,7 @@ async def ghost_browser_presets(session: dict = Depends(get_current_session)):
 
 @app.post("/api/ghost-browser/quick")
 async def ghost_browser_quick_task(
-    body: dict = Body(...),
+    body: ghost_browser_quick_task_req = Body(...),
     session: dict = Depends(get_current_session)
 ):
     """Schneller One-Shot: Task erstellen UND sofort starten."""
@@ -4328,7 +4328,7 @@ async def remote_access_generate_pin(session: dict = Depends(get_current_session
     return {"pin": pin, "expires_in": 300}
 
 @app.post("/api/remote-access/verify-pin")
-async def remote_access_verify_pin(body: dict):
+async def remote_access_verify_pin(body: remote_access_verify_pin_req):
     """Verifiziert eine Mobile-PIN (für passwortlosen Zugang vom Handy)."""
     import time
     pin = body.get("pin", "")

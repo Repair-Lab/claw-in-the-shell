@@ -225,7 +225,7 @@ async def anomaly_models(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.post("/api/anomaly/detections/{detection_id}/resolve")
-async def anomaly_resolve(detection_id: str, body: dict = {}, session: dict = Depends(get_current_session)):
+async def anomaly_resolve(detection_id: str, body: anomaly_resolve_req = {}, session: dict = Depends(get_current_session)):
     """Anomalie als gelöst markieren."""
     try:
         resolution = body.get("resolution", "Manuell gelöst")
@@ -250,7 +250,7 @@ async def sandbox_profiles(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.post("/api/sandbox/launch")
-async def sandbox_launch(body: dict, session: dict = Depends(get_current_session)):
+async def sandbox_launch(body: sandbox_launch_req, session: dict = Depends(get_current_session)):
     """App in Sandbox starten."""
     try:
         from bridge.stufe4_utils import AppSandbox
@@ -292,7 +292,7 @@ async def firewall_rules(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.post("/api/firewall/rules")
-async def firewall_add_rule(body: dict, session: dict = Depends(get_current_session)):
+async def firewall_add_rule(body: firewall_add_rule_req, session: dict = Depends(get_current_session)):
     """Firewall-Regel hinzufügen."""
     rule_name = body.get("name", body.get("rule_name", "")).strip()
     if not rule_name:
@@ -416,7 +416,7 @@ async def security_vulnerabilities(
         raise HTTPException(500, str(e))
 
 @app.post("/api/security/vulnerabilities/{vuln_id}/mitigate")
-async def security_mitigate_vuln(vuln_id: str, body: dict = {}, session: dict = Depends(get_current_session)):
+async def security_mitigate_vuln(vuln_id: str, body: security_mitigate_vuln_req = {}, session: dict = Depends(get_current_session)):
     """Schwachstelle als mitigiert markieren."""
     try:
         new_status = body.get("status", "mitigated")
@@ -465,7 +465,7 @@ async def security_bans(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.post("/api/security/bans")
-async def security_ban_ip(body: dict, session: dict = Depends(get_current_session)):
+async def security_ban_ip(body: security_ban_ip_req, session: dict = Depends(get_current_session)):
     """IP manuell bannen."""
     try:
         ip = body.get("ip")
@@ -696,7 +696,7 @@ async def security_ai_task_detail(task_id: str, session: dict = Depends(get_curr
         raise HTTPException(500, str(e))
 
 @app.post("/api/security/ai/analyze")
-async def security_ai_analyze(body: dict, session: dict = Depends(get_current_session)):
+async def security_ai_analyze(body: security_ai_analyze_req, session: dict = Depends(get_current_session)):
     """Manuelle KI-Analyse auslösen — wird sofort vom Security-Ghost verarbeitet."""
     try:
         task_type = body.get("task_type", "risk_scoring")
@@ -745,7 +745,7 @@ async def security_ai_analyze(body: dict, session: dict = Depends(get_current_se
         raise HTTPException(500, str(e))
 
 @app.post("/api/security/ai/analyze-ip")
-async def security_ai_analyze_ip(body: dict, session: dict = Depends(get_current_session)):
+async def security_ai_analyze_ip(body: security_ai_analyze_ip_req, session: dict = Depends(get_current_session)):
     """KI-Analyse für eine spezifische IP-Adresse — wird sofort vom Security-Ghost verarbeitet."""
     try:
         ip = body.get("ip")
@@ -827,7 +827,7 @@ async def security_ai_config_get(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.put("/api/security/ai/config")
-async def security_ai_config_update(body: dict, session: dict = Depends(get_current_session)):
+async def security_ai_config_update(body: security_ai_config_update_req, session: dict = Depends(get_current_session)):
     """Security-AI-Konfiguration aktualisieren."""
     try:
         key = body.get("key")
@@ -908,7 +908,7 @@ async def security_dns_sinkhole(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.post("/api/security/dns-sinkhole")
-async def security_dns_sinkhole_add(body: dict, session: dict = Depends(get_current_session)):
+async def security_dns_sinkhole_add(body: security_dns_sinkhole_add_req, session: dict = Depends(get_current_session)):
     """DNS-Sinkhole-Regel hinzufügen."""
     try:
         domain = body.get("domain_pattern")
@@ -954,7 +954,7 @@ async def security_rate_limits(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.put("/api/security/rate-limits/{limit_id}")
-async def security_rate_limit_update(limit_id: str, body: dict, session: dict = Depends(get_current_session)):
+async def security_rate_limit_update(limit_id: str, body: security_rate_limit_update_req, session: dict = Depends(get_current_session)):
     """Rate-Limit aktualisieren."""
     try:
         max_req = body.get("max_requests")
@@ -1040,7 +1040,7 @@ async def security_ghost_models(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.post("/api/security/ghost-swap")
-async def security_ghost_swap(body: dict, session: dict = Depends(get_current_session)):
+async def security_ghost_swap(body: security_ghost_swap_req, session: dict = Depends(get_current_session)):
     """Ghost-Modell für Security-Rolle wechseln — startet tatsächlich das LLM mit dem neuen Modell."""
     try:
         model_name = body.get("model_name")

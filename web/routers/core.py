@@ -1038,7 +1038,7 @@ async def config_status(session: dict = Depends(get_current_session)):
         raise HTTPException(500, str(e))
 
 @app.post("/api/config/import/selective")
-async def config_import_selective(body: dict, session: dict = Depends(get_current_session)):
+async def config_import_selective(body: config_import_selective_req, session: dict = Depends(get_current_session)):
     """Selektiver Config-Import nach Kategorie."""
     try:
         from bridge.config_importer import ConfigImporter
