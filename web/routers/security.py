@@ -54,8 +54,8 @@ async def repair_approve(action_id: str, request: Request,
                 (event_type, severity, target_object, attempted_action, blocked, reason, session_id)
             VALUES ('repair_approved', 'info', %s, 'approve_action', FALSE, %s, %s)
         """, (action_id, reason, session.get("session_id")))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     return result or {"error": "Genehmigung fehlgeschlagen"}
 
@@ -80,8 +80,8 @@ async def repair_reject(action_id: str, request: Request,
                 (event_type, severity, target_object, attempted_action, blocked, reason, session_id)
             VALUES ('repair_rejected', 'info', %s, 'reject_action', TRUE, %s, %s)
         """, (action_id, reason, session.get("session_id")))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     return result or {"error": "Ablehnung fehlgeschlagen"}
 

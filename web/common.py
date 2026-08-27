@@ -62,8 +62,8 @@ for _p in _cuda_lib_paths:
     for _lib in sorted(Path(_p).glob("*.so*")):
         try:
             ctypes.cdll.LoadLibrary(str(_lib))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
 
 import psycopg2
 
@@ -245,13 +245,13 @@ class DBPool:
                             alive.append(conn)
                         except Exception:
                             try: conn.close()
-                            except Exception: pass
+                            except Exception as e: logger.debug("silent-exception: %s", e)
                     else:
                         try: conn.close()
-                        except Exception: pass
+                        except Exception as e: logger.debug("silent-exception: %s", e)
                 except Exception:
                     try: conn.close()
-                    except Exception: pass
+                    except Exception as e: logger.debug("silent-exception: %s", e)
             self._idle = alive
 
             # Erste verfügbare idle Connection auschecken (mit Health-Ping)
@@ -266,7 +266,7 @@ class DBPool:
                 except Exception:
                     # Stale Connection — verwerfen und nächste probieren
                     try: conn.close()
-                    except Exception: pass
+                    except Exception as e: logger.debug("silent-exception: %s", e)
                     continue
 
             # Neue Connection erstellen falls Limit nicht erreicht
@@ -291,7 +291,7 @@ class DBPool:
                         return conn
                     except Exception:
                         try: conn.close()
-                        except Exception: pass
+                        except Exception as e: logger.debug("silent-exception: %s", e)
                         # Slot frei → neue Connection probieren
                         total = len(self._idle) + len(self._in_use)
                         if total < self.max_connections:
@@ -300,8 +300,8 @@ class DBPool:
                                 conn.autocommit = False
                                 self._in_use.add(id(conn))
                                 return conn
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug("silent-exception: %s", e)
         raise Exception("DBPool: Keine freie Connection verfügbar (Timeout)")
 
     def return_connection(self, conn):
@@ -317,7 +317,7 @@ class DBPool:
             except Exception:
                 # Rollback fehlgeschlagen → Connection komplett verwerfen (kein Leak)
                 try: conn.close()
-                except Exception: pass
+                except Exception as e: logger.debug("silent-exception: %s", e)
 
     def get_notify_connection(self):
         """Dedizierte Verbindung für LISTEN/NOTIFY (autocommit!)."""
@@ -333,15 +333,15 @@ class DBPool:
             for conn in self._idle:
                 try:
                     conn.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("silent-exception: %s", e)
             self._idle.clear()
             self._in_use.clear()
         if self._notify_conn:
             try:
                 self._notify_conn.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("silent-exception: %s", e)
 
 db_pool = DBPool(DB_CONFIG)
 
@@ -1080,8 +1080,8 @@ def _detect_llm_host():
         for line in r.stdout.splitlines():
             if line.startswith("default via"):
                 return line.split()[2]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
     return "127.0.0.1"
 
 _llm_host_ip = _detect_llm_host()
@@ -1134,8 +1134,8 @@ def _llm_server_stop():
             UPDATE dbai_llm.vram_allocations SET is_active = FALSE, released_at = NOW()
             WHERE is_active = TRUE
         """)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # Phase 2: Prozess stoppen UNTER Lock (kurze Dauer, kein sleep/DB)
     with _llm_lock:
@@ -1149,8 +1149,8 @@ def _llm_server_stop():
         # Auch eventuell extern gestartete Prozesse killen
         try:
             _sp.run(["pkill", "-f", f"llama-server.*--port {_llm_server_port}"], timeout=5, capture_output=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
 
     # Phase 3: Cooldown AUSSERHALB des Locks (blockiert keine anderen Threads)
     import time
@@ -1160,8 +1160,8 @@ def _llm_server_stop():
         if cd_rows:
             val = cd_rows[0]["value"]
             cooldown = int(val) if isinstance(val, (int, float)) else int(json.loads(val)) if isinstance(val, str) else 3
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
     time.sleep(cooldown)
 
     # Phase 4: Watchdog-Log AUSSERHALB des Locks
@@ -1170,8 +1170,8 @@ def _llm_server_stop():
             INSERT INTO dbai_llm.watchdog_log (target, is_healthy, action_taken, details)
             VALUES ('llama-server', FALSE, 'stopped', %s::jsonb)
         """, (json.dumps({"reason": "manual_stop", "cooldown_sec": cooldown}),))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
 def _llm_server_start(device: str = "gpu", n_gpu_layers: int = 99,
                        ctx_size: int = 8192, threads: int = 12,
@@ -1344,8 +1344,8 @@ def _check_gpu_available() -> dict:
                 "used_mb": int(parts[2]) if len(parts) > 2 else 0,
                 "utilization": int(parts[3]) if len(parts) > 3 else 0,
             }
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
     return {"available": False, "name": None, "message": "Keine GPU erkannt — CPU-Training verfügbar"}
 
 def _estimate_gpu_bandwidth(gpu_name: str) -> float:
@@ -1562,13 +1562,13 @@ async def _llm_watchdog_loop():
                 if isinstance(v, str):
                     try:
                         v = json.loads(v)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("silent-exception: %s", e)
                 if c["key"] == "llm_watchdog_interval_sec": interval = int(v)
                 elif c["key"] == "llm_watchdog_max_restarts": max_restarts = int(v)
                 elif c["key"] == "llm_auto_fallback": auto_fallback = bool(v)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
 
         await asyncio.sleep(interval)
 
@@ -1594,8 +1594,8 @@ async def _llm_watchdog_loop():
                         INSERT INTO dbai_llm.watchdog_log (target, is_healthy, response_ms, action_taken) 
                         VALUES ('llama-server', TRUE, %s, 'none')
                     """, (response_ms,))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("silent-exception: %s", e)
         else:
             # Wenn Fallback bereits aktiv, nicht erneut warnen (nur still weiterchecken)
             if _watchdog_fallback_active:
@@ -1639,8 +1639,8 @@ async def _llm_watchdog_loop():
                     "restart_count": _watchdog_restart_count,
                     "max_restarts": max_restarts,
                 })))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("silent-exception: %s", e)
 
     logger.info("[WATCHDOG] LLM Watchdog gestoppt")
 
@@ -1702,8 +1702,8 @@ def _linux_display() -> dict:
                 cur = int(open(f"{bri_path}/{dev[0]}/brightness").read().strip())
                 mx = int(open(f"{bri_path}/{dev[0]}/max_brightness").read().strip())
                 info["brightness"] = round(cur / mx * 100) if mx > 0 else 80
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
     return info
 
 def _linux_sound() -> dict:
@@ -1855,8 +1855,8 @@ def _linux_storage() -> dict:
                             "used_gb": used_gb,
                             "free_gb": free_gb,
                         })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
     if not info["disks"]:
         # Fallback: df
         out_df = _run_cmd(["df", "-BG", "--output=source,target,size,used,avail,fstype"])
@@ -1901,8 +1901,8 @@ def _linux_users() -> dict:
                             "shell": shell,
                             "logged_in": uid == 0 or parts[0] in _run_cmd(["who"]),
                         })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
     return info
 
 def _linux_datetime() -> dict:
@@ -2028,8 +2028,8 @@ def _do_network_scan():
                     parts = line.split()
                     if parts and parts[0].startswith(subnet) and parts[2] != "0x0":
                         alive_ips.add(parts[0])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
         if not alive_ips:
             try:
                 result = sp.run(["arp", "-n"], capture_output=True, text=True, timeout=3)
@@ -2072,8 +2072,8 @@ def _do_network_scan():
             hostname = ""
             try:
                 hostname = socket.gethostbyaddr(ip)[0]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("silent-exception: %s", e)
 
             return {
                 "ip": ip, "port": port, "url": url, "title": title or f"Web-UI ({port})",
@@ -2093,8 +2093,8 @@ def _do_network_scan():
                 result = future.result(timeout=2)
                 if result:
                     found_devices.append(result)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("silent-exception: %s", e)
 
     # In DB speichern
     for d in found_devices:
@@ -2107,8 +2107,8 @@ def _do_network_scan():
                 DO UPDATE SET web_title = EXCLUDED.web_title, hostname = EXCLUDED.hostname,
                    device_type = EXCLUDED.device_type, last_seen = NOW(), is_reachable = TRUE
             """, (d["ip"], d["hostname"], d["port"], d["url"], d["title"], d["device_type"]))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
 
     return {"ok": True, "devices": found_devices, "scanned_ips": len(alive_ips), "subnet": f"{subnet}.0/24"}
 
@@ -2556,8 +2556,8 @@ def _security_ai_auto_response(task_id: str, task_type: str, input_data: dict, p
                         VALUES ('ai_analysis', 'alert', %s, TRUE)
                     """, (f"KI-Alert: {action.get('reason', task_type)} (Task: {task_id})",))
                     executed = True
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("silent-exception: %s", e)
 
         if executed:
             db_execute_rt(
@@ -2589,8 +2589,8 @@ def _security_ai_process_task(task_id: str, task_type: str, input_data: dict):
             )
             if role_rows and role_rows[0].get("system_prompt"):
                 system_prompt = role_rows[0]["system_prompt"]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
 
         # 2. Kontext aus DB sammeln
         context = _security_ai_build_context(task_type, input_data)
@@ -2614,8 +2614,8 @@ def _security_ai_process_task(task_id: str, task_type: str, input_data: dict):
                     try: v = json.loads(v)
                     except: pass
                 ai_cfg[r["key"]] = v
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
 
         temperature = float(ai_cfg.get("analysis_temperature", 0.2))
         max_tokens = int(ai_cfg.get("analysis_max_tokens", 2048))
@@ -2694,8 +2694,8 @@ def _security_ai_process_task(task_id: str, task_type: str, input_data: dict):
                 SET state = 'failed', error_message = %s, completed_at = NOW(), processing_ms = %s
                 WHERE id = %s::UUID
             """, (str(e), duration_ms, task_id))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
         logger.error("[SECURITY-AI] Task %s Exception: %s", task_id[:8], e)
 
 import re as _re

@@ -103,3 +103,13 @@ laufen direkt mit python3.
 1. Phase 1 komplett + Tests grün
 2. Phase 2 (Architektur-Sanierung)
 3. Erst dann: neue Features (die Yaya liefert) — auf sauberem Fundament
+
+
+---
+
+## Phase 2: ✅ ERLEDIGT (27.08.2026)
+
+- server.py (12.806 Z.) → common.py (2842) + routers/{llm,security,apps,core}.py (377 Routen) + dünne server.py (95)
+- 200/200 Tests + 11/11 Live-Tests nach jedem Schnitt
+- 86 stille excepts → logger.debug (behavior-neutral)
+- Commits: 2ba0e62 (Split), 056320f (4 Module), exc-sweep

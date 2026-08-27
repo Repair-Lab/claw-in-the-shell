@@ -387,8 +387,8 @@ async def gpu_vram_budget(session: dict = Depends(get_current_session)):
                         "alert": alert,
                         "alert_message": f"GPU {parts[0]}: VRAM {pct:.0f}% belegt!" if alert != "ok" else "",
                     })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # Geladene Modelle aus DB
     loaded = db_query_rt("""
@@ -414,8 +414,8 @@ async def llm_run_benchmark(model_id: str, request: Request, session: dict = Dep
     body = {}
     try:
         body = await request.json()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
     gpu_index = body.get("gpu_index", 0)
 
     # Modell-Info laden
@@ -442,8 +442,8 @@ async def llm_run_benchmark(model_id: str, request: Request, session: dict = Dep
             gpu_name = parts[0]
             gpu_vram_total = int(float(parts[1]))
             gpu_vram_free = int(float(parts[2]))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # Optimale Einstellungen berechnen
     model_vram = model.get("required_vram_mb") or 0
@@ -517,8 +517,8 @@ async def gpu_benchmark(request: Request, session: dict = Depends(get_current_se
     body = {}
     try:
         body = await request.json()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
     gpu_index = body.get("gpu_index", 0)
 
     result = {"ok": False, "gpus": []}
@@ -595,8 +595,8 @@ async def gpu_recommend_for_model(model_id: str, request: Request, session: dict
     body = {}
     try:
         body = await request.json()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
     gpu_index = body.get("gpu_index", 0)
 
     # Modell laden
@@ -623,8 +623,8 @@ async def gpu_recommend_for_model(model_id: str, request: Request, session: dict
             gpu_name = parts[0]
             gpu_total = int(float(parts[1]))
             gpu_free = int(float(parts[2]))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     model_vram = model.get("required_vram_mb") or 0
     model_ctx = model.get("context_size") or 4096
@@ -648,8 +648,8 @@ async def llm_start_model(model_id: str, request: Request, session: dict = Depen
     body = {}
     try:
         body = await request.json()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     gpu_index = body.get("gpu_index", 0)
 
@@ -677,8 +677,8 @@ async def llm_start_model(model_id: str, request: Request, session: dict = Depen
             gpu_name = parts[0]
             gpu_total = int(float(parts[1]))
             gpu_free = int(float(parts[2]))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     model_vram = model.get("required_vram_mb") or 0
     model_ctx = model.get("context_size") or 4096
@@ -799,8 +799,8 @@ async def llm_stop_model(model_id: str, session: dict = Depends(get_current_sess
             UPDATE dbai_llm.vram_allocations SET is_active = FALSE, released_at = NOW()
             WHERE model_id = %s::UUID AND is_active = TRUE
         """, (model_id,))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
     # Modell-Status aktualisieren
     db_execute_rt("""
         UPDATE dbai_llm.ghost_models SET state = 'available', is_loaded = FALSE, updated_at = NOW()
@@ -820,8 +820,8 @@ async def llm_server_status(session: dict = Depends(get_current_session)):
             with urllib.request.urlopen(rq, timeout=3) as resp:
                 models_data = json.loads(resp.read())
                 gpu_info["models"] = models_data.get("data", [])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
     return {
         "ok": healthy,
         "device": _llm_server_device,
@@ -1046,8 +1046,8 @@ async def llm_model_auto_config(model_id: str, session: dict = Depends(get_curre
                     "vram_total_mb": int(float(parts[1])),
                     "vram_free_mb": int(float(parts[2])),
                 }
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # Empfohlene Einstellungen berechnen
     required_vram = model.get("required_vram_mb") or (preset.get("min_vram_mb") if preset else 0) or 0
@@ -1364,8 +1364,8 @@ async def agents_gpu_info(session: dict = Depends(get_current_session)):
                     "utilization_pct": int(parts[5]),
                     "temp_c": int(parts[6]),
                 })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
     return {"gpus": gpus}
 
 @app.get("/api/gpu/vram-live")
@@ -1394,8 +1394,8 @@ async def gpu_vram_live(session: dict = Depends(get_current_session)):
                     "temp": int(float(parts[5])),
                     "power_w": float(parts[6]) if len(parts) > 6 else 0,
                 })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
     # LLM-Server Status mit anhängen
     return {
         "gpus": gpus,
@@ -1458,8 +1458,8 @@ async def agents_create_instance(request: Request, session: dict = Depends(get_c
                 gpu_name = parts[1]
                 gpu_total = int(float(parts[2]))
                 gpu_free = int(float(parts[3]))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # Modell-Info ermitteln
     model_rows = db_query_rt(

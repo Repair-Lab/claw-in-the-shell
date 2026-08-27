@@ -220,8 +220,8 @@ async def ask_ghost(req: GhostQueryRequest, session: dict = Depends(get_current_
         )
         if role_rows and role_rows[0].get("system_prompt"):
             system_prompt = role_rows[0]["system_prompt"]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # Chat-Messages aufbauen
     messages = [{"role": "system", "content": system_prompt}]
@@ -365,8 +365,8 @@ async def workshop_ml_models(session: dict = Depends(get_current_session)):
         """)
         for r in rows:
             models.append({**dict(r), "source": "local"})
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # Cloud-Provider als virtuelle Modelle
     try:
@@ -387,8 +387,8 @@ async def workshop_ml_models(session: dict = Depends(get_current_session)):
                 "is_loaded": True, "is_active": True,
                 "capabilities": caps,
             })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # Standard-Modellliste für Training/Inference
     available_architectures = [
@@ -480,8 +480,8 @@ async def store_install(request: Request, session: dict = Depends(get_current_se
             INSERT INTO dbai_event.events (event_type, source, payload)
             VALUES ('software_install', 'store_ui', %s::JSONB)
         """, (json.dumps({"package": pkg, "source": src}),))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # Simulate install completion (in real system, a background worker handles this)
     db_execute_rt("""
@@ -561,8 +561,8 @@ async def store_uninstall(request: Request, session: dict = Depends(get_current_
             INSERT INTO dbai_event.events (event_type, source, payload)
             VALUES ('app_uninstall', 'store_ui', %s::JSONB)
         """, (json.dumps({"package": pkg, "source_type": src, "cleanup": ["catalog", "desktop_node", "settings", "windows"]}),))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     return {"ok": True, "package": pkg, "state": "available", "cleanup": ["catalog", "desktop_node", "settings", "windows"]}
 
@@ -680,8 +680,8 @@ async def store_github_install(request: Request, session: dict = Depends(get_cur
             INSERT INTO dbai_event.events (event_type, source, payload)
             VALUES ('github_install', 'store_ui', %s::JSONB)
         """, (json.dumps({"repo": full_name, "url": html_url}),))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # Desktop-Icon erstellen (Node), falls noch nicht vorhanden
     node_key = f"store:github:{full_name}"
@@ -739,8 +739,8 @@ async def openclaw_status(session: dict = Depends(get_current_session)):
         """)
         if s:
             stats = s[0]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     return {
         "skills": skills,
@@ -829,15 +829,15 @@ async def openclaw_live_config(session: dict = Depends(get_current_session)):
         }
         cron_enabled = cfg.get("cron", {}).get("enabled", False)
         result["cron_enabled"] = cron_enabled
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # agents-meta.json
     try:
         with open(oc_dir / "agents-meta.json", "r") as f:
             result["agents_meta"] = json.load(f)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # cron jobs
     try:
@@ -858,8 +858,8 @@ async def openclaw_live_config(session: dict = Depends(get_current_session)):
                     "run_count": job.get("runCount", 0) or job.get("state", {}).get("consecutiveErrors", 0),
                     "last_duration_ms": job.get("state", {}).get("lastDurationMs"),
                 })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # mission-control-config.json
     try:
@@ -878,15 +878,15 @@ async def openclaw_live_config(session: dict = Depends(get_current_session)):
             "namespace": mc.get("kubernetes", {}).get("namespace"),
             "nodes": mc.get("kubernetes", {}).get("nodes", {}),
         }
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # Skills directory
     try:
         skills_dir = oc_dir / "skills"
         result["skills_dir"] = [d.name for d in skills_dir.iterdir() if d.is_dir()] if skills_dir.exists() else []
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # Devices count
     try:
@@ -895,8 +895,8 @@ async def openclaw_live_config(session: dict = Depends(get_current_session)):
             with open(list(devices_dir.glob("*.json"))[0], "r") as f:
                 devices = json.load(f)
             result["devices_count"] = len(devices)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     return result
 
@@ -908,8 +908,8 @@ async def openclaw_gateway_status(session: dict = Depends(get_current_session)):
         req = urllib.request.Request("http://127.0.0.1:18788/healthz", headers={"User-Agent": "DBAI/1.0"})
         with urllib.request.urlopen(req, timeout=3) as resp:
             return {"online": True, "status": resp.status}
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
     # Fallback: systemd check
     try:
         import subprocess
@@ -1014,8 +1014,8 @@ async def fs_mounts(session: dict = Depends(get_current_session)):
             data = json.loads(result.stdout)
             for dev in data.get("blockdevices", []):
                 _collect_mounts(dev, mounts)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # Media-Verzeichnisse hinzufügen
     import pathlib
@@ -1052,15 +1052,15 @@ async def openclaw_import_to_ghost(session: dict = Depends(get_current_session))
         with open(oc_dir / "mission-control-config.json", "r") as f:
             mc = json.load(f)
         models_data = mc.get("models", {}).get("available", [])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     try:
         with open(oc_dir / "openclaw.json", "r") as f:
             cfg = json.load(f)
         agents_data = cfg.get("agents", {}).get("list", [])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # Modelle importieren
     for m in models_data:
@@ -1737,8 +1737,8 @@ async def setup_complete(request: Request, session: dict = Depends(get_current_s
                         SET {', '.join(upd)}
                         WHERE provider_key = %s
                     """, tuple(prm))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("silent-exception: %s", e)
 
     # Gescannte lokale Modelle integrieren
     local_models = settings.get("localModels", [])
@@ -1759,8 +1759,8 @@ async def setup_complete(request: Request, session: dict = Depends(get_current_s
                     lm.get("path", ""),
                     lm.get("format", "gguf"),
                 ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
 
     return {"ok": True, "message": "Setup abgeschlossen"}
 
@@ -2034,8 +2034,8 @@ async def workshop_create_project(request: Request, session: dict = Depends(get_
                     INSERT INTO dbai_event.events (event_type, source, payload)
                     VALUES ('workshop_project_created', 'ai_workshop', %s::JSONB)
                 """, (json.dumps({"project_id": str(rows[0]["id"]), "name": name}),))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("silent-exception: %s", e)
             return rows[0]
 
         # ON CONFLICT → Projekt existiert bereits, existierendes zurückgeben
@@ -2252,8 +2252,8 @@ async def workshop_start_import(project_id: str, request: Request,
                                 """, (project_id, f, full_path, file_type,
                                       f"{'image' if file_type == 'image' else file_type}/{ext[1:]}", size))
                                 found_files += 1
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug("silent-exception: %s", e)
 
                 # Job aktualisieren
                 db_execute_rt("""
@@ -2393,8 +2393,8 @@ async def sql_query(request: Request, session: dict = Depends(get_current_sessio
                 VALUES ('sql_injection_attempt', 'critical', %s, TRUE,
                         'Verbotener SQL-Befehl via Console: ' || %s, %s)
             """, (query[:200], first_word, session.get("session_id")))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
         raise HTTPException(
             status_code=403,
             detail=f"Nur SELECT-Abfragen erlaubt (gefunden: {first_word})"
@@ -2509,8 +2509,8 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
                         VALUES ('websocket_blocked', 'warning', %s, TRUE,
                                 'Unbekannter WebSocket-Befehl', %s)
                     """, (cmd_type, session_id))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("silent-exception: %s", e)
                 await websocket.send_json({
                     "type": "error",
                     "message": f"Befehl '{cmd_type}' ist nicht erlaubt",
@@ -2614,8 +2614,8 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
         ws_manager.disconnect(session_id, tab_id=tab_id or None)
         try:
             await websocket.close(code=1011, reason="Server-Fehler")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
 
 @app.post("/api/browser/scan")
 async def browser_scan(session: dict = Depends(get_current_session)):
@@ -3040,8 +3040,8 @@ async def terminal_exec(body: dict, session: dict = Depends(get_current_session)
             "INSERT INTO dbai_ui.terminal_history (session_id, command, cwd) VALUES (%s, %s, %s)",
             (session.get("session_id", "default"), command, cwd)
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     try:
         # shell=False + shlex.split() verhindert Shell-Expansion-Angriffe
@@ -4181,8 +4181,8 @@ async def remote_access_info(session: dict = Depends(get_current_session)):
                             "ip": ip,
                             "prefixlen": addr_info.get("prefixlen", 24),
                         })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # Fallback: socket
     if not interfaces:
@@ -4192,8 +4192,8 @@ async def remote_access_info(session: dict = Depends(get_current_session)):
             ip = s.getsockname()[0]
             s.close()
             interfaces.append({"interface": "default", "ip": ip, "prefixlen": 24})
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
 
     # Hostname
     hostname = socket.gethostname()
@@ -4225,8 +4225,8 @@ async def remote_access_info(session: dict = Depends(get_current_session)):
                     # Gateway ist die Host-IP im Docker-Netz
                     # Aber wir brauchen die echte LAN-IP des Hosts
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
 
     # Strategie 4: Host-Netzwerk über /mnt/host/etc/hostname + nsswitch
     if not primary_ip:
@@ -4257,8 +4257,8 @@ async def remote_access_info(session: dict = Depends(get_current_session)):
                             break
                     if not primary_ip:
                         primary_ip = sorted(local_ips)[0]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
 
     # Strategie 5: Fallback auf Container-IP
     if not primary_ip:
@@ -4291,8 +4291,8 @@ async def remote_access_info(session: dict = Depends(get_current_session)):
                 if line.startswith("yes:"):
                     wifi_ssid = line.split(":", 1)[1]
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
 
     return {
         "hostname": hostname,

@@ -115,8 +115,8 @@ async def system_metrics(session: dict = Depends(get_current_session)):
             if t:
                 for name, entries in t.items():
                     temps[name] = entries[0].current if entries else 0
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
         return {
             "cpu_percent": cpu,
             "ram_percent": mem.percent,
@@ -146,8 +146,8 @@ async def system_status(session: dict = Depends(get_current_session)):
     temps = {}
     try:
         temps = psutil.sensors_temperatures()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
     max_temp = None
     for entries in temps.values():
         for e in entries:
@@ -171,8 +171,8 @@ async def system_status(session: dict = Depends(get_current_session)):
                 "usage_percent": round(usage.percent, 1),
                 "health": "healthy"
             })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("silent-exception: %s", e)
 
     net = psutil.net_io_counters()
     net_ifs = []
@@ -531,8 +531,8 @@ async def system_diagnostics(session: dict = Depends(get_current_session)):
         checks.append({"category": "system", "name": "Speicherplatz", "status": status,
                         "message": f"{free_gb:.1f} GB frei von {total_gb:.1f} GB ({pct:.0f}% belegt)",
                         "icon": "💾", "metric_value": round(pct, 1), "metric_unit": "%"})
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # 9. RAM-Nutzung
     try:
@@ -549,8 +549,8 @@ async def system_diagnostics(session: dict = Depends(get_current_session)):
             checks.append({"category": "system", "name": "RAM-Nutzung", "status": status,
                            "message": f"{avail_mb:.0f} MB frei von {total_mb:.0f} MB ({used_pct:.0f}% belegt)",
                            "icon": "🧠", "metric_value": round(used_pct, 1), "metric_unit": "%"})
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # Zusammenfassung
     ok_count = sum(1 for c in checks if c['status'] == 'ok')
@@ -734,8 +734,8 @@ async def settings_get_hardware(session: dict = Depends(get_current_session)):
         st = os.statvfs("/")
         info["disk_total_gb"] = round(st.f_blocks * st.f_frsize / (1024**3), 1)
         info["disk_free_gb"] = round(st.f_bavail * st.f_frsize / (1024**3), 1)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     # DB aus hardware_stats (falls vorhanden)
     try:
@@ -827,8 +827,8 @@ async def linux_settings_update(category: str, request: Request, session: dict =
             VALUES (%s, %s::jsonb, NOW())
             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
         """, (f"linux.{category}", json.dumps(data)))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("silent-exception: %s", e)
 
     return result
 
@@ -971,8 +971,8 @@ async def delete_desktop_node(node_id: int, session: dict = Depends(get_current_
                         "DELETE FROM dbai_ui.windows WHERE app_id = %s", (app_row[0]["id"],)
                     )
                     cleanup.append("windows")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("silent-exception: %s", e)
 
             # Event loggen
             try:
@@ -980,8 +980,8 @@ async def delete_desktop_node(node_id: int, session: dict = Depends(get_current_
                     INSERT INTO dbai_event.events (event_type, source, payload)
                     VALUES ('app_removed_from_desktop', 'desktop_ui', %s::JSONB)
                 """, (json.dumps({"node_key": node_key, "package": pkg, "source_type": src, "label": node_label, "cleanup": cleanup}),))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("silent-exception: %s", e)
 
     return {"deleted": True, "node_key": node_key, "cleanup": cleanup}
 
