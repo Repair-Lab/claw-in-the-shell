@@ -18,7 +18,6 @@ import os
 import json
 import asyncio
 import logging
-import signal
 import time
 import threading
 from pathlib import Path
@@ -822,7 +821,6 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Rate Limiting Middleware (Sliding-Window-Counter, Memory-safe)
 # ---------------------------------------------------------------------------
-from collections import defaultdict
 # Jeder Eintrag: (count, window_start_time)  —  max 2 Floats pro IP statt unbegrenzter Liste
 _rate_limit_store: dict[str, list[float]] = {}
 _rate_limit_last_cleanup = 0.0
