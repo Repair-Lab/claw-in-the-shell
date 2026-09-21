@@ -7,20 +7,41 @@ import { api } from '../api'
  * Zeigt alle aktiven + vergangenen Notifications in einem Panel.
  * Wird über Taskbar-Button oder Click auf Toast geöffnet.
  */
+// Normalisiert einen DB-Notification-Datensatz auf das UI-Format
+function normalizeNotification(n) {
+  const sev = (n.severity || n.type || 'info').toLowerCase()
+  const typeMap = { critical: 'error', danger: 'error', error: 'error', warn: 'warning', warning: 'warning', success: 'success', ok: 'success', info: 'info' }
+  const ts = n.created_at ? new Date(n.created_at).getTime() : (n.time || Date.now())
+  const source = n.source || n.action_type || (n.action_target ? 'apps' : 'system')
+  return {
+    id: n.id,
+    type: typeMap[sev] || 'info',
+    title: n.title || 'Benachrichtigung',
+    message: n.message || '',
+    time: isFinite(ts) ? ts : Date.now(),
+    source,
+  }
+}
+
 export default function NotificationCenter({ onClose }) {
   const [tabs, setTabs] = useState('all') // 'all' | 'system' | 'apps'
   const [expanded, setExpanded] = useState(new Set())
   const ref = useRef(null)
 
-  // Mock-Notifications für Demo (in Realbetrieb aus DB/API)
-  const [notifications, setNotifications] = useState([
-    { id: 1, type: 'success', title: 'Ghost Browser Task abgeschlossen', message: 'Task cf98766b erfolgreich abgeschlossen (6.4s, 4 Screenshots)', time: Date.now() - 120000, source: 'ghost-browser' },
-    { id: 2, type: 'info', title: 'LLM Router verbunden', message: 'Qwen3.8-27B (GPU) bereit auf :11502', time: Date.now() - 300000, source: 'system' },
-    { id: 3, type: 'warning', title: 'GPU Temperatur hoch', message: 'GPU: 82°C — Last reduzieren empfohlen', time: Date.now() - 600000, source: 'system' },
-    { id: 4, type: 'error', title: 'SMB Verbindung fehlgeschlagen', message: 'Windows (172.16.16.113) — Firewall blockiert ausgehend', time: Date.now() - 900000, source: 'network' },
-    { id: 5, type: 'success', title: 'MML/Vision installiert', message: 'Bild-Upload in Ghost Chat aktiviert', time: Date.now() - 1800000, source: 'apps' },
-    { id: 6, type: 'info', title: 'Desktop aktualisiert', message: '12 Apps, 3 Knoten geladen', time: Date.now() - 3600000, source: 'system' },
-  ])
+  // Echte Notifications aus der DB/API laden
+  const [notifications, setNotifications] = useState([])
+
+  useEffect(() => {
+    let mounted = true
+    api.notifications()
+      .then(rows => {
+        if (!mounted) return
+        const list = Array.isArray(rows) ? rows : (rows?.notifications || [])
+        setNotifications(list.map(normalizeNotification))
+      })
+      .catch(() => { /* Bei Fehler: leeres Notification-Center */ })
+    return () => { mounted = false }
+  }, [])
 
   // Click outside close
   useEffect(() => {
@@ -44,7 +65,13 @@ export default function NotificationCenter({ onClose }) {
     return n.source !== 'system'
   })
 
-  const clearAll = () => setNotifications([])
+  const clearAll = () => {
+    // Optimistisch leeren, dann serverseitig als gelesen markieren
+    const ids = notifications.map(n => n.id).filter(id => typeof id === 'number' || typeof id === 'string')
+    setNotifications([])
+    ids.forEach(id => { api.dismissNotification(id).catch(() => {}) })
+    window.dispatchEvent(new Event('dbai:notifications_changed'))
+  }
 
   const timeAgo = (ts) => {
     const diff = Math.floor((Date.now() - ts) / 1000)

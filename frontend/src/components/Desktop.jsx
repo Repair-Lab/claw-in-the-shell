@@ -113,6 +113,7 @@ export default function Desktop({ user, desktopState, tabInfo, onLogout }) {
   const longPressRef = useRef(null)
   const [showSpotlight, setShowSpotlight] = useState(false)
   const [showNotificationCenter, setShowNotificationCenter] = useState(false)
+  const [notifCount, setNotifCount] = useState(0)
   const { menu: ctxMenu, showMenu: showCtxMenu, hideMenu: hideCtxMenu } = useContextMenu()
 
   // Keyboard Shortcuts
@@ -302,6 +303,25 @@ export default function Desktop({ user, desktopState, tabInfo, onLogout }) {
     }
     window.addEventListener('dbai:ghost_swap', handler)
     return () => window.removeEventListener('dbai:ghost_swap', handler)
+  }, [])
+
+  // ── Notification-Anzahl (Taskbar-Badge) ──
+  useEffect(() => {
+    let mounted = true
+    const loadCount = () => {
+      api.notifications()
+        .then(rows => {
+          if (!mounted) return
+          const list = Array.isArray(rows) ? rows : (rows?.notifications || [])
+          setNotifCount(list.length)
+        })
+        .catch(() => { if (mounted) setNotifCount(0) })
+    }
+    loadCount()
+    const interval = setInterval(loadCount, 15000)
+    const changed = () => loadCount()
+    window.addEventListener('dbai:notifications_changed', changed)
+    return () => { mounted = false; clearInterval(interval); window.removeEventListener('dbai:notifications_changed', changed) }
   }, [])
 
   // Apply theme CSS variables
@@ -788,24 +808,26 @@ export default function Desktop({ user, desktopState, tabInfo, onLogout }) {
             title="Benachrichtigungen"
           >
             🔔
-            <span style={{
-              position: 'absolute',
-              top: -4,
-              right: -4,
-              background: '#ef4444',
-              color: '#fff',
-              fontSize: 9,
-              fontWeight: 700,
-              minWidth: 16,
-              height: 16,
-              borderRadius: 8,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '0 4px',
-            }}>
-              3
-            </span>
+            {notifCount > 0 && (
+              <span style={{
+                position: 'absolute',
+                top: -4,
+                right: -4,
+                background: '#ef4444',
+                color: '#fff',
+                fontSize: 9,
+                fontWeight: 700,
+                minWidth: 16,
+                height: 16,
+                borderRadius: 8,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0 4px',
+              }}>
+                {notifCount > 99 ? '99+' : notifCount}
+              </span>
+            )}
           </button>
 
           {activeGhosts.length > 0 && (
