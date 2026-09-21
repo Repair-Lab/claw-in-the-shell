@@ -12,7 +12,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react'
  *     setMenu({ x: e.clientX, y: e.clientY, item })
  *   }
  */
-export default function ContextMenu({ menu, onClose, actions }) {
+export default function ContextMenu({ menu, onClose, actions, onAction }) {
   const ref = useRef(null)
   const [position, setPosition] = useState(null)
 
@@ -58,28 +58,25 @@ export default function ContextMenu({ menu, onClose, actions }) {
 
   const { item } = menu
 
-  // Standard-Aktionen je Item-Typ
+  // Standard-Aktionen je Item-Typ (werden über onAction verdrahtet)
   const defaultActions = (item) => {
     const base = []
     if (item.type === 'app') {
       base.push(
         { label: '🚀 Öffnen', icon: '▶️', action: 'open', separator: true },
-        { label: '📌 An Taskbar pinnen', icon: '📌', action: 'pin' },
-        { label: '📋 In Zwischenablage kopieren', icon: '📋', action: 'copy' },
         { label: 'ℹ️ Info', icon: 'ℹ️', action: 'info' },
       )
     } else if (item.type === 'folder') {
       base.push(
         { label: '📂 Öffnen', icon: '📂', action: 'open', separator: true },
         { label: '✏️ Umbenennen', icon: '✏️', action: 'rename' },
-        { label: '🗑️ Leeren', icon: '🗑️', action: 'empty', danger: true },
+        { label: '📤 Apps zurück auf Desktop', icon: '📤', action: 'empty' },
         { label: '❌ Löschen', icon: '❌', action: 'delete', danger: true },
       )
     } else if (item.type === 'node') {
       base.push(
-        { label: '🔗 Verbinden', icon: '🔗', action: 'connect', separator: true },
-        { label: '📊 Status anzeigen', icon: '📊', action: 'status' },
-        { label: '🔄 Refresh', icon: '🔄', action: 'refresh' },
+        { label: '🔗 Öffnen', icon: '🔗', action: 'open', separator: true },
+        { label: 'ℹ️ Info', icon: 'ℹ️', action: 'info' },
         { label: '🗑️ Entfernen', icon: '🗑️', action: 'delete', danger: true },
       )
     }
@@ -149,6 +146,7 @@ export default function ContextMenu({ menu, onClose, actions }) {
             onClick={() => {
               onClose()
               if (act.handler) act.handler(item)
+              else if (onAction) onAction(act.action, item)
             }}
           >
             <span style={{ fontSize: 14, width: 20, textAlign: 'center' }}>{act.icon}</span>

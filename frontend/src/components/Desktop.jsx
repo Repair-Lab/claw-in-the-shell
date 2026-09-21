@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { api } from '../api'
 import useKeyboardShortcuts from '../hooks/useKeyboardShortcuts'
+import { useNotification } from '../hooks/useNotification'
 import SpotlightSearch from './SpotlightSearch'
 import Window from './Window'
 import ErrorBoundary from './ErrorBoundary'
@@ -115,6 +116,7 @@ export default function Desktop({ user, desktopState, tabInfo, onLogout }) {
   const [showNotificationCenter, setShowNotificationCenter] = useState(false)
   const [notifCount, setNotifCount] = useState(0)
   const { menu: ctxMenu, showMenu: showCtxMenu, hideMenu: hideCtxMenu } = useContextMenu()
+  const { info: notifyInfo } = useNotification()
 
   // Keyboard Shortcuts
   useKeyboardShortcuts({
@@ -583,6 +585,49 @@ export default function Desktop({ user, desktopState, tabInfo, onLogout }) {
     }
   }, [refreshDesktop])
 
+  // ── Kontextmenü-Aktionen (Rechtsklick auf Desktop-Icons) ──
+  const openNode = useCallback((node) => {
+    if (!node) return
+    if (node.url) {
+      openApp(node.app_id || 'web-frame', { component: 'WebFrame', title: node.label, url: node.url })
+    } else if (node.app_id) {
+      openApp(node.app_id)
+    }
+  }, [openApp])
+
+  const removeFolder = useCallback((folderId, items) => {
+    setFolders(prev => {
+      const { [folderId]: _removed, ...rest } = prev
+      return rest
+    })
+    setIconOrder(prev => prev.filter(id => id !== `folder:${folderId}`).concat(items || []))
+  }, [])
+
+  const handleContextAction = useCallback((action, item) => {
+    switch (action) {
+      case 'open':
+        if (item.type === 'folder') handleFolderOpen(item.id)
+        else if (item.type === 'node') openNode(item.node)
+        else openApp(item.id)
+        break
+      case 'info':
+        if (item.type === 'app') notifyInfo(item.name, `App-ID: ${item.id}`)
+        else if (item.type === 'folder') notifyInfo(item.name, `Ordner · ${item.items?.length || 0} Apps`)
+        else notifyInfo(item.name, item.node?.url ? `Netzwerkknoten · ${item.node.url}` : 'Netzwerkknoten')
+        break
+      case 'rename': // Ordner öffnen (enthält Umbenennen-Feld)
+        if (item.type === 'folder') handleFolderOpen(item.id)
+        break
+      case 'empty': // Apps zurück auf Desktop, Ordner entfernen
+      case 'delete':
+        if (item.type === 'folder') removeFolder(item.id, item.items)
+        else if (item.type === 'node') setResetConfirm(item.node)
+        break
+      default:
+        break
+    }
+  }, [openApp, openNode, handleFolderOpen, removeFolder, notifyInfo])
+
   return (
     <div className="desktop">
       <div className="desktop-area" ref={desktopRef}>
@@ -863,9 +908,7 @@ export default function Desktop({ user, desktopState, tabInfo, onLogout }) {
       <ContextMenu
         menu={ctxMenu}
         onClose={hideCtxMenu}
-        actions={(item) => [
-          { label: '📤 Exportieren', icon: '📤', action: 'export', handler: (it) => console.log('Export:', it.name) },
-        ]}
+        onAction={handleContextAction}
       />
     </div>
   )
