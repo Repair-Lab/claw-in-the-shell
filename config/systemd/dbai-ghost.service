@@ -1,0 +1,51 @@
+# =============================================================================
+# DBAI — Ghost Dispatcher Service
+# =============================================================================
+# Der KI-Dispatcher: Managed LLM-Instanzen, Agent-Tasks, Auto-Routing.
+# Startet nach Web-Server, da er WebSocket-Verbindungen nutzt.
+# =============================================================================
+
+[Unit]
+Description=DBAI — Ghost Dispatcher (KI-Bewusstsein)
+Documentation=https://github.com/dbai-project/dbai
+After=dbai-web.service
+Requires=dbai-db.service
+
+[Service]
+Type=simple
+User=worker
+Group=worker
+WorkingDirectory=/home/worker/DBAI
+
+Environment=PYTHONUNBUFFERED=1
+Environment=DBAI_ENV=production
+Environment=CUDA_VISIBLE_DEVICES=0
+
+ExecStart=/usr/bin/python3 -c "\
+from web.ghost_dispatcher import GhostDispatcher; \
+import asyncio; \
+d = GhostDispatcher(); \
+asyncio.get_event_loop().run_until_complete(d.run_forever())"
+
+Restart=always
+RestartSec=5
+
+# GPU-Zugriff erlauben
+SupplementaryGroups=video render
+
+# Sicherheit
+ProtectHome=false
+ProtectSystem=strict
+ReadWritePaths=/home/worker/DBAI /var/log/dbai /tmp
+DeviceAllow=/dev/nvidia* rwm
+DeviceAllow=/dev/dri/* rwm
+PrivateTmp=true
+NoNewPrivileges=true
+MemoryMax=80%
+
+# Logs
+StandardOutput=append:/var/log/dbai/ghost.log
+StandardError=append:/var/log/dbai/ghost-error.log
+
+[Install]
+WantedBy=dbai.target

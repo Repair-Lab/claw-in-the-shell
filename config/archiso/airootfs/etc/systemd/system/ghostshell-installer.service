@@ -1,0 +1,16 @@
+[Unit]
+Description=GhostShell OS — Installer (Live-Boot)
+After=multi-user.target
+ConditionPathExists=/usr/local/bin/ghostshell-installer.py
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/ghostshell-installer.py
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,36 @@
+# =============================================================================
+# DBAI Dashboard-UI — Dockerfile (Multi-Arch: x86_64 + arm64)
+# =============================================================================
+# Vite Dev Server mit Hot Module Replacement (HMR)
+#
+# Build:
+#   docker build -f dev/Dockerfile.ui -t dbai-dashboard-ui .
+#   docker buildx build --platform linux/amd64,linux/arm64 -f dev/Dockerfile.ui -t dbai-dashboard-ui .
+# =============================================================================
+
+FROM node:20-slim
+
+ARG TARGETPLATFORM
+ARG TARGETARCH
+
+LABEL org.opencontainers.image.title="GhostShell OS — Dashboard UI"
+LABEL org.opencontainers.image.description="React Cyber-Deck Desktop (Vite HMR)"
+LABEL org.opencontainers.image.architecture="${TARGETARCH}"
+
+WORKDIR /app/frontend
+
+# Package-Dateien zuerst (Layer-Cache)
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm install
+
+# Vite-Konfiguration
+COPY frontend/vite.config.js ./
+COPY frontend/index.html ./
+
+# Source-Code (wird via Volume live gemountet)
+COPY frontend/src/ ./src/
+COPY frontend/public/ ./public/
+
+EXPOSE 5173
+
+CMD ["npx", "vite", "--host", "0.0.0.0", "--port", "5173"]

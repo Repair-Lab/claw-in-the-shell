@@ -1,0 +1,26 @@
+# =============================================================================
+# DBAI — Master Target
+# =============================================================================
+# Gruppiert alle DBAI-Services. Startet beim Boot automatisch:
+#   1. PostgreSQL (Kernel)
+#   2. Hardware Monitor (Linux → DB Bridge)
+#   3. Web Server (API + Static UI)
+#   4. Ghost Dispatcher (KI)
+#   5. Kiosk Browser (Desktop)
+# =============================================================================
+# Installation:
+#   sudo cp config/systemd/*.service config/systemd/dbai.target /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable dbai.target
+#   sudo systemctl set-default dbai.target  # Boot direkt in DBAI
+# =============================================================================
+
+[Unit]
+Description=DBAI — Ghost in the Database (Complete OS)
+Documentation=https://github.com/dbai-project/dbai
+Requires=dbai-db.service dbai-web.service dbai-ghost.service dbai-hardware.service
+After=network-online.target
+Wants=dbai-kiosk.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,46 @@
+# =============================================================================
+# DBAI QEMU Hardware-Simulator — Dockerfile (Multi-Arch: x86_64 + arm64)
+# =============================================================================
+# Emuliert Hardware-Schichten für sichere Tests der hardware_live Injektion.
+# x86_64: qemu-system-x86
+# arm64:  qemu-system-aarch64
+# =============================================================================
+
+FROM python:3.11-slim-bookworm
+
+ARG TARGETPLATFORM
+ARG TARGETARCH
+
+LABEL org.opencontainers.image.title="GhostShell OS — QEMU Simulator"
+LABEL org.opencontainers.image.description="Hardware-Emulation für x86_64 und ARM64"
+
+# ─── Architektur-spezifische QEMU-Pakete ──────────────────────────
+RUN apt-get update && \
+    ARCH=$(dpkg --print-architecture) && \
+    echo "Building QEMU simulator for: ${ARCH}" && \
+    apt-get install -y --no-install-recommends \
+        qemu-utils \
+        libvirt-daemon-system \
+        procps \
+        iproute2 \
+        curl && \
+    if [ "$ARCH" = "amd64" ]; then \
+        apt-get install -y --no-install-recommends qemu-system-x86 ovmf; \
+    elif [ "$ARCH" = "arm64" ]; then \
+        apt-get install -y --no-install-recommends qemu-system-arm qemu-efi-aarch64; \
+    else \
+        apt-get install -y --no-install-recommends qemu-system; \
+    fi && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir psycopg2-binary psutil toml
+
+COPY bridge/ /app/bridge/
+COPY dev/qemu/ /app/qemu/
+
+EXPOSE 5900
+
+CMD ["python3", "/app/qemu/hw_simulator.py"]

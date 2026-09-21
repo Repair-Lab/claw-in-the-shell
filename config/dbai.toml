@@ -1,0 +1,162 @@
+# =============================================================================
+# DBAI System-Konfiguration
+# =============================================================================
+
+[system]
+name = "DBAI"
+version = "0.12.0"
+log_level = "INFO"
+
+[database]
+host = "127.0.0.1"
+port = 5432
+name = "dbai"
+user = "dbai_system"
+# Passwort wird über Umgebungsvariable DBAI_DB_PASSWORD gesetzt
+max_connections = 100
+shared_buffers = "4GB"
+work_mem = "256MB"
+maintenance_work_mem = "1GB"
+
+[wal]
+# WAL auf separatem Laufwerk für maximale Sicherheit
+wal_directory = "/mnt/wal_disk/dbai_wal"
+wal_level = "replica"
+max_wal_size = "4GB"
+min_wal_size = "1GB"
+# Checkpoint alle 30 Sekunden für feingranulares PITR
+checkpoint_timeout = "30s"
+archive_mode = true
+archive_command = "cp %p /mnt/backup_disk/dbai_wal_archive/%f"
+
+[pitr]
+# Point-in-Time Recovery Konfiguration
+enabled = true
+snapshot_interval_seconds = 1
+retention_days = 30
+archive_directory = "/mnt/backup_disk/dbai_pitr"
+
+[mirror]
+# Disk Mirroring Konfiguration
+enabled = true
+mode = "synchronous"  # synchronous | asynchronous
+targets = [
+    "/mnt/mirror_disk_1/dbai",
+    "/mnt/mirror_disk_2/dbai"
+]
+
+[hardware_monitor]
+# Hardware-Überwachung Intervalle (Millisekunden)
+cpu_poll_interval_ms = 500
+ram_poll_interval_ms = 1000
+temperature_poll_interval_ms = 2000
+disk_poll_interval_ms = 5000
+network_poll_interval_ms = 1000
+
+[vacuum]
+# Automatische Bereinigung
+autovacuum = true
+autovacuum_max_workers = 4
+autovacuum_naptime = "30s"
+autovacuum_vacuum_threshold = 50
+autovacuum_analyze_threshold = 50
+autovacuum_vacuum_scale_factor = 0.1
+autovacuum_analyze_scale_factor = 0.05
+
+[llm]
+# llama.cpp Konfiguration
+model_path = "/opt/dbai/models/current.gguf"
+context_size = 4096
+n_threads = 4
+n_gpu_layers = 0  # 0 = nur CPU, >0 = GPU-Offloading
+temperature = 0.7
+max_tokens = 2048
+# Modell bleibt im RAM geladen
+keep_in_memory = true
+
+[security]
+# Row-Level Security
+rls_enabled = true
+# Maximale Zeilen pro Anfrage (verhindert Full-Table-Scans durch LLM)
+max_rows_per_query = 10000
+# Audit-Log für alle Zugriffe
+audit_log_enabled = true
+# Keine externen Verbindungen
+listen_addresses = "127.0.0.1"
+
+[security.immunsystem]
+# Self-Penetration Rückkopplungsschleife
+enabled = true
+kali_sidecar = true
+
+[security.fail2ban]
+max_attempts = 3
+window_minutes = 5
+ban_duration_hours = 24
+# PostgreSQL-Logs direkt mit Fail2Ban verknüpft
+pg_log_monitor = true
+
+[security.scanning]
+# Automatisierte Penetrationstests
+sqlmap_interval_seconds = 3600       # SQLMap: Jede Stunde
+nmap_interval_seconds = 1800         # Nmap:   Alle 30 Minuten
+nuclei_interval_seconds = 7200       # Nuclei: Alle 2 Stunden
+baseline_interval_seconds = 86400    # Lynis:  Täglich
+tls_check_interval_seconds = 43200   # TLS:    Alle 12 Stunden
+dependency_audit_seconds = 86400     # CVEs:   Täglich
+
+[security.firewall]
+# Netzwerk-Firewall (iptables/nftables)
+enabled = true
+default_policy = "DROP"
+# Erlaubte Ports
+allowed_ports = [5432, 3000, 5173]
+# Anti-Scanning
+block_null_scan = true
+block_xmas_scan = true
+block_syn_flood = true
+# Brute-Force-Schutz
+pg_conn_limit = 10
+api_conn_limit = 50
+ssh_conn_limit = 3
+
+[security.ids]
+# Intrusion Detection System (Suricata)
+enabled = true
+interface = "eth0"
+rule_update_cron = "0 2 * * *"
+
+[security.honeypots]
+# Honeypot-Fallen
+enabled = true
+ports = [2222, 3306, 8080, 8443, 21, 23]
+
+[security.dns_sinkhole]
+# DNS-basierte Stützmechanismen
+enabled = true
+block_malware = true
+block_cryptomining = true
+block_phishing = true
+
+[security.rate_limiting]
+# Dynamische Rate-Limits
+enabled = true
+default_ip_limit = 100          # Requests pro Minute pro IP
+default_user_limit = 200        # Requests pro Minute pro User
+login_endpoint_limit = 10       # Login-Versuche pro Minute
+
+[security.kernel_hardening]
+# Kernel-Netzwerk-Parameter
+tcp_syncookies = true
+ip_forward = false
+accept_redirects = false
+rp_filter = true
+log_martians = true
+
+[panic]
+# Kernel Panic Schema
+panic_schema = "dbai_panic"
+# Schreibgeschützt nach Initialisierung
+read_only_after_init = true
+# Minimale Treiber für Notfall-Reparatur
+emergency_drivers = ["storage", "network_minimal", "console"]

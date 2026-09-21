@@ -1,0 +1,136 @@
+# =============================================================================
+# DBAI Ghost-API — Dockerfile (Multi-Arch: x86_64 + arm64)
+# =============================================================================
+# FastAPI + Bridge-Module + C-Bindings
+# Für docker compose: ghost-api Service
+#
+# Build:
+#   docker build -f dev/Dockerfile.api -t dbai-ghost-api .
+#   docker buildx build --platform linux/amd64,linux/arm64 -f dev/Dockerfile.api -t dbai-ghost-api .
+# =============================================================================
+
+FROM python:3.11-slim-bookworm AS base
+
+# ─── Architektur-Erkennung ────────────────────────────────────────
+ARG TARGETPLATFORM
+ARG TARGETARCH
+ARG BUILDPLATFORM
+
+LABEL org.opencontainers.image.title="GhostShell OS — Ghost API"
+LABEL org.opencontainers.image.description="Neural Bridge: FastAPI + Hardware Bridge + LLM"
+LABEL org.opencontainers.image.architecture="${TARGETARCH}"
+LABEL org.opencontainers.image.source="https://github.com/Repair-Lab/claw-in-the-shell"
+
+# ─── System-Pakete (architektur-neutral) ──────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    cmake \
+    make \
+    libc6-dev \
+    libpq-dev \
+    curl \
+    wget \
+    git \
+    lm-sensors \
+    pciutils \
+    usbutils \
+    smartmontools \
+    iproute2 \
+    net-tools \
+    procps \
+    gnupg \
+    # Playwright / Chromium dependencies
+    libglib2.0-0 \
+    libnss3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libx11-6 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libxkbcommon0 \
+    libpangocairo-1.0-0 \
+    libpango-1.0-0 \
+    fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
+# ─── CUDA Toolkit (minimal — nur Compiler + Runtime für llama.cpp) ──
+RUN if [ "$(uname -m)" = "x86_64" ]; then \
+        cd /tmp && \
+        wget -q https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb && \
+        dpkg -i cuda-keyring_1.1-1_all.deb && \
+        apt-get update -qq && \
+        apt-get install -y -qq cuda-nvcc-12-8 cuda-cudart-dev-12-8 libcublas-dev-12-8 && \
+        rm -f cuda-keyring_1.1-1_all.deb && \
+        rm -rf /var/lib/apt/lists/* && \
+        echo "CUDA toolkit installed for $(uname -m)"; \
+    else \
+        echo "Skipping CUDA on $(uname -m)"; \
+    fi
+
+# ─── llama.cpp kompilieren (CUDA auf x86_64, CPU auf ARM) ────────
+RUN cd /tmp && \
+    git clone --depth 1 https://github.com/ggml-org/llama.cpp.git && \
+    cd llama.cpp && mkdir -p build && cd build && \
+    if [ "$(uname -m)" = "x86_64" ] && [ -f /usr/local/cuda/bin/nvcc ]; then \
+        export PATH="/usr/local/cuda/bin:$PATH" && \
+        cmake .. -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release \
+          -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
+          -DLLAMA_BUILD_SERVER=ON && \
+        cmake --build . --config Release -j$(nproc) --target llama-server && \
+        echo "llama-server compiled with CUDA for x86_64"; \
+    else \
+        cmake .. -DCMAKE_BUILD_TYPE=Release \
+          -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
+          -DLLAMA_BUILD_SERVER=ON && \
+        cmake --build . --config Release -j$(nproc) --target llama-server && \
+        echo "llama-server compiled (CPU-only) for $(uname -m)"; \
+    fi && \
+    ls -lh /tmp/llama.cpp/build/bin/llama-server
+
+WORKDIR /app
+
+# ─── Python-Abhängigkeiten (Multi-Arch aware) ─────────────────────
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+# Install Playwright Python package and download Chromium for Playwright
+RUN pip install --no-cache-dir playwright && \
+    python3 -m playwright install chromium
+
+# ─── C-Bindings kompilieren (passt sich an Arch an) ──────────────
+COPY bridge/c_bindings/ /app/bridge/c_bindings/
+RUN cd /app/bridge/c_bindings && make clean && make \
+    && echo "C-Bindings compiled for $(uname -m)"
+
+# ─── Anwendungscode (wird via Volume auch live gemountet) ────────
+COPY bridge/ /app/bridge/
+COPY web/ /app/web/
+COPY llm/ /app/llm/
+COPY recovery/ /app/recovery/
+COPY config/ /app/config/
+COPY schema/ /app/schema/
+COPY scripts/ /app/scripts/
+COPY tests/ /app/tests/
+
+# ─── Frontend-Build (falls vorhanden) ─────────────────────────────
+COPY frontend/dist/ /app/frontend/dist/
+
+# ─── Architektur-Marker für Runtime-Erkennung ─────────────────────
+RUN echo "{\"arch\": \"$(uname -m)\", \"platform\": \"${TARGETPLATFORM:-linux/$(uname -m)}\", \"build_date\": \"$(date -Iseconds)\"}" > /app/.arch-info.json
+
+# ─── CUDA/llama.cpp Library-Pfade für Runtime ────────────────────
+ENV LD_LIBRARY_PATH="/tmp/llama.cpp/build/bin:/usr/local/cuda/lib64:/usr/local/cuda-12.8/lib64:${LD_LIBRARY_PATH}"
+ENV PATH="/usr/local/cuda/bin:${PATH}"
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=20s \
+    CMD curl -sf http://localhost:3000/api/health || exit 1
+
+CMD ["python3", "-m", "uvicorn", "web.server:app", \
+     "--host", "0.0.0.0", "--port", "3000", \
+     "--reload", "--reload-dir", "/app/web", "--reload-dir", "/app/bridge"]

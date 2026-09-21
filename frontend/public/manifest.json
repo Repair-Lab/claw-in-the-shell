@@ -1,0 +1,76 @@
+{
+  "name": "GhostShell OS",
+  "short_name": "GhostShell",
+  "description": "Das 5-Dimensionale KI-Betriebssystem — Dein mobiles Gehirn, steuerbar über jedes Endgerät.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a0a0f",
+  "theme_color": "#00ff88",
+  "lang": "de-DE",
+  "dir": "ltr",
+  "id": "/",
+  "categories": ["productivity", "developer", "utilities"],
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/ghost-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/ghost-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/desktop.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "GhostShell Desktop"
+    },
+    {
+      "src": "/screenshots/mobile.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "GhostShell Mobile"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "SQL Console",
+      "short_name": "SQL",
+      "url": "/?app=sql_console",
+      "description": "SQL-Abfragen starten",
+      "icons": [{ "src": "/logo.svg", "sizes": "any" }]
+    },
+    {
+      "name": "KI Chat",
+      "short_name": "Chat",
+      "url": "/?app=ghost_chat",
+      "description": "Chat mit dem Ghost-Kernel",
+      "icons": [{ "src": "/logo.svg", "sizes": "any" }]
+    },
+    {
+      "name": "Terminal",
+      "short_name": "Term",
+      "url": "/?app=terminal",
+      "description": "Shell-Zugriff",
+      "icons": [{ "src": "/logo.svg", "sizes": "any" }]
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}

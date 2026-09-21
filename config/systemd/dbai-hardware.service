@@ -1,0 +1,42 @@
+# =============================================================================
+# DBAI — Hardware Monitor Daemon
+# =============================================================================
+# Liest CPU/RAM/GPU/Disk/Temp/Netzwerk-Metriken alle 500ms aus
+# und schreibt sie in die PostgreSQL-Tabelle hardware_stats.
+# Linux agiert als "Übersetzer" — der User sieht nur die DB-Daten.
+# =============================================================================
+
+[Unit]
+Description=DBAI — Hardware Monitor (Linux → PostgreSQL Bridge)
+After=dbai-db.service
+Requires=dbai-db.service
+
+[Service]
+Type=simple
+User=worker
+Group=worker
+WorkingDirectory=/home/worker/DBAI
+
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/usr/bin/python3 bridge/hardware_monitor.py --daemon --interval 500
+
+Restart=always
+RestartSec=3
+
+# GPU + Sensor-Zugriff
+SupplementaryGroups=video render
+
+ProtectHome=false
+ProtectSystem=strict
+ReadWritePaths=/home/worker/DBAI /var/log/dbai
+DeviceAllow=/dev/nvidia* rwm
+PrivateTmp=true
+NoNewPrivileges=true
+MemoryMax=256M
+
+StandardOutput=append:/var/log/dbai/hardware.log
+StandardError=append:/var/log/dbai/hardware-error.log
+
+[Install]
+WantedBy=dbai.target

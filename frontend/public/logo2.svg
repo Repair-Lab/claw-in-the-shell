@@ -1,0 +1,181 @@
+svg
+
+<svg width="800" height="600" viewBox="0 0 800 600"
+     xmlns="http://www.w3.org/2000/svg" role="img"
+     aria-labelledby="title desc">
+  <title id="title">DBAI Ghost in the database</title>
+  <desc id="desc">
+    Futuristisches Logo: gläserner Datenwürfel (Shell) mit leuchtendem KI-Kern (Ghost) und Cyberpunk-Typografie.
+  </desc>
+
+  <!-- Hintergrund -->
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#02040a"/>
+      <stop offset="100%" stop-color="#050b18"/>
+    </linearGradient>
+
+    <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#4ff3ff" stop-opacity="1"/>
+      <stop offset="40%" stop-color="#00d4ff" stop-opacity="0.9"/>
+      <stop offset="70%" stop-color="#00a0d4" stop-opacity="0.0"/>
+      <stop offset="100%" stop-color="#0080aa" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="cubeEdge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4ff3ff"/>
+      <stop offset="100%" stop-color="#00a0ff"/>
+    </linearGradient>
+
+    <linearGradient id="cubeFace" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#071827" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#04101c" stop-opacity="0.9"/>
+    </linearGradient>
+
+    <linearGradient id="ghostLines" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4ff3ff"/>
+      <stop offset="100%" stop-color="#9b7bff"/>
+    </linearGradient>
+
+    <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feColorMatrix in="blur" type="matrix"
+        values="0 0 0 0 0.3
+                0 0 0 0 1
+                0 0 0 0 1
+                0 0 0 0.8 0" />
+    </filter>
+
+    <filter id="textGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="tblur"/>
+      <feMerge>
+        <feMergeNode in="tblur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="800" height="600" fill="url(#bgGrad)"/>
+
+  <!-- Subtiles Grid im Hintergrund -->
+  <g stroke="#0b1f33" stroke-width="0.5" opacity="0.4">
+    <!-- Vertikale Linien -->
+    <line x1="100" y1="0" x2="100" y2="600"/>
+    <line x1="200" y1="0" x2="200" y2="600"/>
+    <line x1="300" y1="0" x2="300" y2="600"/>
+    <line x1="400" y1="0" x2="400" y2="600"/>
+    <line x1="500" y1="0" x2="500" y2="600"/>
+    <line x1="600" y1="0" x2="600" y2="600"/>
+    <line x1="700" y1="0" x2="700" y2="600"/>
+    <!-- Horizontale Linien -->
+    <line x1="0" y1="100" x2="800" y2="100"/>
+    <line x1="0" y1="200" x2="800" y2="200"/>
+    <line x1="0" y1="300" x2="800" y2="300"/>
+    <line x1="0" y1="400" x2="800" y2="400"/>
+    <line x1="0" y1="500" x2="800" y2="500"/>
+  </g>
+
+  <!-- Glow hinter dem Würfel -->
+  <circle cx="400" cy="260" r="150" fill="url(#coreGlow)" filter="url(#softGlow)" opacity="0.9"/>
+
+  <!-- Datenbank-Würfel (Shell) -->
+  <g transform="translate(400,260)">
+    <!-- Vorderseite -->
+    <polygon
+      points="-120,-80 120,-80 120,80 -120,80"
+      fill="url(#cubeFace)"
+      stroke="url(#cubeEdge)"
+      stroke-width="2"/>
+
+    <!-- Oben -->
+    <polygon
+      points="-120,-80 0,-150 120,-80 0,-10"
+      fill="#071f33"
+      fill-opacity="0.9"
+      stroke="url(#cubeEdge)"
+      stroke-width="2"/>
+
+    <!-- Seite rechts -->
+    <polygon
+      points="120,-80 0,-10 0,150 120,80"
+      fill="#041426"
+      fill-opacity="0.9"
+      stroke="url(#cubeEdge)"
+      stroke-width="2"/>
+
+    <!-- Grid-Linien auf der Vorderseite (Tabellen) -->
+    <g stroke="#0f3b5c" stroke-width="1">
+      <line x1="-80" y1="-80" x2="-80" y2="80"/>
+      <line x1="-40" y1="-80" x2="-40" y2="80"/>
+      <line x1="0" y1="-80" x2="0" y2="80"/>
+      <line x1="40" y1="-80" x2="40" y2="80"/>
+      <line x1="80" y1="-80" x2="80" y2="80"/>
+
+      <line x1="-120" y1="-40" x2="120" y2="-40"/>
+      <line x1="-120" y1="0" x2="120" y2="0"/>
+      <line x1="-120" y1="40" x2="120" y2="40"/>
+    </g>
+
+    <!-- Leuchtender KI-Kern (Ghost) -->
+    <circle cx="0" cy="0" r="40" fill="#021018"/>
+    <circle cx="0" cy="0" r="32" fill="#041f2f" stroke="#4ff3ff" stroke-width="2"/>
+    <circle cx="0" cy="0" r="18" fill="#4ff3ff" opacity="0.95"/>
+
+    <!-- Neuronale Verästelungen -->
+    <g stroke="url(#ghostLines)" stroke-width="2" stroke-linecap="round">
+      <path d="M 0 0 C -40 -20 -70 -40 -90 -60" fill="none"/>
+      <path d="M 0 0 C 40 -10 70 -30 95 -55" fill="none"/>
+      <path d="M 0 0 C -30 20 -60 40 -90 55" fill="none"/>
+      <path d="M 0 0 C 35 25 65 45 95 65" fill="none"/>
+      <path d="M 0 0 C 0 -45 0 -80 0 -115" fill="none"/>
+    </g>
+
+    <!-- Kleine Knotenpunkte an den Enden -->
+    <g fill="#4ff3ff">
+      <circle cx="-90" cy="-60" r="4"/>
+      <circle cx="95" cy="-55" r="4"/>
+      <circle cx="-90" cy="55" r="4"/>
+      <circle cx="95" cy="65" r="4"/>
+      <circle cx="0" cy="-115" r="4"/>
+    </g>
+  </g>
+
+  <!-- "Boot-Log" angedeutet oben links -->
+  <g font-family="monospace" font-size="14" fill="#4ff3ff" opacity="0.8">
+    <text x="60" y="60">[BOOT] Loading Postgres Kernel...</text>
+    <text x="60" y="80">[BOOT] Checking ZFS Integrity...</text>
+    <text x="60" y="100">[BOOT] Initializing LLM Ghost...</text>
+    <text x="60" y="130" fill="#6bff9b">[OK]</text>
+    <text x="100" y="130">Ghost bound to database shell</text>
+  </g>
+
+  <!-- Titel: DBAI -->
+  <text x="400" y="420"
+        text-anchor="middle"
+        font-family="Segoe UI, system-ui, -apple-system, sans-serif"
+        font-size="64"
+        fill="#e9f7ff"
+        letter-spacing="6"
+        filter="url(#textGlow)">
+    DBAI
+  </text>
+
+  <!-- Untertitel: Ghost in the database -->
+  <text x="400" y="465"
+        text-anchor="middle"
+        font-family="Segoe UI, system-ui, -apple-system, sans-serif"
+        font-size="24"
+        fill="#7fdcff"
+        letter-spacing="3">
+    Ghost in the database
+  </text>
+
+  <!-- Kleine Tech-Label unten -->
+  <g font-family="monospace" font-size="12" fill="#3ea0ff" opacity="0.8">
+    <text x="80" y="540">TABLE-DRIVEN OS</text>
+    <text x="80" y="560">ACTIVE_GHOSTS · MODELS · SYSTEM_EVENTS</text>
+
+    <text x="520" y="540">LLM DISPATCHER ONLINE</text>
+    <text x="520" y="560">HOT-SWAP: Llama · Mistral · Phi</text>
+  </g>
+</svg>
