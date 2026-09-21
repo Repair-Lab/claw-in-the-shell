@@ -26,7 +26,15 @@ export default function Window({
     const startY = e.clientY - win.y
 
     const handleMouseMove = (e) => {
-      onMove(e.clientX - startX, e.clientY - startY)
+      // Clamping: Titelleiste bleibt immer erreichbar (nicht komplett off-screen)
+      const vw = globalThis.innerWidth || 1920
+      const vh = globalThis.innerHeight || 1080
+      const rawX = e.clientX - startX
+      const rawY = e.clientY - startY
+      const minVisible = 80
+      const x = Math.min(Math.max(rawX, minVisible - win.width), vw - minVisible)
+      const y = Math.min(Math.max(rawY, 0), vh - 40)
+      onMove(x, y)
     }
 
     const handleMouseUp = () => {

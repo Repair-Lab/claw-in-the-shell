@@ -818,7 +818,11 @@ export default function Desktop({ user, desktopState, tabInfo, onLogout }) {
             <div
               key={win.id}
               className={`taskbar-app ${win.focused ? 'focused' : ''} ${win.state !== 'minimized' ? 'active' : ''}`}
-              onClick={() => focusWindow(win.id)}
+              onClick={() => {
+                // Fokussiertes, sichtbares Fenster -> minimieren; sonst fokussieren/wiederherstellen
+                if (win.focused && win.state !== 'minimized') minimizeWindow(win.id)
+                else focusWindow(win.id)
+              }}
             >
               <span>{win.appIcon}</span>
               <span>{win.appName}</span>
