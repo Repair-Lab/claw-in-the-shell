@@ -668,8 +668,8 @@ function SoundTab({ data, onSave }) {
 }
 
 function BluetoothTab({ data, onSave, showToast }) {
-  if (!data) return <div style={{ color: 'var(--text-secondary)' }}>Lade Bluetooth-Info…</div>
   const [scanning, setScanning] = useState(false)
+  if (!data) return <div style={{ color: 'var(--text-secondary)' }}>Lade Bluetooth-Info…</div>
   const handleScan = async () => {
     setScanning(true)
     try { await api.linuxSettingsAction('bluetooth', 'scan'); showToast('Suche gestartet…') } catch { showToast('Fehler', false) }
@@ -809,8 +809,8 @@ function MouseTab({ data, onSave }) {
 }
 
 function PrintersTab({ data, showToast }) {
-  if (!data) return <div style={{ color: 'var(--text-secondary)' }}>Lade…</div>
   const [scanning, setScanning] = useState(false)
+  if (!data) return <div style={{ color: 'var(--text-secondary)' }}>Lade…</div>
   const handleScan = async () => {
     setScanning(true)
     try { await api.linuxSettingsAction('printers', 'scan'); showToast('Suche läuft…') } catch { showToast('Fehler', false) }
@@ -943,8 +943,8 @@ function NotificationsTab({ user, saveUser }) {
 }
 
 function UpdatesTab({ data, showToast }) {
-  if (!data) return <div style={{ color: 'var(--text-secondary)' }}>Lade…</div>
   const [checking, setChecking] = useState(false)
+  if (!data) return <div style={{ color: 'var(--text-secondary)' }}>Lade…</div>
   const handleCheck = async () => {
     setChecking(true)
     try { await api.linuxSettingsAction('updates', 'check'); showToast('Prüfe auf Updates…') } catch { showToast('Fehler', false) }
